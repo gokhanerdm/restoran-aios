@@ -59,3 +59,8 @@ Bu dosya Gökhan'ın anlattığı iş kurallarının ham notudur. Şema ve kod b
 - Masalara konan ekran (tablet/kiosk benzeri) üzerinden müşteriye menü gösterilecek.
 - Aynı ekran **reklam alanı** olarak da kullanılabilir — tedarikçi/marka reklamı gösterip gelir kapısı olabilir (Katman 4 — müşteri katmanı ile ilişkili).
 - Şu an QR menü (`/m/[slug]`) var; bu, onun masaüstü/donanımlı bir sonraki adımı olarak düşünülüyor. MVP kapsamına alınmadı, sadece not.
+
+## 10. Ürün performansı / ödül sistemi (ileri fikir, henüz kapsamda değil)
+
+- Menü sayfasındaki ürün bazlı satış/kârlılık verisi ileride bir **ödül sistemiyle** bağlanabilir: garson/şef/barmen için ürün satış hedefleri (ör. "bu ayki Tiramisu hedefi X adet") tanımlanıp performansa göre teşvik verilebilir.
+- Şimdilik ödül mekanizması kurulmadı — sadece ürün bazlı satış verisinin bu amaçla kullanılabileceği not edildi.

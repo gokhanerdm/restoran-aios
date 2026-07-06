@@ -2,20 +2,32 @@
 
 import { useCallback, useEffect, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { Plus, Trash2, ChevronRight, ChevronDown, Folder, GripVertical } from "lucide-react";
+import { Plus, Trash2, ChevronRight, ChevronDown, Folder, GripVertical, AlertTriangle } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
+import { parseNaturalQuantity, formatQuantity, NATURAL_UNIT_HINT, type BaseUnit } from "@/lib/units";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type Category = { id: string; name: string; parent_id: string | null };
-type Product = { id: string; name: string; sale_price: number; vat_rate: number; category_id: string | null; calorie_override: number | null };
+type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null };
+type Product = {
+  id: string; name: string; sale_price: number; vat_rate: number; category_id: string | null;
+  calorie_override: number | null; is_active: boolean;
+  description: string | null; ingredients_text: string | null; image_url: string | null;
+  allergens_override: string[] | null;
+  available_dine_in: boolean; available_takeaway: boolean; available_quick_sale: boolean;
+  recommended_price: number | null; variable_cost_override: number | null; fixed_cost_share_override: number | null;
+};
 type Nutri = { kcal_per_unit: number; diet_class: string; allergens: string[] };
-type Ingredient = { id: string; name: string; unit: string; current_unit_cost: number };
-type RecipeRow = { id: string; ingredient_id: string; quantity: number; ingredients: ({ name: string; unit: string; current_unit_cost: number } & Nutri) | null };
+type Ingredient = { id: string; name: string; unit: BaseUnit; current_unit_cost: number };
+type RecipeRow = { id: string; ingredient_id: string; quantity: number; ingredients: ({ name: string; unit: BaseUnit; current_unit_cost: number } & Nutri) | null };
+type Settings = {
+  default_vat_rate: number; default_menu_design: string;
+  default_variable_cost_per_cover: number; default_fixed_cost_share_percent: number;
+};
 
 const ALLERGENS = ["Gluten", "Süt", "Yumurta", "Sert kabuklu", "Yer fıstığı", "Soya", "Balık", "Kabuklu deniz", "Susam", "Hardal"];
 const DIET_OPTS = [
@@ -30,11 +42,21 @@ type ItemGroup = { id: string; group_id: string; modifier_groups: Group | null }
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 
+function flattenCategories(cats: Category[], parentId: string | null = null, depth = 0): { id: string; label: string }[] {
+  return cats
+    .filter((c) => c.parent_id === parentId)
+    .flatMap((c) => [
+      { id: c.id, label: `${"— ".repeat(depth)}${c.name}` },
+      ...flattenCategories(cats, c.id, depth + 1),
+    ]);
+}
+
 type Ctx = {
   categories: Category[];
   products: Product[];
   expanded: Set<string>;
   selectedId: string | null;
+  menuItemsWithRecipe: Set<string>;
   toggle: (id: string) => void;
   selectProduct: (p: Product) => void;
   deleteCategory: (id: string) => void;
@@ -42,6 +64,7 @@ type Ctx = {
   addProduct: (catId: string, name: string, price: string, vat: string) => void;
   renameCategory: (id: string, name: string) => void;
   renameProduct: (id: string, name: string) => void;
+  defaultVatFor: (catId: string | null) => number;
 };
 const MenuCtx = createContext<Ctx | null>(null);
 const useMenu = () => useContext(MenuCtx)!;
@@ -52,6 +75,11 @@ export default function MenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [allGroups, setAllGroups] = useState<{ id: string; name: string }[]>([]);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [stockByIngredient, setStockByIngredient] = useState<Record<string, number>>({});
+  const [usageCountByIngredient, setUsageCountByIngredient] = useState<Record<string, number>>({});
+  const [menuItemsWithRecipe, setMenuItemsWithRecipe] = useState<Set<string>>(new Set());
+  const [priceChanges, setPriceChanges] = useState<Record<string, { from: number; to: number }>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
@@ -61,9 +89,11 @@ export default function MenuPage() {
 
   const [recIng, setRecIng] = useState("");
   const [recQty, setRecQty] = useState("");
+  const [recQtyError, setRecQtyError] = useState(false);
   const [showNewIng, setShowNewIng] = useState(false);
   const [niName, setNiName] = useState("");
   const [niUnit, setNiUnit] = useState("kg");
+  const [niReady, setNiReady] = useState(false);
   const [niCost, setNiCost] = useState("");
   const [niKcal, setNiKcal] = useState("");
   const [niDiet, setNiDiet] = useState("bitkisel");
@@ -89,16 +119,33 @@ export default function MenuPage() {
     const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
     if (!rest) return;
     setRestaurantId(rest.id);
-    const [{ data: c }, { data: p }, { data: i }, { data: g }] = await Promise.all([
-      supabase.from("menu_categories").select("id, name, parent_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
+    const [{ data: c }, { data: p }, { data: i }, { data: g }, { data: settingsRow }, { data: usage }, { data: allLinks }] = await Promise.all([
+      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
+      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
       supabase.from("ingredients").select("id, name, unit, current_unit_cost").eq("restaurant_id", rest.id).is("deleted_at", null).order("name"),
       supabase.from("modifier_groups").select("id, name").eq("restaurant_id", rest.id).is("deleted_at", null).order("name"),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", rest.id).maybeSingle(),
+      supabase.rpc("ingredient_expected_usage", { p_restaurant: rest.id, p_days_ahead: 7 }),
+      supabase.from("recipe_items").select("ingredient_id, menu_item_id").eq("restaurant_id", rest.id),
     ]);
     setCategories((c as Category[]) ?? []);
     setProducts((p as Product[]) ?? []);
     setIngredients((i as Ingredient[]) ?? []);
     setAllGroups((g as { id: string; name: string }[]) ?? []);
+    setSettings((settingsRow as Settings) ?? null);
+
+    const stockMap: Record<string, number> = {};
+    (usage as { ingredient_id: string; current_stock: number }[] ?? []).forEach((u) => { stockMap[u.ingredient_id] = u.current_stock; });
+    setStockByIngredient(stockMap);
+
+    const withRecipe = new Set<string>();
+    const usageSets: Record<string, Set<string>> = {};
+    (allLinks as { ingredient_id: string; menu_item_id: string }[] ?? []).forEach((l) => {
+      withRecipe.add(l.menu_item_id);
+      (usageSets[l.ingredient_id] ??= new Set()).add(l.menu_item_id);
+    });
+    setMenuItemsWithRecipe(withRecipe);
+    setUsageCountByIngredient(Object.fromEntries(Object.entries(usageSets).map(([k, v]) => [k, v.size])));
   }, []);
 
   useEffect(() => { loadBase(); }, [loadBase]);
@@ -109,19 +156,41 @@ export default function MenuPage() {
       supabase.from("product_variants").select("id, name, sale_price").eq("menu_item_id", productId).is("deleted_at", null).order("sort_order"),
       supabase.from("menu_item_modifier_groups").select("id, group_id, modifier_groups(id, name, required, min_select, max_select, modifiers(id, name, price_delta))").eq("menu_item_id", productId),
     ]);
-    setRecipe((rec as unknown as RecipeRow[]) ?? []);
+    const recRows = (rec as unknown as RecipeRow[]) ?? [];
+    setRecipe(recRows);
     setVariants((v as Variant[]) ?? []);
     setItemGroups((ig as unknown as ItemGroup[]) ?? []);
+
+    const ingIds = Array.from(new Set(recRows.map((r) => r.ingredient_id)));
+    if (ingIds.length > 0) {
+      const { data: hist } = await supabase.from("purchase_items").select("ingredient_id, unit_price, created_at").in("ingredient_id", ingIds).order("created_at", { ascending: false });
+      const seen: Record<string, number[]> = {};
+      (hist ?? []).forEach((h: { ingredient_id: string; unit_price: number }) => {
+        (seen[h.ingredient_id] ??= []).push(h.unit_price);
+      });
+      const changes: Record<string, { from: number; to: number }> = {};
+      Object.entries(seen).forEach(([id, prices]) => {
+        if (prices.length >= 2 && prices[0] !== prices[1]) changes[id] = { from: prices[1], to: prices[0] };
+      });
+      setPriceChanges(changes);
+    } else {
+      setPriceChanges({});
+    }
   }, []);
 
   const selectProduct = (p: Product) => {
     setSelectedProduct(p); loadExtras(p.id);
-    setRecIng(""); setRecQty(""); setShowNewIng(false);
+    setRecIng(""); setRecQty(""); setRecQtyError(false); setShowNewIng(false);
     setNvName(""); setNvPrice(""); setAttachGroup(""); setShowNewGroup(false); setModGroup(null);
   };
 
   const toggle = (id: string) => {
     setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const defaultVatFor = (catId: string | null): number => {
+    const cat = categories.find((c) => c.id === catId);
+    return cat?.vat_rate ?? settings?.default_vat_rate ?? 10;
   };
 
   const addCategory = async (parentId: string | null, name: string) => {
@@ -157,7 +226,25 @@ export default function MenuPage() {
   };
   const saveProduct = async () => {
     if (!selectedProduct) return;
-    await supabase.from("menu_items").update({ name: toTitleTr(selectedProduct.name), sale_price: selectedProduct.sale_price, vat_rate: selectedProduct.vat_rate, calorie_override: selectedProduct.calorie_override }).eq("id", selectedProduct.id); await loadBase();
+    await supabase.from("menu_items").update({
+      name: toTitleTr(selectedProduct.name),
+      sale_price: selectedProduct.sale_price,
+      vat_rate: selectedProduct.vat_rate,
+      calorie_override: selectedProduct.calorie_override,
+      category_id: selectedProduct.category_id,
+      is_active: selectedProduct.is_active,
+      description: selectedProduct.description,
+      ingredients_text: selectedProduct.ingredients_text,
+      image_url: selectedProduct.image_url,
+      allergens_override: selectedProduct.allergens_override,
+      available_dine_in: selectedProduct.available_dine_in,
+      available_takeaway: selectedProduct.available_takeaway,
+      available_quick_sale: selectedProduct.available_quick_sale,
+      recommended_price: selectedProduct.recommended_price,
+      variable_cost_override: selectedProduct.variable_cost_override,
+      fixed_cost_share_override: selectedProduct.fixed_cost_share_override,
+    }).eq("id", selectedProduct.id);
+    await loadBase();
   };
   const deleteProduct = async () => {
     if (!selectedProduct) return;
@@ -166,14 +253,28 @@ export default function MenuPage() {
 
   const addRecipeRow = async () => {
     if (!restaurantId || !selectedProduct || !recIng || !recQty) return;
-    await supabase.from("recipe_items").insert({ restaurant_id: restaurantId, menu_item_id: selectedProduct.id, ingredient_id: recIng, quantity: parseFloat(recQty) || 0 });
-    setRecIng(""); setRecQty(""); await loadExtras(selectedProduct.id);
+    const ing = ingredients.find((i) => i.id === recIng);
+    if (!ing) return;
+    const qty = parseNaturalQuantity(recQty, ing.unit);
+    if (qty == null) { setRecQtyError(true); return; }
+    setRecQtyError(false);
+    await supabase.from("recipe_items").insert({ restaurant_id: restaurantId, menu_item_id: selectedProduct.id, ingredient_id: recIng, quantity: qty });
+    setRecIng(""); setRecQty(""); await loadExtras(selectedProduct.id); await loadBase();
   };
-  const deleteRecipeRow = async (id: string) => { if (!selectedProduct) return; await supabase.from("recipe_items").delete().eq("id", id); await loadExtras(selectedProduct.id); };
+  const deleteRecipeRow = async (id: string) => { if (!selectedProduct) return; await supabase.from("recipe_items").delete().eq("id", id); await loadExtras(selectedProduct.id); await loadBase(); };
   const addIngredient = async () => {
     if (!restaurantId || !niName.trim()) return;
-    const { data } = await supabase.from("ingredients").insert({ restaurant_id: restaurantId, name: niName.trim(), unit: niUnit, current_unit_cost: parseFloat(niCost) || 0, kcal_per_unit: parseFloat(niKcal) || 0, diet_class: niDiet, allergens: niAllergens }).select("id").single();
-    setNiName(""); setNiCost(""); setNiKcal(""); setNiDiet("bitkisel"); setNiAllergens([]); setShowNewIng(false); await loadBase(); if (data) setRecIng(data.id);
+    const unit = niReady ? "adet" : niUnit;
+    const { data } = await supabase.from("ingredients").insert({ restaurant_id: restaurantId, name: niName.trim(), unit, current_unit_cost: parseFloat(niCost) || 0, kcal_per_unit: parseFloat(niKcal) || 0, diet_class: niDiet, allergens: niAllergens }).select("id").single();
+    setNiName(""); setNiCost(""); setNiKcal(""); setNiDiet("bitkisel"); setNiAllergens([]); setShowNewIng(false);
+    if (data && niReady && selectedProduct) {
+      // Hazır ürün: malzeme = ürünün kendisi, reçete otomatik 1 adet olarak bağlanır (Coca Cola 330ml → 1 adet).
+      await supabase.from("recipe_items").insert({ restaurant_id: restaurantId, menu_item_id: selectedProduct.id, ingredient_id: data.id, quantity: 1 });
+      setNiReady(false);
+      await loadBase(); await loadExtras(selectedProduct.id);
+      return;
+    }
+    await loadBase(); if (data) setRecIng(data.id);
   };
   const addVariant = async () => {
     if (!restaurantId || !selectedProduct || !nvName.trim()) return;
@@ -218,21 +319,53 @@ export default function MenuPage() {
     await loadBase();
   };
 
+  // --- Reçete / maliyet / kalori / alerjen hesapları ---
   const maliyet = recipe.reduce((s, r) => s + r.quantity * (r.ingredients?.current_unit_cost ?? 0), 0);
   const fiyat = selectedProduct?.sale_price ?? 0;
   const kaloriAuto = Math.round(recipe.reduce((s, r) => s + r.quantity * (r.ingredients?.kcal_per_unit ?? 0), 0));
   const kalori = selectedProduct?.calorie_override ?? kaloriAuto;
   const dietClasses = recipe.map((r) => r.ingredients?.diet_class).filter(Boolean) as string[];
   const diyet = recipe.length === 0 ? "" : dietClasses.every((d) => d === "bitkisel") ? "Vegan" : !dietClasses.includes("et") ? "Vejetaryen" : "Hayvansal içerir";
-  const alerjenler = Array.from(new Set(recipe.flatMap((r) => r.ingredients?.allergens ?? [])));
+  const alerjenlerAuto = Array.from(new Set(recipe.flatMap((r) => r.ingredients?.allergens ?? [])));
+  const alerjenlerEffective = selectedProduct?.allergens_override ?? alerjenlerAuto;
+  const icindekilerAuto = recipe.map((r) => r.ingredients?.name).filter(Boolean).join(", ");
   const attachedIds = itemGroups.map((g) => g.group_id);
   const attachable = allGroups.filter((g) => !attachedIds.includes(g.id));
   const roots = categories.filter((c) => c.parent_id === null);
+  const flatCats = flattenCategories(categories);
+
+  // --- Kârlılık bloğu ---
+  const receteVar = recipe.length > 0;
+  const netSatis = selectedProduct ? fiyat / (1 + (selectedProduct.vat_rate ?? 0) / 100) : 0;
+  const receteMaliyeti: number | null = receteVar ? maliyet : null;
+  const sarfMaliyeti: number | null = selectedProduct?.variable_cost_override ?? settings?.default_variable_cost_per_cover ?? null;
+  const sabitGiderPayi: number | null = selectedProduct?.fixed_cost_share_override ??
+    (settings ? netSatis * (settings.default_fixed_cost_share_percent / 100) : null);
+  const toplamMaliyet: number | null = receteMaliyeti != null && sarfMaliyeti != null && sabitGiderPayi != null
+    ? receteMaliyeti + sarfMaliyeti + sabitGiderPayi : null;
+  const foodCostPercent: number | null = receteMaliyeti != null && netSatis > 0 ? (receteMaliyeti / netSatis) * 100 : null;
+  const brutKar: number | null = receteMaliyeti != null ? netSatis - receteMaliyeti : null;
+  const karMarji: number | null = toplamMaliyet != null && netSatis > 0 ? ((netSatis - toplamMaliyet) / netSatis) * 100 : null;
+
+  // --- Üretilebilir adet / kritik malzeme ---
+  const productionInfo = recipe.map((r) => {
+    const stock = stockByIngredient[r.ingredient_id] ?? 0;
+    const possible = r.quantity > 0 ? Math.floor(stock / r.quantity) : null;
+    const usageCount = usageCountByIngredient[r.ingredient_id] ?? 1;
+    const sharedRatio = usageCount > 0 ? Math.round(100 / usageCount) : 100;
+    return { row: r, stock, possible, usageCount, sharedRatio };
+  });
+  let bottleneck: (typeof productionInfo)[number] | null = null;
+  for (const info of productionInfo) {
+    if (info.possible != null && (bottleneck == null || bottleneck.possible == null || info.possible < bottleneck.possible)) {
+      bottleneck = info;
+    }
+  }
 
   const ctx: Ctx = {
-    categories, products, expanded, selectedId: selectedProduct?.id ?? null,
+    categories, products, expanded, selectedId: selectedProduct?.id ?? null, menuItemsWithRecipe,
     toggle, selectProduct, deleteCategory, addCategory, addProduct,
-    renameCategory, renameProduct,
+    renameCategory, renameProduct, defaultVatFor,
   };
 
   return (
@@ -255,65 +388,194 @@ export default function MenuPage() {
             <input value={rootCat} onChange={(e) => setRootCat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCategory(null, rootCat)} placeholder="Ana kategori adı (Ana Yemekler)" style={inp} />
             <button onClick={() => addCategory(null, rootCat)} style={btnSmall}><Plus size={15} /> Kategori</button>
           </div>
-          <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 8, flexShrink: 0 }}>Sıralamak için soldaki tutma kolundan sürükle.</div>
+          <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 8, flexShrink: 0 }}>Sıralamak için soldaki tutma kolundan sürükle. Kırmızı işaret = reçete eksik, sarı işaret = tavsiye fiyattan farklı satılıyor (bu uyarılar yalnızca burada görünür, müşteri menüsünde yok).</div>
         </div>
 
         {/* editor */}
-        <div style={{ flex: 1.3, minWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: "16px 18px", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ flex: 1.6, minWidth: 380, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: "16px 18px", display: "flex", flexDirection: "column", minHeight: 0 }}>
           {!selectedProduct && <div style={{ color: "var(--muted)", fontSize: 14 }}>Bir başlığı aç, ürün seç ya da ekle.</div>}
           {selectedProduct && (
             <div style={{ flex: 1, display: "flex", gap: 20, minHeight: 0 }}>
-              {/* sol: ürün bilgileri + besin */}
-              <div style={{ flex: 1, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}>
+              {/* sol: ürün bilgileri + dijital menü içeriği + kârlılık */}
+              <div style={{ flex: 1.3, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <span style={{ fontSize: 18, fontWeight: 600, color: "var(--ink-green)" }}>Ürün</span>
                   <button onClick={deleteProduct} style={{ ...btnSecondary, color: "#a32d2d", borderColor: "#e7c9c9" }}><Trash2 size={14} /> Sil</button>
                 </div>
+
+                {selectedProduct.is_active && !receteVar && (
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 12, background: "#fbeaea", color: "#a32d2d", fontSize: 13, marginBottom: 12 }}>
+                    <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <span>Bu ürünün reçetesi eksik. Satış yapılabilir ama stok, maliyet ve kârlılık hesapları eksik kalır.</span>
+                  </div>
+                )}
+
                 <label style={lbl}>Ad</label>
                 <input value={selectedProduct.name} onChange={(e) => setSelectedProduct({ ...selectedProduct, name: e.target.value })} style={{ ...inp, width: "100%", marginBottom: 6 }} />
+
+                <label style={lbl}>Kategori</label>
+                <select value={selectedProduct.category_id ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, category_id: e.target.value || null })} style={{ ...inp, width: "100%", marginBottom: 6 }}>
+                  {flatCats.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                </select>
+
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}><label style={lbl}>Satış fiyatı ₺</label><input value={String(selectedProduct.sale_price)} onChange={(e) => setSelectedProduct({ ...selectedProduct, sale_price: parseFloat(e.target.value) || 0 })} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
-                  <div style={{ flex: 1 }}><label style={lbl}>KDV %</label><input value={String(selectedProduct.vat_rate)} onChange={(e) => setSelectedProduct({ ...selectedProduct, vat_rate: parseFloat(e.target.value) || 0 })} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
+                  <div style={{ flex: 1 }}><label style={lbl}>Menü fiyatı ₺</label><input value={String(selectedProduct.sale_price)} onChange={(e) => setSelectedProduct({ ...selectedProduct, sale_price: parseFloat(e.target.value) || 0 })} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
+                  <div style={{ flex: 1 }}><label style={lbl}>Tavsiye fiyat ₺</label><input value={selectedProduct.recommended_price != null ? String(selectedProduct.recommended_price) : ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, recommended_price: e.target.value === "" ? null : (parseFloat(e.target.value) || 0) })} placeholder="girilmedi" inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
+                  <div style={{ flex: 1 }}><label style={lbl}>KDV %</label><input value={String(selectedProduct.vat_rate)} onChange={(e) => setSelectedProduct({ ...selectedProduct, vat_rate: parseFloat(e.target.value) || 0 })} placeholder={String(defaultVatFor(selectedProduct.category_id))} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
                 </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: "var(--ink)", marginBottom: 10, cursor: "pointer" }}>
+                  <input type="checkbox" checked={selectedProduct.is_active} onChange={(e) => setSelectedProduct({ ...selectedProduct, is_active: e.target.checked })} />
+                  Aktif (kapalıysa satışta ve dijital menüde görünmez)
+                </label>
+
                 <button onClick={saveProduct} style={btnPrimary}>Kaydet</button>
 
-                <Section title="Besin / etiket (otomatik)">
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", fontSize: 14 }}>
+                <Section title="Dijital menü içeriği">
+                  <label style={lbl}>Açıklama</label>
+                  <textarea value={selectedProduct.description ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, description: e.target.value || null })} rows={2} style={{ ...inp, width: "100%", marginBottom: 8, resize: "vertical" }} />
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <label style={lbl}>İçindekiler (müşteriye gösterilir, miktar yok)</label>
+                    <button onClick={() => setSelectedProduct({ ...selectedProduct, ingredients_text: icindekilerAuto })} style={miniLink}>Reçeteden doldur</button>
+                  </div>
+                  <textarea value={selectedProduct.ingredients_text ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, ingredients_text: e.target.value || null })} placeholder={icindekilerAuto || "—"} rows={2} style={{ ...inp, width: "100%", marginBottom: 8, resize: "vertical" }} />
+
+                  <label style={lbl}>Fotoğraf URL (opsiyonel)</label>
+                  <input value={selectedProduct.image_url ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, image_url: e.target.value || null })} placeholder="https://…" style={{ ...inp, width: "100%", marginBottom: 8 }} />
+                  {selectedProduct.image_url && (
+                    // eslint-disable-next-line @next/next/no-img-element -- işletmeci tarafından girilen keyfi harici URL, next/image remotePatterns ile eşleşmeyebilir
+                    <img src={selectedProduct.image_url} alt={selectedProduct.name} style={{ width: 90, height: 90, objectFit: "cover", borderRadius: 10, marginBottom: 8 }} />
+                  )}
+
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6, marginTop: 4 }}>Alerjen (reçeteden önerilir, onayla/değiştir)</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+                    {ALLERGENS.map((a) => {
+                      const on = alerjenlerEffective.includes(a);
+                      return <button key={a} onClick={() => setSelectedProduct({ ...selectedProduct, allergens_override: (selectedProduct.allergens_override ?? alerjenlerAuto).includes(a) ? (selectedProduct.allergens_override ?? alerjenlerAuto).filter((x) => x !== a) : [...(selectedProduct.allergens_override ?? alerjenlerAuto), a] })} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--gold)" : "var(--card)", color: on ? "#3d2c05" : "var(--muted)" }}>{a}</button>;
+                    })}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", fontSize: 14, marginTop: 10 }}>
                     <span style={{ color: "var(--muted)" }}>Kalori: <b className="tnum" style={{ color: "var(--ink)" }}>{kalori} kcal</b> <span style={{ fontSize: 11.5, color: "var(--muted-2)" }}>{selectedProduct.calorie_override != null ? "(elle)" : "(yaklaşık)"}</span></span>
                     {diyet && <span style={badge}>{diyet}</span>}
                   </div>
-                  {alerjenler.length > 0 && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8 }}>Alerjen: {alerjenler.join(", ")}</div>}
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
                     <span style={{ fontSize: 12, color: "var(--muted)" }}>Elle kalori:</span>
                     <input value={selectedProduct.calorie_override != null ? String(selectedProduct.calorie_override) : ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, calorie_override: e.target.value === "" ? null : (parseFloat(e.target.value) || 0) })} placeholder={`reçete: ${kaloriAuto}`} inputMode="decimal" style={{ ...inp, width: 130 }} />
                   </div>
+                </Section>
+
+                <Section title="Satış kanalları" collapsible defaultOpen={false}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={selectedProduct.available_dine_in} onChange={(e) => setSelectedProduct({ ...selectedProduct, available_dine_in: e.target.checked })} /> Salonda satılır (QR/web dijital menü)
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={selectedProduct.available_takeaway} onChange={(e) => setSelectedProduct({ ...selectedProduct, available_takeaway: e.target.checked })} /> Paket menüsünde satılır
+                  </label>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={selectedProduct.available_quick_sale} onChange={(e) => setSelectedProduct({ ...selectedProduct, available_quick_sale: e.target.checked })} /> Hızlı satışta görünür (kasa)
+                  </label>
+                </Section>
+
+                <Section title="Kârlılık">
+                  <KarSatiri label="Menü fiyatı" value={money(fiyat)} />
+                  <KarSatiri label="KDV hariç net satış" value={money(netSatis)} />
+                  <KarSatiri label="Tavsiye edilen fiyat" value={selectedProduct.recommended_price != null ? money(selectedProduct.recommended_price) : "eksik veri"} />
+                  <KarSatiri label="Reçete maliyeti" value={receteMaliyeti != null ? money(receteMaliyeti) : "reçete eksik"} />
+                  <KarSatiri label="Sarf maliyeti" value={sarfMaliyeti != null ? money(sarfMaliyeti) : "eksik veri"} />
+                  <KarSatiri label="Sabit gider payı" value={sabitGiderPayi != null ? money(sabitGiderPayi) : "eksik veri"} />
+                  <KarSatiri label="Toplam gerçek maliyet" value={toplamMaliyet != null ? money(toplamMaliyet) : "hesaplanamadı"} strong />
+                  <KarSatiri label="Food cost %" value={foodCostPercent != null ? `%${foodCostPercent.toFixed(1)}` : "hesaplanamadı"} />
+                  <KarSatiri label="Brüt kâr" value={brutKar != null ? money(brutKar) : "hesaplanamadı"} />
+                  <KarSatiri label="Kâr marjı %" value={karMarji != null ? `%${karMarji.toFixed(1)}` : "hesaplanamadı"} strong />
+                  <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8 }}>Sarf/sabit gider ürün kartında girilmemişse Ayarlar → Varsayılan Ayarlar değerleri kullanılır.</div>
+                </Section>
+
+                <Section title="Maliyet (ürün bazlı override)" collapsible defaultOpen={false}>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <div style={{ flex: 1 }}><label style={lbl}>Sarf maliyeti ₺ (bu ürün)</label><input value={selectedProduct.variable_cost_override != null ? String(selectedProduct.variable_cost_override) : ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, variable_cost_override: e.target.value === "" ? null : (parseFloat(e.target.value) || 0) })} placeholder="varsayılanı kullan" inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
+                    <div style={{ flex: 1 }}><label style={lbl}>Sabit gider payı ₺ (bu ürün)</label><input value={selectedProduct.fixed_cost_share_override != null ? String(selectedProduct.fixed_cost_share_override) : ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, fixed_cost_share_override: e.target.value === "" ? null : (parseFloat(e.target.value) || 0) })} placeholder="varsayılanı kullan" inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
+                  </div>
+                </Section>
+
+                <Section title="Üretim / stok" collapsible defaultOpen={false}>
+                  {!receteVar && <Empty>Reçete eksik — hesaplanamadı</Empty>}
+                  {receteVar && bottleneck && (
+                    <>
+                      <KarSatiri label="Teorik üretilebilir adet" value={bottleneck.possible != null ? `${bottleneck.possible} adet` : "hesaplanamadı"} />
+                      <KarSatiri label="Kritik malzeme" value={bottleneck.row.ingredients?.name ?? "—"} />
+                      <KarSatiri label="Ortak stok kullanım oranı" value={`%${bottleneck.sharedRatio} (${bottleneck.usageCount} üründe kullanılıyor)`} />
+                      <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 6 }}>Yaklaşık gösterge — malzemenin kaç farklı üründe paylaşıldığına göre hesaplanır, tam talep tahmini değildir.</div>
+                    </>
+                  )}
                 </Section>
               </div>
 
               {/* sağ: reçete */}
               <div style={{ flex: 1.1, minWidth: 0, overflowY: "auto", overflowX: "hidden", borderLeft: "1px solid var(--line)", paddingLeft: 20 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Reçete</div>
-                {recipe.map((r) => (<Row key={r.id}><span>{r.ingredients?.name}</span><span style={{ display: "flex", alignItems: "center", gap: 12 }}><span className="tnum" style={{ color: "var(--muted)" }}>{r.quantity} {r.ingredients?.unit}</span><IconBtn onClick={() => deleteRecipeRow(r.id)} /></span></Row>))}
+
+                {recipe.length > 0 && (
+                  <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 6px", borderBottom: "1px solid var(--line)" }}>
+                    <span style={{ flex: 1.3 }}>Malzeme</span>
+                    <span style={{ flex: 0.8, textAlign: "right" }}>Miktar</span>
+                    <span style={{ flex: 1, textAlign: "right" }}>Alış maliyeti</span>
+                    <span style={{ flex: 1, textAlign: "right" }}>Bu ürüne maliyeti</span>
+                    <span style={{ width: 22 }} />
+                  </div>
+                )}
+                {recipe.map((r) => {
+                  const unit = r.ingredients?.unit ?? "adet";
+                  const rowCost = r.quantity * (r.ingredients?.current_unit_cost ?? 0);
+                  const pc = priceChanges[r.ingredient_id];
+                  return (
+                    <div key={r.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+                      <span style={{ flex: 1.3 }}>{r.ingredients?.name}</span>
+                      <span className="tnum" style={{ flex: 0.8, textAlign: "right", color: "var(--muted)" }}>{formatQuantity(r.quantity, unit)}</span>
+                      <span className="tnum" style={{ flex: 1, textAlign: "right", color: "var(--muted)" }}>
+                        {money(r.ingredients?.current_unit_cost ?? 0)}/{unit}
+                        {pc && (
+                          <span title={`Fiyat değişti: ${money(pc.from)} → ${money(pc.to)}`} style={{ display: "inline-flex", verticalAlign: "middle", marginLeft: 4 }}>
+                            <AlertTriangle size={12} color="var(--gold-text)" />
+                          </span>
+                        )}
+                      </span>
+                      <span className="tnum" style={{ flex: 1, textAlign: "right", fontWeight: 600 }}>{money(rowCost)}</span>
+                      <span style={{ width: 22, textAlign: "right" }}><IconBtn onClick={() => deleteRecipeRow(r.id)} /></span>
+                    </div>
+                  );
+                })}
                 {recipe.length === 0 && <Empty>Henüz malzeme yok</Empty>}
                 <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                  <select value={recIng} onChange={(e) => e.target.value === "__new" ? setShowNewIng(true) : setRecIng(e.target.value)} style={{ ...inp, flex: "1 1 140px", minWidth: 0 }}>
+                  <select value={recIng} onChange={(e) => { setRecIng(e.target.value); setRecQtyError(false); if (e.target.value === "__new") setShowNewIng(true); }} style={{ ...inp, flex: "1 1 140px", minWidth: 0 }}>
                     <option value="">Malzeme seç</option>
                     {ingredients.map((i) => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
                     <option value="__new">+ Yeni malzeme</option>
                   </select>
-                  <input value={recQty} onChange={(e) => setRecQty(e.target.value)} placeholder="Miktar" inputMode="decimal" style={{ ...inp, flex: "0 1 90px" }} />
+                  <input
+                    value={recQty}
+                    onChange={(e) => { setRecQty(e.target.value); setRecQtyError(false); }}
+                    onKeyDown={(e) => e.key === "Enter" && addRecipeRow()}
+                    placeholder={recIng && ingredients.find((i) => i.id === recIng) ? NATURAL_UNIT_HINT[ingredients.find((i) => i.id === recIng)!.unit] : "Miktar (15 gr, 250 ml, 1 adet)"}
+                    style={{ ...inp, flex: "0 1 140px" }}
+                  />
                   <button onClick={addRecipeRow} style={btnSmall}><Plus size={15} /></button>
                 </div>
+                {recQtyError && <div style={{ fontSize: 12, color: "#a32d2d", marginTop: 6 }}>Anlaşılamadı — örn. 15 gr, 250 ml, 1 adet</div>}
                 {showNewIng && (
                   <div style={{ marginTop: 10, border: "1px solid var(--line)", borderRadius: 12, padding: 12, background: "var(--recede)" }}>
                     <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Yeni malzeme</div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, marginBottom: 8, cursor: "pointer" }}>
+                      <input type="checkbox" checked={niReady} onChange={(e) => setNiReady(e.target.checked)} />
+                      Hazır ürün (ör. kutu içecek) — malzeme = ürünün kendisi, reçeteye otomatik 1 adet bağlanır
+                    </label>
                     <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                      <input value={niName} onChange={(e) => setNiName(e.target.value)} placeholder="Ad (Dana kıyma)" style={{ ...inp, flex: 1 }} />
-                      <select value={niUnit} onChange={(e) => setNiUnit(e.target.value)} style={{ ...inp, width: 80 }}><option value="kg">kg</option><option value="lt">lt</option><option value="adet">adet</option></select>
+                      <input value={niName} onChange={(e) => setNiName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addIngredient()} placeholder={niReady ? "Ad (Coca Cola 330ml)" : "Ad (Dana kıyma)"} style={{ ...inp, flex: 1 }} autoFocus />
+                      <select value={niReady ? "adet" : niUnit} disabled={niReady} onChange={(e) => setNiUnit(e.target.value)} style={{ ...inp, width: 80 }}><option value="kg">kg</option><option value="lt">lt</option><option value="adet">adet</option></select>
                     </div>
                     <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                      <input value={niCost} onChange={(e) => setNiCost(e.target.value)} placeholder="Birim maliyet ₺" inputMode="decimal" style={{ ...inp, flex: 1 }} />
-                      <input value={niKcal} onChange={(e) => setNiKcal(e.target.value)} placeholder={`kcal / ${niUnit}`} inputMode="decimal" style={{ ...inp, flex: 1 }} />
+                      <input value={niCost} onChange={(e) => setNiCost(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addIngredient()} placeholder="Birim maliyet ₺" inputMode="decimal" style={{ ...inp, flex: 1 }} />
+                      <input value={niKcal} onChange={(e) => setNiKcal(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addIngredient()} placeholder={`kcal / ${niReady ? "adet" : niUnit}`} inputMode="decimal" style={{ ...inp, flex: 1 }} />
                     </div>
                     <select value={niDiet} onChange={(e) => setNiDiet(e.target.value)} style={{ ...inp, width: "100%", marginBottom: 8 }}>
                       {DIET_OPTS.map((d) => <option key={d.v} value={d.v}>{d.l}</option>)}
@@ -335,6 +597,57 @@ export default function MenuPage() {
                     <span style={{ color: "var(--brand)", fontWeight: 600 }} className="tnum">Kâr {money(fiyat - maliyet)}</span>
                   </div>
                 )}
+
+                <Section title="Varyant" collapsible defaultOpen={false}>
+                  {variants.map((v) => (<Row key={v.id}><span>{v.name}</span><span style={{ display: "flex", alignItems: "center", gap: 12 }}><span className="tnum" style={{ color: "var(--muted)" }}>{money(v.sale_price)}</span><IconBtn onClick={() => deleteVariant(v.id)} /></span></Row>))}
+                  {variants.length === 0 && <Empty>Varyant yok</Empty>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <input value={nvName} onChange={(e) => setNvName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addVariant()} placeholder="Ad (Büyük boy)" style={{ ...inp, flex: 1 }} />
+                    <input value={nvPrice} onChange={(e) => setNvPrice(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addVariant()} placeholder="Fiyat ₺" inputMode="decimal" style={{ ...inp, width: 90 }} />
+                    <button onClick={addVariant} style={btnSmall}><Plus size={15} /></button>
+                  </div>
+                </Section>
+
+                <Section title="Ek seçenekler (modifier)" collapsible defaultOpen={false}>
+                  {itemGroups.map((ig) => (
+                    <div key={ig.id} style={{ marginBottom: 10, border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <span style={{ fontWeight: 600, fontSize: 13.5 }}>{ig.modifier_groups?.name}</span>
+                        <IconBtn onClick={() => detachGroup(ig.id)} />
+                      </div>
+                      {ig.modifier_groups?.modifiers.map((m) => (
+                        <Row key={m.id}><span style={{ fontSize: 13 }}>{m.name}</span><span style={{ display: "flex", alignItems: "center", gap: 10 }}><span className="tnum" style={{ color: "var(--muted)", fontSize: 13 }}>{m.price_delta >= 0 ? "+" : ""}{money(m.price_delta)}</span><IconBtn onClick={() => deleteModifier(m.id)} /></span></Row>
+                      ))}
+                      {modGroup === ig.group_id ? (
+                        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                          <input value={nmName} onChange={(e) => setNmName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addModifier(ig.group_id)} placeholder="Ad" style={{ ...inp, flex: 1 }} autoFocus />
+                          <input value={nmPrice} onChange={(e) => setNmPrice(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addModifier(ig.group_id)} placeholder="+₺" inputMode="decimal" style={{ ...inp, width: 70 }} />
+                          <button onClick={() => addModifier(ig.group_id)} style={btnSmall}><Plus size={15} /></button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setModGroup(ig.group_id)} style={miniLink}>+ seçenek</button>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <select value={attachGroup} onChange={(e) => e.target.value === "__new" ? setShowNewGroup(true) : (setAttachGroup(e.target.value), attachExisting(e.target.value))} style={{ ...inp, flex: 1 }}>
+                      <option value="">Grup ekle</option>
+                      {attachable.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      <option value="__new">+ Yeni grup</option>
+                    </select>
+                  </div>
+                  {showNewGroup && (
+                    <div style={{ marginTop: 8, border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
+                      <input value={ngName} onChange={(e) => setNgName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createAndAttachGroup()} placeholder="Grup adı (Ekstralar)" style={{ ...inp, width: "100%", marginBottom: 8 }} autoFocus />
+                      <div style={{ display: "flex", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}><input type="checkbox" checked={ngRequired} onChange={(e) => setNgRequired(e.target.checked)} /> Zorunlu</label>
+                        <input value={ngMin} onChange={(e) => setNgMin(e.target.value)} placeholder="Min" inputMode="numeric" style={{ ...inp, width: 60 }} />
+                        <input value={ngMax} onChange={(e) => setNgMax(e.target.value)} placeholder="Max" inputMode="numeric" style={{ ...inp, width: 60 }} />
+                      </div>
+                      <button onClick={createAndAttachGroup} style={btnPrimary}>Ekle</button>
+                    </div>
+                  )}
+                </Section>
               </div>
             </div>
           )}
@@ -389,7 +702,7 @@ function CatItem({ cat, depth }: { cat: Category; depth: number }) {
 
           <div style={{ display: "flex", gap: 14, paddingLeft: pad + 24, padding: `6px 8px 10px ${pad + 24}px` }}>
             <button onClick={() => { setAddCat(!addCat); setSubName(""); }} style={miniLink}>+ alt kategori</button>
-            <button onClick={() => { setAddProd(!addProd); setPName(""); setPPrice(""); }} style={miniLink}>+ ürün</button>
+            <button onClick={() => { setAddProd(!addProd); setPName(""); setPPrice(""); setPVat(String(m.defaultVatFor(cat.id))); }} style={miniLink}>+ ürün</button>
           </div>
 
           {addCat && (
@@ -426,18 +739,25 @@ function ProdItem({ prod, pad }: { prod: Product; pad: number }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: prod.id });
   const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1, display: "flex", alignItems: "center", paddingLeft: pad };
   const selected = m.selectedId === prod.id;
+  const missingRecipe = prod.is_active && !m.menuItemsWithRecipe.has(prod.id);
+  const priceMismatch = prod.recommended_price != null && Math.abs(prod.recommended_price - prod.sale_price) > prod.sale_price * 0.05;
   return (
     <div ref={setNodeRef} style={style}>
       <button {...attributes} {...listeners} aria-label="taşı" style={{ all: "unset", cursor: "grab", padding: "0 6px", color: "var(--muted-2)", touchAction: "none", display: "inline-flex" }}><GripVertical size={15} /></button>
       <div onClick={() => m.selectProduct(prod)} style={{ cursor: "pointer", flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 8px", fontSize: 13.5, fontWeight: selected ? 600 : 400, color: selected ? "var(--brand)" : "var(--ink)" }}>
-        <EditableText value={prod.name} onSave={(v) => m.renameProduct(prod.id, v)} />
+        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          {missingRecipe && <AlertTriangle size={12} color="#a32d2d" aria-label="Reçete eksik" />}
+          {!missingRecipe && priceMismatch && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--gold-text)", flexShrink: 0 }} aria-label="Tavsiye fiyattan farklı" />}
+          {!prod.is_active && <span style={{ fontSize: 10.5, color: "var(--muted-2)" }}>(pasif)</span>}
+          <EditableText value={prod.name} onSave={(v) => m.renameProduct(prod.id, v)} />
+        </span>
         <span className="tnum" style={{ color: "var(--muted)" }}>{money(prod.sale_price)}</span>
       </div>
     </div>
   );
 }
 
-function Section({ title, children, collapsible, defaultOpen = true }: { title: string; children: React.ReactNode; collapsible?: boolean; defaultOpen?: boolean }) {
+function Section({ title, children, collapsible = true, defaultOpen = true }: { title: string; children: React.ReactNode; collapsible?: boolean; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   if (!collapsible) {
     return <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line)" }}><div style={{ fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }}>{title}</div>{children}</div>;
@@ -461,10 +781,18 @@ function Empty({ children }: { children: React.ReactNode }) {
 function IconBtn({ onClick }: { onClick: () => void }) {
   return <button onClick={onClick} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={14} /></button>;
 }
+function KarSatiri({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 13.5 }}>
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <span className="tnum" style={{ fontWeight: strong ? 700 : 500, color: strong ? "var(--brand)" : "var(--ink)" }}>{value}</span>
+    </div>
+  );
+}
 
 const miniLink: React.CSSProperties = { all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)" };
 const badge: React.CSSProperties = { fontSize: 12, fontWeight: 600, padding: "3px 12px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" };
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, flex: 1 };
+const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, flex: 1, fontFamily: "inherit" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 4 };
 const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
 const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5 };

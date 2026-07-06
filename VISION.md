@@ -12,6 +12,8 @@ Model: önce kusursuz bedava yazılım → sonra ekosistem (Meituan / Toast / Sq
 
 Gelir sırası: Katman 1 bedava (kurulum hizmeti + premium abonelik ile erken nakit) → asıl büyük para Katman 3 komisyonu.
 
+Premium abonelik adayı (ileri fikir, henüz ücretlendirilmedi): dijital menünün görsel tasarım tipi (fotoğraflı vs listeli sade — `restaurant_settings.default_menu_design`). Şu an ayarlanabilir ama ücretsiz; ileride fotoğraflı/gelişmiş tasarımlar premium katmana taşınabilir.
+
 ## Çekirdek Fark — "Ciro değil, kâr"
 
 Rakipler (Adisyo, Simpra, Karekodgarson) ciro raporu verir, kâr vermez.

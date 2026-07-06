@@ -1,13 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
 type Category = { id: string; name: string; parent_id: string | null };
-type RecipeItem = { quantity: number; ingredients: { kcal_per_unit: number; diet_class: string; allergens: string[] } | null };
+type RecipeItem = { quantity: number; ingredients: { name: string; kcal_per_unit: number; diet_class: string; allergens: string[] } | null };
 type Product = {
   id: string;
   name: string;
   sale_price: number;
   category_id: string | null;
   calorie_override: number | null;
+  description: string | null;
+  image_url: string | null;
+  ingredients_text: string | null;
+  allergens_override: string[] | null;
   recipe_items: RecipeItem[];
 };
 
@@ -24,8 +28,11 @@ function nutrition(prod: Product) {
   const kcal = prod.calorie_override ?? kcalAuto;
   const dc = items.map((r) => r.ingredients?.diet_class).filter(Boolean) as string[];
   const diet = dc.length === 0 ? "" : dc.every((d) => d === "bitkisel") ? "Vegan" : !dc.includes("et") ? "Vejetaryen" : "";
-  const allergens = Array.from(new Set(items.flatMap((r) => r.ingredients?.allergens ?? [])));
-  return { kcal, diet, allergens };
+  const allergensAuto = Array.from(new Set(items.flatMap((r) => r.ingredients?.allergens ?? [])));
+  const allergens = prod.allergens_override ?? allergensAuto;
+  const ingredientsAuto = items.map((r) => r.ingredients?.name).filter(Boolean).join(", ");
+  const ingredientsText = prod.ingredients_text ?? ingredientsAuto;
+  return { kcal, diet, allergens, ingredientsText };
 }
 
 export default async function PublicMenu({
@@ -50,15 +57,17 @@ export default async function PublicMenu({
     );
   }
 
-  const [{ data: c }, { data: p }] = await Promise.all([
+  const [{ data: c }, { data: p }, { data: settingsRow }] = await Promise.all([
     db.from("menu_categories").select("id, name, parent_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
     db.from("menu_items")
-      .select("id, name, sale_price, category_id, calorie_override, recipe_items(quantity, ingredients(kcal_per_unit, diet_class, allergens))")
-      .eq("restaurant_id", rest.id).eq("is_active", true).is("deleted_at", null).order("sort_order"),
+      .select("id, name, sale_price, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
+      .eq("restaurant_id", rest.id).eq("is_active", true).eq("available_dine_in", true).is("deleted_at", null).order("sort_order"),
+    db.from("restaurant_settings").select("default_menu_design").eq("restaurant_id", rest.id).maybeSingle(),
   ]);
 
   const categories = (c as Category[]) ?? [];
   const products = (p as unknown as Product[]) ?? [];
+  const photoStyle = settingsRow?.default_menu_design === "fotografli";
 
   const renderCategory = (cat: Category, depth: number): React.ReactNode => {
     const subs = categories.filter((x) => x.parent_id === cat.id);
@@ -73,20 +82,32 @@ export default async function PublicMenu({
           marginLeft: depth * 4,
         }}>{cat.name}</div>
         {prods.map((prod) => {
-          const { kcal, diet, allergens } = nutrition(prod);
+          const { kcal, diet, allergens, ingredientsText } = nutrition(prod);
           return (
-            <div key={prod.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                <span style={{ fontSize: 15, fontWeight: 500 }}>{prod.name}</span>
-                <span className="tnum" style={{ fontSize: 15, color: "var(--ink-green)" }}>{money(prod.sale_price)}</span>
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 5, flexWrap: "wrap" }}>
-                {kcal > 0 && <span style={{ fontSize: 12.5, color: "var(--muted)" }} className="tnum">{kcal} kcal</span>}
-                {diet && <span style={{ fontSize: 11.5, fontWeight: 600, padding: "2px 9px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" }}>{diet}</span>}
-              </div>
-              {allergens.length > 0 && (
-                <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 4 }}>Alerjen: {allergens.join(", ")}</div>
+            <div key={prod.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
+              {photoStyle && prod.image_url && (
+                // eslint-disable-next-line @next/next/no-img-element -- işletmeci tarafından girilen keyfi harici URL
+                <img src={prod.image_url} alt={prod.name} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
               )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <span style={{ fontSize: 15, fontWeight: 500 }}>{prod.name}</span>
+                  <span className="tnum" style={{ fontSize: 15, color: "var(--ink-green)", flexShrink: 0 }}>{money(prod.sale_price)}</span>
+                </div>
+                {prod.description && (
+                  <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{prod.description}</div>
+                )}
+                {ingredientsText && (
+                  <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 3 }}>{ingredientsText}</div>
+                )}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 5, flexWrap: "wrap" }}>
+                  {kcal > 0 && <span style={{ fontSize: 12.5, color: "var(--muted)" }} className="tnum">{kcal} kcal</span>}
+                  {diet && <span style={{ fontSize: 11.5, fontWeight: 600, padding: "2px 9px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" }}>{diet}</span>}
+                </div>
+                {allergens.length > 0 && (
+                  <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 4 }}>Alerjen: {allergens.join(", ")}</div>
+                )}
+              </div>
             </div>
           );
         })}
