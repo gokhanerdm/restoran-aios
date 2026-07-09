@@ -15,6 +15,8 @@
   --muted-2: #9a998f;
   --line: #efede6;
   --line-2: #dde6e1;
+  --info: #4a6fa5;
+  --info-bg: #e9eff7;
 }
 
 * { box-sizing: border-box; }
