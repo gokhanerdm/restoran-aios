@@ -11,7 +11,15 @@ type OrderItem = {
   status: string;
   menu_items: { name: string } | null;
 };
-type Order = { id: string; table_id: string | null; order_items: OrderItem[] };
+type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
+type Payment = { id: string; amount: number; method: string };
+
+const PAY_METHODS = [
+  { v: "nakit", l: "Nakit" },
+  { v: "kart", l: "Kart" },
+  { v: "yemek_karti", l: "Yemek Kartı" },
+] as const;
+const payLabel = (m: string) => PAY_METHODS.find((x) => x.v === m)?.l ?? m;
 type MenuItem = { id: string; name: string; sale_price: number; category_id: string | null };
 type Category = { id: string; name: string };
 type CfgVariant = { id: string; name: string; sale_price: number };
@@ -38,6 +46,10 @@ export default function TableOrderPanel({
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
+  const [partySize, setPartySize] = useState(2);
+  const [payStep, setPayStep] = useState(false);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payAmount, setPayAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<MenuItem | null>(null);
   const [cfgVariants, setCfgVariants] = useState<CfgVariant[]>([]);
@@ -65,24 +77,70 @@ export default function TableOrderPanel({
     if (!table) { setOrder(null); return; }
     const { data } = await supabase
       .from("orders")
-      .select("id, table_id, order_items(id, quantity, unit_price, status, menu_items(name))")
+      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_items(name))")
       .eq("table_id", table.id).eq("status", "open").maybeSingle();
-    setOrder((data as unknown as Order) ?? null);
+    const o = (data as unknown as Order) ?? null;
+    setOrder(o);
+    if (o) {
+      const { data: p } = await supabase.from("order_payments").select("id, amount, method").eq("order_id", o.id).order("paid_at");
+      setPayments((p as Payment[]) ?? []);
+    } else {
+      setPayments([]);
+    }
   }, [table?.id]);
 
-  useEffect(() => { loadOrder(); setMenuOpen(false); setConfig(null); }, [table?.id, loadOrder]);
+  useEffect(() => { loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
 
   const orderTotal = (o: Order | null) =>
     o ? o.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
 
+  // Kişi sayısı sipariş açılırken zorunlu (BUSINESS_LOGIC #1) — günlük müşteri sayısı buradan hesaplanır.
   const startOrder = async () => {
     if (!restaurantId || !table) return;
     setBusy(true);
-    await supabase.from("orders").insert({ restaurant_id: restaurantId, table_id: table.id, status: "open", channel: "dine_in" });
+    await supabase.from("orders").insert({ restaurant_id: restaurantId, table_id: table.id, status: "open", channel: "dine_in", party_size: partySize });
     await supabase.from("restaurant_tables").update({ status: "occupied" }).eq("id", table.id);
     await loadOrder(); onChanged();
     setBusy(false);
     setMenuOpen(true);
+  };
+
+  const changePartySize = async (delta: number) => {
+    if (!order) return;
+    const next = Math.max(1, order.party_size + delta);
+    if (next === order.party_size) return;
+    await supabase.from("orders").update({ party_size: next }).eq("id", order.id);
+    await loadOrder(); onChanged();
+  };
+
+  const changeQuantity = async (item: OrderItem, delta: number) => {
+    const next = item.quantity + delta;
+    setBusy(true);
+    if (next <= 0) {
+      // Adet sıfıra inince kalem iptal sayılır
+      await supabase.from("order_items").update({ status: "void", void_reason: "adet sıfırlandı", voided_at: new Date().toISOString() }).eq("id", item.id);
+    } else {
+      await supabase.from("order_items").update({ quantity: next }).eq("id", item.id);
+    }
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
+  const voidItem = async (item: OrderItem) => {
+    const reason = window.prompt(`"${item.menu_items?.name ?? "kalem"}" iptal sebebi:`, "");
+    if (reason == null) return;
+    setBusy(true);
+    await supabase.from("order_items").update({ status: "void", void_reason: reason || null, voided_at: new Date().toISOString() }).eq("id", item.id);
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
+  // İkram: gelire sayılmaz ama mutfaktan çıktığı için stok/maliyete işler (close_order RPC'si böyle kurulu)
+  const compItem = async (item: OrderItem) => {
+    setBusy(true);
+    await supabase.from("order_items").update({ status: "ikram" }).eq("id", item.id);
+    await loadOrder(); onChanged();
+    setBusy(false);
   };
 
   const addItem = async (item: MenuItem) => {
@@ -144,10 +202,27 @@ export default function TableOrderPanel({
     if (!order) return;
     setBusy(true);
     await supabase.rpc("close_order", { p_order_id: order.id });
-    setMenuOpen(false);
+    setMenuOpen(false); setPayStep(false);
     await loadOrder(); onChanged();
     setBusy(false);
     onClosed?.();
+  };
+
+  // Kısmi ödeme: kaydedilen tutar kalanı aşamaz (nakit fazlası para üstüdür, adisyona yazılmaz).
+  const addPayment = async (method: string, remaining: number) => {
+    if (!restaurantId || !order) return;
+    const typed = parseFloat(payAmount.replace(",", ".")) || remaining;
+    const amount = Math.min(typed, remaining);
+    if (amount <= 0) return;
+    setBusy(true);
+    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: order.id, amount, method });
+    const { data: p } = await supabase.from("order_payments").select("id, amount, method").eq("order_id", order.id).order("paid_at");
+    const list = (p as Payment[]) ?? [];
+    setPayments(list);
+    setPayAmount("");
+    setBusy(false);
+    const paidNow = list.reduce((s, x) => s + Number(x.amount), 0);
+    if (paidNow >= orderTotal(order) - 0.001) await closeBill();
   };
 
   const cfgBase = config ? (chosenVariant ? (cfgVariants.find((v) => v.id === chosenVariant)?.sale_price ?? config.sale_price) : config.sale_price) : 0;
@@ -166,7 +241,15 @@ export default function TableOrderPanel({
       {table && !order && (
         <div style={{ margin: "auto", textAlign: "center" }}>
           <div style={{ fontWeight: 600, fontSize: 19, color: "var(--ink-green)", marginBottom: 10 }}>{table.name}</div>
-          <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 18 }}>Açık sipariş yok</div>
+          <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>Açık sipariş yok</div>
+
+          <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 8 }}>Kişi sayısı</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 18 }}>
+            <button onClick={() => setPartySize((p) => Math.max(1, p - 1))} aria-label="azalt" style={stepBtn}>−</button>
+            <span className="tnum" style={{ fontSize: 26, fontWeight: 600, color: "var(--ink-green)", minWidth: 40 }}>{partySize}</span>
+            <button onClick={() => setPartySize((p) => p + 1)} aria-label="artır" style={stepBtn}>+</button>
+          </div>
+
           <button onClick={startOrder} disabled={busy} style={pillPrimary}>Sipariş başlat</button>
         </div>
       )}
@@ -174,16 +257,37 @@ export default function TableOrderPanel({
       {table && order && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)", flexShrink: 0 }}>{table.name}</div>
-          <div style={{ fontSize: 12.5, color: "var(--muted)", margin: "6px 0 12px", flexShrink: 0 }}>Adisyon</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "6px 0 12px", flexShrink: 0 }}>
+            <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Adisyon</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--muted)" }}>
+              <button onClick={() => changePartySize(-1)} aria-label="kişi azalt" style={stepBtnSm}>−</button>
+              <span className="tnum" style={{ color: "var(--ink)", fontWeight: 600 }}>{order.party_size} kişi</span>
+              <button onClick={() => changePartySize(1)} aria-label="kişi artır" style={stepBtnSm}>+</button>
+            </span>
+          </div>
 
           <div style={{ flexShrink: 0 }}>
-            {order.order_items.filter((i) => i.status === "active").map((i) => (
-              <div key={i.id} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", fontSize: 14 }}>
-                <span>{i.quantity} × {i.menu_items?.name ?? "?"}</span>
-                <span className="tnum">{money(i.quantity * i.unit_price)}</span>
+            {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").map((i) => (
+              <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", fontSize: 14 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                  <button onClick={() => changeQuantity(i, -1)} disabled={busy || i.status === "ikram"} aria-label="azalt" style={stepBtnSm}>−</button>
+                  <span className="tnum" style={{ minWidth: 16, textAlign: "center" }}>{i.quantity}</span>
+                  <button onClick={() => changeQuantity(i, 1)} disabled={busy || i.status === "ikram"} aria-label="artır" style={stepBtnSm}>+</button>
+                </span>
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {i.menu_items?.name ?? "?"}
+                  {i.status === "ikram" && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--gold-text)", marginLeft: 6 }}>İKRAM</span>}
+                </span>
+                <span className="tnum" style={{ flexShrink: 0, textDecoration: i.status === "ikram" ? "line-through" : "none", color: i.status === "ikram" ? "var(--muted-2)" : "var(--ink)" }}>{money(i.quantity * i.unit_price)}</span>
+                {i.status === "active" && (
+                  <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => compItem(i)} disabled={busy} title="İkram et" style={miniAction}>İkram</button>
+                    <button onClick={() => voidItem(i)} disabled={busy} title="İptal et" style={{ ...miniAction, color: "#a32d2d" }}>İptal</button>
+                  </span>
+                )}
               </div>
             ))}
-            {order.order_items.filter((i) => i.status === "active").length === 0 && (
+            {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").length === 0 && (
               <div style={{ color: "var(--muted)", fontSize: 14, padding: "9px 0" }}>Henüz ürün yok</div>
             )}
           </div>
@@ -193,6 +297,21 @@ export default function TableOrderPanel({
             <span style={{ fontSize: 13, color: "var(--muted)" }}>Toplam</span>
             <span className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-1px", color: "var(--ink-green)" }}>{money(orderTotal(order))}</span>
           </div>
+
+          {payments.length > 0 && (
+            <div style={{ flexShrink: 0, marginBottom: 8 }}>
+              {payments.map((p) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
+                  <span>Ödendi · {payLabel(p.method)}</span>
+                  <span className="tnum">{money(Number(p.amount))}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600, color: "var(--ink)", padding: "5px 0", borderTop: "1px solid var(--line)" }}>
+                <span>Kalan</span>
+                <span className="tnum">{money(Math.max(0, orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0)))}</span>
+              </div>
+            </div>
+          )}
 
           {/* Menü — akordeon başlığı, tıklanınca kategoriler açılır. Adisyon her zaman görünür kalır. */}
           <button onClick={() => setMenuOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: "1px solid var(--line)", flexShrink: 0 }}>
@@ -266,9 +385,46 @@ export default function TableOrderPanel({
             </div>
           )}
 
-          <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, flexShrink: 0 }}>
-            <button onClick={closeBill} disabled={busy} style={pillPrimary}>Hesap kapat</button>
-          </div>
+          {!payStep ? (
+            <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, flexShrink: 0 }}>
+              <button
+                onClick={() => {
+                  const remaining = orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0);
+                  setPayStep(true); setMenuOpen(false); setPayAmount(String(Math.max(0, Math.round(remaining * 100) / 100)));
+                }}
+                disabled={busy}
+                style={{ ...pillPrimary, width: "100%" }}
+              >Hesap al</button>
+            </div>
+          ) : (() => {
+            const total = orderTotal(order);
+            const paid = payments.reduce((s, p) => s + Number(p.amount), 0);
+            const remaining = Math.max(0, total - paid);
+            const typed = parseFloat(payAmount.replace(",", ".")) || 0;
+            const change = typed > remaining ? typed - remaining : 0;
+            return (
+              <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, borderTop: "1px solid var(--line)", flexShrink: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>Ödeme</span>
+                  <span className="tnum" style={{ fontSize: 13, color: "var(--muted)" }}>Kalan {money(remaining)}</span>
+                </div>
+                <input
+                  value={payAmount}
+                  onChange={(e) => setPayAmount(e.target.value)}
+                  placeholder={`Tutar (kalan: ${money(remaining)})`}
+                  inputMode="decimal"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "10px 12px", fontSize: 15, width: "100%", boxSizing: "border-box", marginBottom: 4, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+                {change > 0 && <div className="tnum" style={{ fontSize: 12, color: "var(--gold-text)", marginBottom: 4 }}>Para üstü: {money(change)}</div>}
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  {PAY_METHODS.map((m) => (
+                    <button key={m.v} onClick={() => addPayment(m.v, remaining)} disabled={busy || remaining <= 0} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13 }}>{m.l}</button>
+                  ))}
+                </div>
+                <button onClick={() => setPayStep(false)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--muted)", marginTop: 10, display: "block" }}>Vazgeç</button>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -276,5 +432,8 @@ export default function TableOrderPanel({
 }
 
 const pillPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: 14, background: "var(--brand-strong)", color: "#fff", fontSize: 15, fontWeight: 500 };
+const stepBtn: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 36, height: 36, background: "var(--card)", color: "var(--ink-green)", fontSize: 18, lineHeight: 1 };
+const stepBtnSm: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 22, height: 22, background: "var(--card)", color: "var(--ink-green)", fontSize: 13, lineHeight: 1, padding: 0 };
+const miniAction: React.CSSProperties = { border: "none", borderRadius: 8, padding: "3px 7px", background: "var(--recede)", color: "var(--muted)", fontSize: 10.5, cursor: "pointer" };
 const pillSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: 12, background: "var(--card)", color: "var(--ink-green)", fontSize: 14 };
 const chip = (on: boolean): React.CSSProperties => ({ border: on ? "none" : "1px solid var(--line-2)", borderRadius: 980, padding: "8px 14px", fontSize: 13, background: on ? "var(--brand-strong)" : "var(--card)", color: on ? "#fff" : "var(--ink-green)" });

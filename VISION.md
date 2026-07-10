@@ -65,6 +65,10 @@ Bizim silahımız: **reçete bazlı kâr + fire/kaçak radarı**.
 - Rol bazlı ayrı personel uygulamaları (garson/mutfak/runner/kasiyer/karşılamacı) — Karekodgarson 5 ayrı native app sunuyor. Bizim "aynı ekran + PIN, sonraki faz" kararımızı doğruluyor.
 - QR ile müşterinin kendi siparişini girmesi — Adisyo'da var. Salonlar kapsamı dışı, ayrı büyük özellik (güvenlik/yetki gerektirir) — ileri fikir olarak not edildi.
 
+## Yol haritası
+
+Tam modül haritası, kalite ilkeleri, Türkiye zorunlulukları ve faz sıralaması: [ROADMAP.md](ROADMAP.md) (2026-07-10 pazar araştırmasına dayanır).
+
 ## Durum
 
 - [x] Katman 1 çekirdek şema (0001)
