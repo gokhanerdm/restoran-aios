@@ -13,6 +13,7 @@ type OrderItem = {
 };
 type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
 type Payment = { id: string; amount: number; method: string };
+type Discount = { id: string; order_item_id: string | null; amount: number; percent: number | null; reason: string | null };
 
 const PAY_METHODS = [
   { v: "nakit", l: "Nakit" },
@@ -50,6 +51,12 @@ export default function TableOrderPanel({
   const [payStep, setPayStep] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [payAmount, setPayAmount] = useState("");
+  const [discounts, setDiscounts] = useState<Discount[]>([]);
+  // İndirim formu: hangi kaleme (null = adisyon geneli), girilen değer, tür (TL/%), sebep
+  const [discountFor, setDiscountFor] = useState<{ itemId: string | null; itemName: string } | null>(null);
+  const [dcValue, setDcValue] = useState("");
+  const [dcIsPercent, setDcIsPercent] = useState(false);
+  const [dcReason, setDcReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [config, setConfig] = useState<MenuItem | null>(null);
   const [cfgVariants, setCfgVariants] = useState<CfgVariant[]>([]);
@@ -82,17 +89,25 @@ export default function TableOrderPanel({
     const o = (data as unknown as Order) ?? null;
     setOrder(o);
     if (o) {
-      const { data: p } = await supabase.from("order_payments").select("id, amount, method").eq("order_id", o.id).order("paid_at");
+      const [{ data: p }, { data: d }] = await Promise.all([
+        supabase.from("order_payments").select("id, amount, method").eq("order_id", o.id).order("paid_at"),
+        supabase.from("order_discounts").select("id, order_item_id, amount, percent, reason").eq("order_id", o.id).order("created_at"),
+      ]);
       setPayments((p as Payment[]) ?? []);
+      setDiscounts((d as Discount[]) ?? []);
     } else {
       setPayments([]);
+      setDiscounts([]);
     }
   }, [table?.id]);
 
   useEffect(() => { loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
 
-  const orderTotal = (o: Order | null) =>
+  const grossTotal = (o: Order | null) =>
     o ? o.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
+  const discountTotal = discounts.reduce((s, d) => s + Number(d.amount), 0);
+  // Ödemeler net toplamla (indirim düşülmüş) karşılaştırılır — close_order RPC de aynı hesabı yapar.
+  const orderTotal = (o: Order | null) => Math.max(0, grossTotal(o) - discountTotal);
 
   // Kişi sayısı sipariş açılırken zorunlu (BUSINESS_LOGIC #1) — günlük müşteri sayısı buradan hesaplanır.
   const startOrder = async () => {
@@ -208,6 +223,35 @@ export default function TableOrderPanel({
     onClosed?.();
   };
 
+  const applyDiscount = async () => {
+    if (!restaurantId || !order || !discountFor) return;
+    const raw = parseFloat(dcValue.replace(",", ".")) || 0;
+    if (raw <= 0) return;
+    // Taban: kalem indirimi → o kalemin satır tutarı; adisyon indirimi → brüt toplam
+    const item = discountFor.itemId ? order.order_items.find((i) => i.id === discountFor.itemId) : null;
+    const base = item ? item.quantity * item.unit_price : grossTotal(order);
+    let amount = dcIsPercent ? (base * raw) / 100 : raw;
+    // Net toplam negatife inmesin
+    const remainingDiscountable = Math.max(0, grossTotal(order) - discountTotal);
+    amount = Math.min(amount, remainingDiscountable, base);
+    if (amount <= 0) return;
+    setBusy(true);
+    await supabase.from("order_discounts").insert({
+      restaurant_id: restaurantId, order_id: order.id, order_item_id: discountFor.itemId,
+      amount: Math.round(amount * 100) / 100, percent: dcIsPercent ? raw : null, reason: dcReason || null,
+    });
+    setDiscountFor(null); setDcValue(""); setDcIsPercent(false); setDcReason("");
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
+  const removeDiscount = async (id: string) => {
+    setBusy(true);
+    await supabase.from("order_discounts").delete().eq("id", id);
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
   // Kısmi ödeme: kaydedilen tutar kalanı aşamaz (nakit fazlası para üstüdür, adisyona yazılmaz).
   const addPayment = async (method: string, remaining: number) => {
     if (!restaurantId || !order) return;
@@ -293,10 +337,64 @@ export default function TableOrderPanel({
           </div>
 
           <div style={{ height: 1, background: "var(--line)", marginTop: 10, flexShrink: 0 }} />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "12px 0", flexShrink: 0 }}>
+
+          {discounts.length > 0 && (
+            <div style={{ flexShrink: 0, marginTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--muted)", padding: "3px 0" }}>
+                <span>Ara toplam</span>
+                <span className="tnum">{money(grossTotal(order))}</span>
+              </div>
+              {discounts.map((d) => {
+                const item = d.order_item_id ? order.order_items.find((i) => i.id === d.order_item_id) : null;
+                return (
+                  <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "var(--gold-text)", padding: "3px 0" }}>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      İndirim{item ? ` · ${item.menu_items?.name ?? ""}` : " · adisyon"}{d.percent ? ` (%${Number(d.percent)})` : ""}{d.reason ? ` — ${d.reason}` : ""}
+                    </span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      <span className="tnum">−{money(Number(d.amount))}</span>
+                      <button onClick={() => removeDiscount(d.id)} disabled={busy} title="İndirimi kaldır" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", fontSize: 12 }}>✕</button>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "12px 0 6px", flexShrink: 0 }}>
             <span style={{ fontSize: 13, color: "var(--muted)" }}>Toplam</span>
             <span className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-1px", color: "var(--ink-green)" }}>{money(orderTotal(order))}</span>
           </div>
+
+          {!payStep && !discountFor && (
+            <button
+              onClick={() => { setDiscountFor({ itemId: null, itemName: "adisyon" }); setDcValue(""); setDcIsPercent(false); setDcReason(""); }}
+              style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)", marginBottom: 8, flexShrink: 0 }}
+            >+ Adisyona indirim</button>
+          )}
+
+          {discountFor && (
+            <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginBottom: 10, flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>
+                İndirim — {discountFor.itemId ? discountFor.itemName : "adisyon geneli"}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <input value={dcValue} onChange={(e) => setDcValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyDiscount()} placeholder={dcIsPercent ? "Yüzde" : "Tutar ₺"} inputMode="decimal" autoFocus
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 14, flex: 1, minWidth: 0, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
+                <div style={{ display: "flex", background: "var(--recede)", borderRadius: 980, padding: 2 }}>
+                  {[{ v: false, l: "₺" }, { v: true, l: "%" }].map((t) => (
+                    <button key={t.l} onClick={() => setDcIsPercent(t.v)} style={{ border: "none", borderRadius: 980, padding: "6px 12px", fontSize: 13, background: dcIsPercent === t.v ? "var(--ink-green)" : "transparent", color: dcIsPercent === t.v ? "#fff" : "var(--muted)" }}>{t.l}</button>
+                  ))}
+                </div>
+              </div>
+              <input value={dcReason} onChange={(e) => setDcReason(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyDiscount()} placeholder="Sebep (örn. müşteri memnuniyeti)"
+                style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, width: "100%", boxSizing: "border-box", marginBottom: 10, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={applyDiscount} disabled={busy} style={{ ...pillPrimary, flex: 1, padding: 10, fontSize: 13.5 }}>Uygula</button>
+                <button onClick={() => setDiscountFor(null)} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13.5 }}>Vazgeç</button>
+              </div>
+            </div>
+          )}
 
           {payments.length > 0 && (
             <div style={{ flexShrink: 0, marginBottom: 8 }}>

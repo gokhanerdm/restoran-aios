@@ -146,3 +146,64 @@ daily_summary RPC (hazır): ciro, maliyet, adisyon sayısı, kanal kırılımı,
 **Faz 2 (Personel):** `profiles` PIN alanı + basit giriş ekranı + rol bazlı görünürlük (restaurant_settings.role_visibility zaten hazır) + masa-garson ataması (Salonlar'a)
 
 **Faz 3 (Radar):** sayım ekranı (`app/sayim` veya Stok sekmesi) → varyans RPC → Raporlar sayfası (kâr paneli + radar). FIFO'nun close_order'a bağlanması.
+
+## H) Gün Sonu ekranı — işletmeci şartnamesi (Gökhan, 2026-07-10)
+
+Uzun analiz ekranı DEĞİL; işletmecinin gece kasadan kalkmadan baktığı **kapanış kontrol paneli**. Net, hızlı, uyarı odaklı, karar verdiren. Üç ana soru + tek hüküm:
+
+### Soru 1 — "Bugün gerçekten kâr ettim mi, yoksa sadece ciro mu yaptım?"
+Toplam ciro · KDV hariç net satış · reçete maliyeti · sarf maliyeti · sabit gider payı · indirimler · ikramlar · iptaller · **tahmini gerçek operasyon kârı** · kâr marjı.
+Ekranın ilk cümlesi: "Bugün kasaya X girdi ama bunun Y'si gerçekten kâr."
+
+### Soru 2 — "Parayı hangi ürünler kazandırdı, hangileri kârı yedi?"
+"En çok satan" ≠ "en çok kazandıran" — ekran bunu AYIRIR. Listeler: en çok satanlar · en çok kâr bırakanlar · çok satıp az kâr bırakanlar · zarar ettirenler · food cost'u yüksek ürünler · reçetesiz (kâr hesabı güvenilmez) ürünler · alış maliyeti değiştiği için fiyatı gözden geçirilmesi gerekenler.
+
+### Soru 3 — "Kasada, stokta, operasyonda açık var mı?"
+- **Kasa**: beklenen nakit vs girilen (sayılan) nakit → fark; kart satışları; açık hesaplar; tahsil edilmemiş adisyonlar; indirim/ikram/iptal etkileri.
+- **Stok**: teorik tüketim vs sayım farkı; tolerans içi normal fire vs tolerans üstü kaçak şüphesi; kritik stoklar.
+- **Operasyon**: açık masa; hesap istemiş ama kapanmamış masa; mutfak/barda tamamlanmamış sipariş; onay bekleyen indirim/ikram/iptal; rezervasyon no-show.
+
+### Hüküm satırı
+Her şey normalse: "Kasa tutuyor, açık masa yok, tolerans üstü stok farkı yok — gün kapatılabilir."
+Sorun varsa: "Kasada 200 TL eksik, 3 stok kaleminde tolerans üstü fark, 1 masa açık."
+
+### Katmanlı yapım sırası (bağımlılıklar dürüstçe)
+| Parça | Veri kaynağı | Durum |
+|---|---|---|
+| Ciro/net/reçete maliyeti/ikram/iptal/kâr | orders + order_items + reçeteler + daily_summary | ✅ Veri hazır — hemen yapılabilir |
+| Ödeme kırılımı + beklenen nakit | order_payments | ✅ Veri hazır |
+| Girilen nakit (kasa sayımı girişi) | Yeni: gün kapanış kaydı | Gün Sonu v1 ile eklenecek |
+| Sarf + sabit gider payı | restaurant_settings varsayılanları | ✅ Yaklaşık hesap hazır |
+| İndirimler | **İndirim özelliği henüz YOK** | Faz 0'a eklendi (aşağıda) |
+| Stok varyans/kaçak | Sayım ekranı gerekli | Faz 3 — ekranda "yakında" |
+| Mutfak tamamlanmamış sipariş | KDS gerekli | Faz 1 — ekranda "yakında" |
+| Onay bekleyen işlemler | Yetki sistemi gerekli | Faz 2 — ekranda "yakında" |
+| No-show | Rezervasyon takvimi gerekli | Sonraki faz |
+
+**Faz 0'a eklenen yeni madde: İndirim** (Gökhan kararı: "standart yap, çalışmaya göre değerlendiririz") — hem kalem hem adisyon bazlı, tutar veya yüzde; her indirim sebep+zaman kaydıyla izlenir. Yetki **ayarlanabilir**: işletmeci Ayarlar'dan hangi rolün indirim yapabileceğini seçer (yapı şimdi kurulur, Faz 2'de PIN ile gerçekten kilitlenir).
+
+**Faz 0'a eklenen yeni madde: Kasa defteri** (Gökhan kararı) — kasa canlı bakiye tutar: devir + nakit satışlar (order_payments'tan otomatik) + elle girişler − çıkışlar (tedarikçi ödemesi, masraf, bankaya götürme; tutar+açıklama ile). Gece kapanışta sayım girilir → beklenen vs sayılan farkı → gün kapanış kaydı → kalan, ertesi güne devir. "Kasada neden eksik var?" sorusu tahminle değil hareket dökümüyle cevaplanır.
+
+## I) İş modeli teyidi (Gökhan, 2026-07-10)
+
+Üç aşamalı ekosistem, üç kullanıcı tipi: **işletme** (bedava program — şu anki tüm iş), **tedarikçi** (satın almalar program üzerinden — gelir kaynağı), **son kullanıcı** (eklenti uygulama; işletmeler kampanya yapar). VISION.md'deki 4 katmanla uyumlu; para yazılımdan değil, üzerine kurulan tedarik + kampanya ekosisteminden kazanılacak.
+
+## J) Tasarım ilkesi (Gökhan, 2026-07-10)
+
+"Kullanışlı ve kolay yönetilebilen ama basit görünmeyen" — sade + rafine. Mevcut renk paleti (beyaz zemin, zümrüt yeşili, altın vurgu) korunacak. Modern referans seçimi Claude'a bırakıldı; ilk uygulama alanı Gün Sonu ekranı olacak (tasarım örneği + en öncelikli ekran aynı anda).
+
+## K) Rakip pano değerlendirmesi ve eklenenler (2026-07-12)
+
+Kullanıcı yorumlarında tasarımı/kolaylığı en çok övülen sistemler incelendi: **Toast** (pano tasarımı sektör referansı: 4 ana kart — satış, işçilik, müşteri sayısı, en çok satanlar; her rakamın yanında geçen dönemle % karşılaştırma), **Square** (kurulum basitliği), Türkiye'de **Adisyo** (eğitimsiz kullanım). Ortak övgü: az sayıda büyük rakam + karşılaştırma yüzdesi + tıklayınca detaya inme.
+
+**Bugün eklenenler (Ana Sayfa):**
+- Bugünkü ciro kartına **geçen hafta aynı güne göre % değişim** + **bugünkü müşteri sayısı** (party_size toplamı)
+- **En çok satanlar (son 7 gün)** paneli — adet + ciro, satır listesi
+- **Bugünün saatlik yoğunluğu** — kapanan hesapların saat saat mini çubuk grafiği
+- Sabit giderlerde **KDV dahil giriş + KDV oranı** alanı; KDV hariç otomatik hesap (migration: business_expenses_vat)
+
+**Değerlendirilen ama sonraya bırakılanlar:**
+- İşçilik maliyeti kartı (Toast'un 4 ana kartından biri) → Personel/PIN fazıyla birlikte (Faz 2) — personel-vardiya verisi yokken boş kalır
+- Kartlardan tıklayıp detay rapora inme (drill-down) → Raporlar sayfası zenginleşince
+- Karşılaştırma dönemi seçimi (geçen hafta / geçen yıl aynı hafta) → veri biriktikçe
+- Haftalık özet görünümü (Toast varsayılanı haftalık kadans) → Raporlar sayfasına
