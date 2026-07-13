@@ -207,11 +207,23 @@ export default function KasaPage() {
 
   const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId).sort((x, y) => x.sort_order - y.sort_order);
   const defaultPos = (i: number) => ({ x: (i % COLS) * (BOX_W + GAP) + GAP, y: Math.floor(i / COLS) * (BOX_H + GAP) + GAP });
-  const positioned = tablesInArea.map((t, i) => {
-    const d = defaultPos(i);
-    return { table: t, x: t.position_x ?? d.x, y: t.position_y ?? d.y };
-  });
-  const addBoxPos = defaultPos(tablesInArea.length);
+  // Konumu elle sürüklenmiş masalar (position_x/y dolu) sabit kalır. Konumu olmayanlar (yeni eklenenler)
+  // sırayla varsayılan grid hücrelerine yerleştirilir ama dolu bir hücreye (sürüklenmiş bir masanın
+  // üstüne) denk gelirse bir sonraki boş hücreyi arar — aksi halde yeni masa eskisinin üstüne biniyordu.
+  const placed = tablesInArea.filter((t) => t.position_x != null && t.position_y != null)
+    .map((t) => ({ table: t, x: t.position_x as number, y: t.position_y as number }));
+  const isFree = (x: number, y: number) => !placed.some((p) => Math.abs(p.x - x) < BOX_W / 2 && Math.abs(p.y - y) < BOX_H / 2);
+  let nextSlot = 0;
+  for (const t of tablesInArea.filter((t) => t.position_x == null || t.position_y == null)) {
+    let d = defaultPos(nextSlot);
+    while (!isFree(d.x, d.y)) { nextSlot++; d = defaultPos(nextSlot); }
+    placed.push({ table: t, x: d.x, y: d.y });
+    nextSlot++;
+  }
+  const positioned = tablesInArea.map((t) => placed.find((p) => p.table.id === t.id)!);
+  let addSlot = nextSlot;
+  let addBoxPos = defaultPos(addSlot);
+  while (!isFree(addBoxPos.x, addBoxPos.y)) { addSlot++; addBoxPos = defaultPos(addSlot); }
   const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP);
 
   const selectedTable = tables.find((t) => t.id === selectedTableId) ?? null;
