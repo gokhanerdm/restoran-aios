@@ -46,6 +46,8 @@ export default function KasaPage() {
   const [newTableName, setNewTableName] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  // Sağ tık menüsü: boş alanda "Masa ekle" (table: null), bir masa üzerinde "Masa sil" (table dolu)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
 
   // Kasa hareketi (nakit giriş/çıkış) — eski Kasa ekranının kendine has özelliği
   const [addingCm, setAddingCm] = useState(false);
@@ -291,7 +293,10 @@ export default function KasaPage() {
         {/* kat planı — sol menüyle aynı hizada başlar */}
         <div style={{ flex: 1.6, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}>
-            <div style={{ position: "relative", width: "100%", height: containerHeight }}>
+            <div
+              style={{ position: "relative", width: "100%", height: containerHeight }}
+              onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, table: null }); }}
+            >
               {positioned.map(({ table: t, x, y }) => (
                 <TableBox
                   key={t.id}
@@ -312,6 +317,7 @@ export default function KasaPage() {
                   onReserve={() => reserveTable(t.id)}
                   onUnreserve={() => unreserveTable(t.id)}
                   onUnmerge={() => unmergeTable(t.id)}
+                  onContextMenu={(x2, y2) => setCtxMenu({ x: x2, y: y2, table: t })}
                 />
               ))}
               {!addingTable ? (
@@ -396,6 +402,31 @@ export default function KasaPage() {
         </>
       )}
 
+      {ctxMenu && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
+          <div style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+            {!ctxMenu.table ? (
+              <button
+                onClick={() => { setCtxMenu(null); setAddingTable(true); setErr(null); }}
+                style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--ink)" }}
+              >
+                <Plus size={14} /> Masa ekle
+              </button>
+            ) : ctxMenu.table.status === "occupied" || ctxMenu.table.status === "bill_requested" ? (
+              <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200 }}>Bu masa dolu — silmeden önce hesabı kapatın.</div>
+            ) : (
+              <button
+                onClick={() => { const t = ctxMenu.table!; setCtxMenu(null); deleteTable(t); }}
+                style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)" }}
+              >
+                <Trash2 size={14} /> Masa sil
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
       {mergeChoice && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(30,25,15,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setMergeChoice(null)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 300 }} onClick={(e) => e.stopPropagation()}>
@@ -415,12 +446,12 @@ export default function KasaPage() {
 
 function TableBox({
   table, x, y, order, targetName, selected, mergeSelected, mergeMode, durationLabel, total,
-  onClick, onMove, onDelete, onRename, onReserve, onUnreserve, onUnmerge,
+  onClick, onMove, onDelete, onRename, onReserve, onUnreserve, onUnmerge, onContextMenu,
 }: {
   table: TableRow; x: number; y: number; order: OrderRow | null; targetName: string | null;
   selected: boolean; mergeSelected: boolean; mergeMode: boolean; durationLabel: string | null; total: number;
   onClick: () => void; onMove: (id: string, x: number, y: number) => void; onDelete: () => void; onRename: (v: string) => void;
-  onReserve: () => void; onUnreserve: () => void; onUnmerge: () => void;
+  onReserve: () => void; onUnreserve: () => void; onUnmerge: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [hover, setHover] = useState(false);
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -462,6 +493,7 @@ function TableBox({
     <div
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
       style={{
         position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: 14, padding: 12,
         cursor: mergeMode ? "pointer" : "grab", touchAction: "none", userSelect: "none",

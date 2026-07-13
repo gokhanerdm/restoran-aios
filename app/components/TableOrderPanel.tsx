@@ -63,6 +63,7 @@ export default function TableOrderPanel({
   const [dcIsPercent, setDcIsPercent] = useState(false);
   const [dcReason, setDcReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [config, setConfig] = useState<MenuItem | null>(null);
   const [cfgVariants, setCfgVariants] = useState<CfgVariant[]>([]);
   const [cfgGroups, setCfgGroups] = useState<CfgGroup[]>([]);
@@ -87,13 +88,15 @@ export default function TableOrderPanel({
 
   const loadOrder = useCallback(async () => {
     if (!table) { setOrder(null); return; }
-    const { data } = await supabase
+    setErr(null);
+    const { data, error } = await supabase
       .from("orders")
       .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_item_id, variant_id, created_at, menu_items(name))")
       .eq("table_id", table.id).eq("status", "open")
       // Kalemler her zaman eklenme sırasına göre listelensin — adet değiştirince satır yerinden oynamasın.
       .order("created_at", { referencedTable: "order_items" })
       .maybeSingle();
+    if (error) setErr(error.message);
     const o = (data as unknown as Order) ?? null;
     setOrder(o);
     if (o) {
@@ -119,9 +122,11 @@ export default function TableOrderPanel({
 
   // Kişi sayısı sipariş açılırken zorunlu (BUSINESS_LOGIC #1) — günlük müşteri sayısı buradan hesaplanır.
   const startOrder = async () => {
-    if (!restaurantId || !table) return;
+    if (!restaurantId || !table || order) return; // zaten açık sipariş varsa ikinci kez açma
     setBusy(true);
-    await supabase.from("orders").insert({ restaurant_id: restaurantId, table_id: table.id, status: "open", channel: "dine_in", party_size: partySize });
+    setErr(null);
+    const { error } = await supabase.from("orders").insert({ restaurant_id: restaurantId, table_id: table.id, status: "open", channel: "dine_in", party_size: partySize });
+    if (error) { setErr(error.message); setBusy(false); return; }
     await supabase.from("restaurant_tables").update({ status: "occupied" }).eq("id", table.id);
     await loadOrder(); onChanged();
     setBusy(false);
@@ -296,6 +301,7 @@ export default function TableOrderPanel({
   return (
     <div style={rootStyle}>
       {variant === "sheet" && <div style={{ width: 40, height: 4, borderRadius: 980, background: "var(--line-2)", margin: "0 auto 14px" }} />}
+      {err && <div style={{ background: "var(--danger-bg)", color: "var(--danger)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, marginBottom: 10, flexShrink: 0 }}>{err}</div>}
       {!table && <div style={{ color: "var(--muted)", fontSize: 14, margin: "auto" }}>Bir masa seç</div>}
 
       {table && !order && (
