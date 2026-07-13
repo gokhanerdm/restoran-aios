@@ -33,6 +33,14 @@ export default function GarsonPage() {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Beklenmeyen JS hatalarını sessizce yutmak yerine ekranda göster (mobil ağ sorunlarını teşhis etmeyi kolaylaştırır).
+  useEffect(() => {
+    const onErr = (e: ErrorEvent) => setErr(`JS hatası: ${e.message}`);
+    const onRej = (e: PromiseRejectionEvent) => setErr(`Yakalanmamış hata: ${e.reason?.message ?? e.reason}`);
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => { window.removeEventListener("error", onErr); window.removeEventListener("unhandledrejection", onRej); };
+  }, []);
 
   const load = useCallback(async () => {
     setErr(null);
