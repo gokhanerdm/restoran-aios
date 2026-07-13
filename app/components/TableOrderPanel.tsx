@@ -154,19 +154,29 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
-  const voidItem = async (item: OrderItem) => {
-    const reason = window.prompt(`"${item.menu_items?.name ?? "kalem"}" iptal sebebi:`, "");
-    if (reason == null) return;
-    setBusy(true);
-    await supabase.from("order_items").update({ status: "void", void_reason: reason || null, voided_at: new Date().toISOString() }).eq("id", item.id);
-    await loadOrder(); onChanged();
-    setBusy(false);
-  };
-
-  // İkram: gelire sayılmaz ama mutfaktan çıktığı için stok/maliyete işler (close_order RPC'si böyle kurulu)
+  // İkram: gelire sayılmaz ama mutfaktan çıktığı için stok/maliyete işler (close_order RPC'si böyle kurulu).
+  // Adet 1'den fazlaysa kaçının ikram edileceği sorulur — hepsi seçilirse satır aynen ikrama döner,
+  // bir kısmı seçilirse satır bölünür: kalan adet aktif kalır, ikram edilen kısım ayrı satıra geçer.
   const compItem = async (item: OrderItem) => {
+    if (!restaurantId || !order) return;
+    let compQty = item.quantity;
+    if (item.quantity > 1) {
+      const raw = window.prompt(`"${item.menu_items?.name ?? "kalem"}" — kaç adet ikram edilsin? (1-${item.quantity})`, String(item.quantity));
+      if (raw == null) return;
+      const parsed = parseInt(raw, 10);
+      if (!parsed || parsed < 1) return;
+      compQty = Math.min(parsed, item.quantity);
+    }
     setBusy(true);
-    await supabase.from("order_items").update({ status: "ikram" }).eq("id", item.id);
+    if (compQty >= item.quantity) {
+      await supabase.from("order_items").update({ status: "ikram" }).eq("id", item.id);
+    } else {
+      await supabase.from("order_items").update({ quantity: item.quantity - compQty }).eq("id", item.id);
+      await supabase.from("order_items").insert({
+        restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
+        quantity: compQty, unit_price: item.unit_price, status: "ikram",
+      });
+    }
     await loadOrder(); onChanged();
     setBusy(false);
   };
@@ -355,7 +365,6 @@ export default function TableOrderPanel({
                 {i.status === "active" && (
                   <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                     <button onClick={() => compItem(i)} disabled={busy} title="İkram et" style={miniAction}>İkram</button>
-                    <button onClick={() => voidItem(i)} disabled={busy} title="İptal et" style={{ ...miniAction, color: "var(--danger)" }}>İptal</button>
                   </span>
                 )}
               </div>
