@@ -320,18 +320,8 @@ export default function KasaPage() {
                   onContextMenu={(x2, y2) => setCtxMenu({ x: x2, y: y2, table: t })}
                 />
               ))}
-              {!addingTable ? (
-                <button
-                  onClick={() => { setAddingTable(true); setErr(null); }}
-                  style={{
-                    position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
-                    border: "1px dashed var(--line-2)", borderRadius: 14, background: "transparent", color: "var(--muted)",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13,
-                  }}
-                >
-                  <Plus size={18} /> Masa ekle
-                </button>
-              ) : (
+              {/* Masa ekleme artık sağ tık menüsünden — burada sadece form açılınca görünür. */}
+              {addingTable && (
                 <div
                   style={{
                     position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
