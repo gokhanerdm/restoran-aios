@@ -172,6 +172,29 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
+  // İkram satırındaki adet sıfıra inince satır iptal olmaz — ürün geri normal (aktif/paralı) kaleme döner.
+  // Aynı üründen zaten aktif bir satır varsa oraya eklenir (mükerrer satır oluşmasın).
+  const changeCompQuantity = async (item: OrderItem, delta: number) => {
+    if (!order) return;
+    setBusy(true);
+    const next = item.quantity + delta;
+    if (next > 0) {
+      await supabase.from("order_items").update({ quantity: next }).eq("id", item.id);
+    } else {
+      const sibling = order.order_items.find(
+        (x) => x.status === "active" && x.menu_item_id === item.menu_item_id && x.variant_id === item.variant_id
+      );
+      if (sibling) {
+        await supabase.from("order_items").update({ quantity: sibling.quantity + 1 }).eq("id", sibling.id);
+        await supabase.from("order_items").delete().eq("id", item.id);
+      } else {
+        await supabase.from("order_items").update({ status: "active" }).eq("id", item.id);
+      }
+    }
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
   const addItem = async (item: MenuItem) => {
     if (!restaurantId || !order) return;
     setBusy(true);
@@ -344,9 +367,9 @@ export default function TableOrderPanel({
             {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").map((i) => (
               <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", fontSize: 14 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                  <button onClick={() => changeQuantity(i, -1)} disabled={busy || i.status === "ikram"} aria-label="azalt" style={stepBtnSm}>−</button>
+                  <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, -1) : changeQuantity(i, -1))} disabled={busy} aria-label="azalt" style={stepBtnSm}>−</button>
                   <span className="tnum" style={{ minWidth: 16, textAlign: "center" }}>{i.quantity}</span>
-                  <button onClick={() => changeQuantity(i, 1)} disabled={busy || i.status === "ikram"} aria-label="artır" style={stepBtnSm}>+</button>
+                  <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, 1) : changeQuantity(i, 1))} disabled={busy} aria-label="artır" style={stepBtnSm}>+</button>
                 </span>
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {i.menu_items?.name ?? "?"}
