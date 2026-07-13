@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
@@ -10,7 +10,6 @@ import { toTitleTr } from "@/lib/text";
 // Ana Sayfa — işletmenin veri merkezi. Başabaş: "bugün X₺ ciro dükkanı çevirir,
 // ondan sonraki her 1.000₺'nin ~Y₺'si kâr" (ROADMAP + Gökhan şablonu, 2026-07-10).
 
-type Summary = { ciro: number; maliyet: number; adisyon: number };
 type PrepReport = {
   beklenen_musteri: number;
   gecen_hafta_ayni_gun: number;
@@ -29,15 +28,14 @@ const ayGunSayisi = () => {
 
 export default function AnaSayfa() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [prep, setPrep] = useState<PrepReport | null>(null);
   const [openTables, setOpenTables] = useState(0);
   const [openTotal, setOpenTotal] = useState(0);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [foodCostRatio, setFoodCostRatio] = useState<number | null>(null);
-  const [guestsToday, setGuestsToday] = useState(0);
-  const [lwCiro, setLwCiro] = useState<number | null>(null);
+  // Dönem kutuları: [gün, hafta, ay, yıl] — ciro/reçete maliyeti/müşteri sayısı
+  const [periyot, setPeriyot] = useState<{ ciro: number[]; maliyet: number[]; musteri: number[] } | null>(null);
   const [topSellers, setTopSellers] = useState<{ name: string; qty: number; revenue: number }[]>([]);
   const [hourly, setHourly] = useState<number[]>([]);
 
@@ -54,14 +52,15 @@ export default function AnaSayfa() {
     setRestaurantId(rest.id);
     const gun = bugunIstanbul();
     const otuzGunOnce = new Date(Date.parse(gun) - 30 * 86400000).toISOString();
-    const bugunBasi = new Date(gun + "T00:00:00+03:00").toISOString();
     const yediGunOnce = new Date(Date.parse(gun) - 7 * 86400000).toISOString();
-    // geçen hafta aynı gün (İstanbul günü) — karşılaştırma yüzdesi için
-    const lwBasi = new Date(Date.parse(gun + "T00:00:00+03:00") - 7 * 86400000).toISOString();
-    const lwSonu = new Date(Date.parse(lwBasi) + 86400000).toISOString();
+    // Dönem başlangıçları (İstanbul günü): bugün, pazartesi, ayın 1'i, 1 Ocak
+    const bugunBasiMs = Date.parse(gun + "T00:00:00+03:00");
+    const haftaGunu = (new Date(gun + "T00:00:00Z").getUTCDay() + 6) % 7; // 0 = pazartesi
+    const haftaBasiMs = bugunBasiMs - haftaGunu * 86400000;
+    const ayBasiMs = Date.parse(gun.slice(0, 8) + "01T00:00:00+03:00");
+    const yilBasiMs = Date.parse(gun.slice(0, 4) + "-01-01T00:00:00+03:00");
 
-    const [{ data: sum }, { data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: todayOrders }, { data: lwOrders }] = await Promise.all([
-      supabase.rpc("daily_summary", { p_restaurant: rest.id, p_date: gun }),
+    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }] = await Promise.all([
       supabase.rpc("daily_prep_report", { p_restaurant: rest.id }),
       supabase.from("restaurant_tables").select("status").eq("restaurant_id", rest.id).is("deleted_at", null),
       supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", rest.id).eq("status", "open"),
@@ -69,11 +68,9 @@ export default function AnaSayfa() {
       supabase.from("restaurant_settings").select("fixed_cost_days_override").eq("restaurant_id", rest.id).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", rest.id),
       supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", rest.id).eq("status", "closed").gte("closed_at", otuzGunOnce),
-      supabase.from("orders").select("party_size, total_amount, status, closed_at").eq("restaurant_id", rest.id).gte("created_at", bugunBasi),
-      supabase.from("orders").select("total_amount").eq("restaurant_id", rest.id).eq("status", "closed").gte("closed_at", lwBasi).lt("closed_at", lwSonu),
+      supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", rest.id).gte("created_at", new Date(yilBasiMs).toISOString()),
     ]);
 
-    setSummary(sum as Summary);
     setPrep(rep as PrepReport);
     setOpenTables((tables ?? []).filter((t: { status: string }) => t.status !== "empty").length);
     const total = (openOrders ?? []).reduce((s: number, o: { order_items: { quantity: number; unit_price: number; status: string }[] }) =>
@@ -104,32 +101,44 @@ export default function AnaSayfa() {
     setFoodCostRatio(ciro30 > 0 ? maliyet30 / ciro30 : null);
     setTopSellers(Object.entries(satis7).map(([name, s]) => ({ name, ...s })).sort((a, b) => b.revenue - a.revenue).slice(0, 5));
 
-    const gunun = (todayOrders as unknown as { party_size: number | null; total_amount: number | null; status: string; closed_at: string | null }[]) ?? [];
-    setGuestsToday(gunun.reduce((s, o) => s + (o.party_size ?? 0), 0));
+    // Dönem kovalarını doldur: ciro/maliyet kapanış anına, müşteri açılış anına göre sayılır
+    const sinirlar = [bugunBasiMs, haftaBasiMs, ayBasiMs, yilBasiMs];
+    const ciroP = [0, 0, 0, 0], maliyetP = [0, 0, 0, 0], musteriP = [0, 0, 0, 0];
     const saat = new Array(24).fill(0);
     const saatFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" });
-    gunun.filter((o) => o.status === "closed" && o.closed_at).forEach((o) => { saat[parseInt(saatFmt.format(new Date(o.closed_at!)))] += Number(o.total_amount ?? 0); });
+    ((yilRows as unknown as { created_at: string; closed_at: string | null; status: string; total_amount: number | null; party_size: number | null; order_items: { quantity: number; status: string; menu_item_id: string }[] }[]) ?? []).forEach((o) => {
+      if (o.status === "closed" && o.closed_at) {
+        const ts = Date.parse(o.closed_at);
+        const maliyet = o.order_items.filter((i) => i.status === "active" || i.status === "ikram").reduce((s, i) => s + i.quantity * (recipeCost[i.menu_item_id] ?? 0), 0);
+        sinirlar.forEach((b, k) => { if (ts >= b) { ciroP[k] += Number(o.total_amount ?? 0); maliyetP[k] += maliyet; } });
+        if (ts >= bugunBasiMs) saat[parseInt(saatFmt.format(new Date(o.closed_at)))] += Number(o.total_amount ?? 0);
+      }
+      const tc = Date.parse(o.created_at);
+      sinirlar.forEach((b, k) => { if (tc >= b) musteriP[k] += o.party_size ?? 0; });
+    });
+    setPeriyot({ ciro: ciroP, maliyet: maliyetP, musteri: musteriP });
     setHourly(saat);
-    const lw = ((lwOrders as { total_amount: number | null }[]) ?? []).reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
-    setLwCiro(lw > 0 ? lw : null);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const kar = summary ? summary.ciro - summary.maliyet : 0;
   const kritikSayisi = prep?.kritik_stoklar.length ?? 0;
 
   const aylikGiderToplam = expenses.reduce((s, e) => s + Number(e.monthly_amount), 0);
   const gunSayisi = settings?.fixed_cost_days_override ?? ayGunSayisi();
   const gunlukSabitGider = gunSayisi > 0 ? aylikGiderToplam / gunSayisi : 0;
   const oran = foodCostRatio ?? 0.30; // geçmiş veri yoksa sektör ortalaması varsayımıyla başlar
-  const basabas = oran < 1 ? gunlukSabitGider / (1 - oran) : null;
   const marjinalKar1000 = (1 - oran) * 1000;
-  const bugunkuCiro = summary?.ciro ?? 0;
-  const lwFark = lwCiro != null ? ((bugunkuCiro - lwCiro) / lwCiro) * 100 : null;
   const saatMax = Math.max(...hourly, 1);
-  const ilerlemeYuzde = basabas && basabas > 0 ? Math.min(100, (bugunkuCiro / basabas) * 100) : 0;
-  const hedefeUlasildi = basabas != null && bugunkuCiro >= basabas;
+
+  // Dönem tablosu: [gün, hafta, ay, yıl] + 5. kutu şimdilik boş (Gökhan şablonu, 2026-07-13)
+  const bugun = bugunIstanbul();
+  const haftaninGunu = (new Date(bugun + "T00:00:00Z").getUTCDay() + 6) % 7;
+  const gecenGun = [1, haftaninGunu + 1, parseInt(bugun.slice(8)), Math.round((Date.parse(bugun) - Date.parse(bugun.slice(0, 4) + "-01-01")) / 86400000) + 1];
+  const basabasGun = oran < 1 ? gunlukSabitGider / (1 - oran) : 0;
+  const basabasArr = [basabasGun, basabasGun * 7, oran < 1 ? aylikGiderToplam / (1 - oran) : 0, oran < 1 ? (aylikGiderToplam * 12) / (1 - oran) : 0];
+  // Kârlılık: ciro − reçete maliyeti − o dönemde geçen günlerin sabit gider payı
+  const karArr = periyot ? periyot.ciro.map((c, k) => c - periyot.maliyet[k] - gunlukSabitGider * gecenGun[k]) : null;
 
   const addExpense = async () => {
     if (!restaurantId || !neName.trim()) return;
@@ -152,48 +161,37 @@ export default function AnaSayfa() {
 
   return (
     <div style={{ height: "calc(100vh - 4px)", boxSizing: "border-box", padding: "22px 26px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+      <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <Link href="/" style={pill}>Açık masa: <b className="tnum">{openTables}</b> <span className="tnum" style={{ color: "var(--muted)" }}>({money(openTotal)})</span></Link>
+        <Link href="/stok" style={{ ...pill, background: kritikSayisi > 0 ? "var(--danger-bg)" : "var(--card)", color: kritikSayisi > 0 ? "var(--danger)" : "var(--ink)" }}>Kritik stok: <b className="tnum">{kritikSayisi}</b></Link>
         <div style={{ fontSize: 13, color: "var(--muted)" }}>Bugün · {bugunIstanbul()}</div>
       </div>
 
-      {/* VERİ MERKEZİ — başabaş de dahil, tek satır pencereler */}
-      <div style={{ flexShrink: 0, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 14 }}>
-        <div style={card}>
-          <div style={cardLabel}>Başabaş hedefi</div>
-          {basabas == null ? (
-            <div style={{ fontSize: 13, color: "var(--muted-2)", marginTop: 6 }}>Veri birikince hesaplanır (~%30 varsayım)</div>
-          ) : (
-            <>
-              <div className="tnum" style={cardValue}>{money(basabas)}</div>
-              <div style={{ height: 5, background: "var(--line)", borderRadius: 980, overflow: "hidden", marginTop: 8 }}>
-                <div style={{ height: "100%", width: `${ilerlemeYuzde}%`, background: hedefeUlasildi ? "var(--brand)" : "var(--gold)", borderRadius: 980 }} />
+      {/* DÖNEM TABLOSU — satırlar: Ciro/Başabaş/Kârlılık/Müşteri · sütunlar: Gün/Hafta/Ay/Yıl/boş */}
+      <div style={{ flexShrink: 0, display: "grid", gridTemplateColumns: "110px repeat(5, 1fr)", gap: 8, marginBottom: 6 }}>
+        <div />
+        {["GÜN", "HAFTA", "AY", "YIL", ""].map((b, i) => (
+          <div key={i} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--muted)", padding: "2px 0", letterSpacing: "0.5px" }}>{b || "—"}</div>
+        ))}
+        {([
+          { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
+          { l: "BAŞABAŞ", vals: basabasArr, fmt: (v: number) => money(v), renk: () => "var(--ink)" },
+          { l: "KÂRLILIK", vals: karArr, fmt: (v: number) => money(v), renk: (v: number) => (v < 0 ? "var(--danger)" : "var(--brand)") },
+          { l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" },
+        ] as { l: string; vals: number[] | null; fmt: (v: number) => string; renk: (v: number) => string }[]).map((r) => (
+          <Fragment key={r.l}>
+            <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start" }}>{r.l}</div>
+            {[0, 1, 2, 3].map((k) => (
+              <div key={k} className="tnum" style={{ ...matrisKutu, color: r.vals ? r.renk(r.vals[k]) : "var(--muted-2)" }}>
+                {r.vals ? r.fmt(r.vals[k]) : "…"}
               </div>
-              <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 5 }}>
-                {hedefeUlasildi ? "Geçildi ✓" : `Kalan ${money(Math.max(0, basabas - bugunkuCiro))}`}{` · 1.000₺'nin ${money(marjinalKar1000)}'si kâr`}
-              </div>
-            </>
-          )}
-        </div>
-        <Link href="/gun-sonu" style={card}>
-          <div style={cardLabel}>Bugünkü ciro</div>
-          <div className="tnum" style={cardValue}>{money(bugunkuCiro)}</div>
-          <div style={{ fontSize: 11.5, marginTop: 5, color: lwFark == null ? "var(--muted-2)" : lwFark >= 0 ? "var(--brand)" : "#a32d2d" }}>
-            {guestsToday > 0 && <span style={{ color: "var(--muted-2)" }}>{guestsToday} müşteri · </span>}
-            {lwFark == null ? "geçen hafta verisi yok" : `geçen haftaya göre ${lwFark >= 0 ? "+" : "−"}%${Math.abs(lwFark).toFixed(0)}`}
-          </div>
-        </Link>
-        <Link href="/gun-sonu" style={{ ...card, background: "var(--brand-strong)" }}>
-          <div style={{ ...cardLabel, color: "rgba(255,255,255,0.8)" }}>Net kâr (bugün)</div>
-          <div className="tnum" style={{ ...cardValue, color: "#fff" }}>{money(kar)}</div>
-        </Link>
-        <Link href="/" style={card}>
-          <div style={cardLabel}>Açık masa</div>
-          <div className="tnum" style={cardValue}>{openTables} <span style={{ fontSize: 14, color: "var(--muted)", fontWeight: 400 }}>({money(openTotal)})</span></div>
-        </Link>
-        <Link href="/stok" style={{ ...card, background: kritikSayisi > 0 ? "#FBF2E1" : "var(--card)" }}>
-          <div style={{ ...cardLabel, color: kritikSayisi > 0 ? "var(--gold-text)" : "var(--muted)" }}>Kritik stok</div>
-          <div className="tnum" style={{ ...cardValue, color: kritikSayisi > 0 ? "var(--gold-text)" : "var(--ink)" }}>{kritikSayisi}</div>
-        </Link>
+            ))}
+            <div style={{ ...matrisKutu, background: "transparent", border: "1px dashed var(--line)", color: "var(--muted-2)" }}>—</div>
+          </Fragment>
+        ))}
+      </div>
+      <div style={{ flexShrink: 0, fontSize: 11.5, color: "var(--muted-2)", marginBottom: 12 }}>
+        {`Başabaş ve kârlılık tahmindir (son 30 günün malzeme oranı + sabit gider payı) · her 1.000₺ ciro ~${money(marjinalKar1000)} kâr bırakır`}
       </div>
 
       {/* alt bölge — gerekirse kendi içinde kayar, sayfa kaymaz */}
@@ -320,8 +318,7 @@ export default function AnaSayfa() {
   );
 }
 
-const card: React.CSSProperties = { display: "block", textDecoration: "none", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 18 };
-const cardLabel: React.CSSProperties = { fontSize: 13, color: "var(--muted)" };
-const cardValue: React.CSSProperties = { fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginTop: 6 };
+const pill: React.CSSProperties = { textDecoration: "none", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 980, padding: "6px 13px", fontSize: 12.5, color: "var(--ink)" };
+const matrisKutu: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 6px", fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 46, minWidth: 0 };
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "8px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13 };

@@ -219,8 +219,8 @@ export default function GunSonu() {
       {/* HÜKÜM BANDI */}
       <div style={{
         display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderRadius: 14, marginBottom: 14, flexShrink: 0,
-        background: closure && sorunlar.length === 0 ? "var(--success-bg, #e7f2ec)" : sorunlar.length > 0 ? "#FBF2E1" : "var(--recede)",
-        border: `1px solid ${closure && sorunlar.length === 0 ? "#bcd9cb" : sorunlar.length > 0 ? "#EDD8AE" : "var(--line)"}`,
+        background: closure && sorunlar.length === 0 ? "var(--card)" : sorunlar.length > 0 ? "var(--danger-bg)" : "var(--recede)",
+        border: `1px solid ${closure && sorunlar.length === 0 ? "var(--brand)" : sorunlar.length > 0 ? "var(--gold)" : "var(--line)"}`,
       }}>
         {closure && sorunlar.length === 0
           ? <CheckCircle2 size={20} color="var(--brand)" style={{ flexShrink: 0 }} />
@@ -246,7 +246,7 @@ export default function GunSonu() {
           </div>
         )}
       </div>
-      {err && <div style={{ fontSize: 12.5, color: "#a32d2d", marginBottom: 10, flexShrink: 0 }}>Kaydedilemedi: {err}</div>}
+      {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>Kaydedilemedi: {err}</div>}
 
       <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
         {/* SORU 1 — Gerçek kâr */}
@@ -264,7 +264,7 @@ export default function GunSonu() {
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                 <span style={{ fontSize: 13, color: "var(--muted)" }}>Tahmini operasyon kârı</span>
-                <span className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.6px", color: kar >= 0 ? "var(--brand)" : "#a32d2d" }}>{money(kar)}</span>
+                <span className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.6px", color: kar >= 0 ? "var(--brand)" : "var(--danger)" }}>{money(kar)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
                 <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Kâr marjı</span>
@@ -293,7 +293,7 @@ export default function GunSonu() {
               {cokSatipAzKazanan.map((u) => <UrunRow key={u.name} u={u} deger={`${u.adet} adet · ${money(u.kar)}`} renk="var(--gold-text)" />)}</>)}
 
             {zararEttiren.length > 0 && (<><MiniBaslik uyari>Zarar ettiriyor</MiniBaslik>
-              {zararEttiren.map((u) => <UrunRow key={u.name} u={u} deger={money(u.kar)} renk="#a32d2d" />)}</>)}
+              {zararEttiren.map((u) => <UrunRow key={u.name} u={u} deger={money(u.kar)} renk="var(--danger)" />)}</>)}
 
             {yuksekFoodCost.length > 0 && (<><MiniBaslik uyari>Food cost %40 üstü</MiniBaslik>
               {yuksekFoodCost.map((u) => <UrunRow key={u.name} u={u} deger={`%${u.foodCost!.toFixed(0)}`} renk="var(--gold-text)" />)}</>)}
@@ -315,7 +315,7 @@ export default function GunSonu() {
             <Satir l="Nakit çıkışlar" v={cikislar > 0 ? `−${money(cikislar)}` : "—"} muted={cikislar === 0} />
             <Satir l="Beklenen kasa" v={money(beklenenNakit)} strong />
             {closure && <Satir l="Sayılan kasa" v={money(Number(closure.counted_cash))} strong />}
-            {closure && <Satir l="Fark" v={Number(closure.difference) === 0 ? "0 ₺ — tutuyor" : money(Number(closure.difference))} strong renk={Number(closure.difference) === 0 ? "var(--brand)" : "#a32d2d"} />}
+            {closure && <Satir l="Fark" v={Number(closure.difference) === 0 ? "0 ₺ — tutuyor" : money(Number(closure.difference))} strong renk={Number(closure.difference) === 0 ? "var(--brand)" : "var(--danger)"} />}
 
             {cashMoves.length > 0 && (
               <div style={{ margin: "6px 0" }}>

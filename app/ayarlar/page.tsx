@@ -133,7 +133,7 @@ export default function Ayarlar() {
           <div style={{ flexShrink: 0, marginTop: 14 }}>
             <button onClick={saveSettings} style={btnPrimary}>Kaydet</button>
             {saved && <span style={{ marginLeft: 10, fontSize: 12.5, color: "var(--success)" }}>Kaydedildi</span>}
-            {saveError && <div style={{ marginTop: 8, fontSize: 12.5, color: "#a32d2d" }}>Kaydedilemedi: {saveError}</div>}
+            {saveError && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--danger)" }}>Kaydedilemedi: {saveError}</div>}
           </div>
         </div>
 
@@ -158,7 +158,7 @@ export default function Ayarlar() {
           </div>
           <div style={{ flexShrink: 0, marginTop: 14 }}>
             <button onClick={saveCategoryRates} style={btnPrimary}>Kaydet</button>
-            {saveError && <div style={{ marginTop: 8, fontSize: 12.5, color: "#a32d2d" }}>Kaydedilemedi: {saveError}</div>}
+            {saveError && <div style={{ marginTop: 8, fontSize: 12.5, color: "var(--danger)" }}>Kaydedilemedi: {saveError}</div>}
           </div>
         </div>
       </div>

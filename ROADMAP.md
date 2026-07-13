@@ -207,3 +207,5 @@ Kullanıcı yorumlarında tasarımı/kolaylığı en çok övülen sistemler inc
 - Kartlardan tıklayıp detay rapora inme (drill-down) → Raporlar sayfası zenginleşince
 - Karşılaştırma dönemi seçimi (geçen hafta / geçen yıl aynı hafta) → veri biriktikçe
 - Haftalık özet görünümü (Toast varsayılanı haftalık kadans) → Raporlar sayfasına
+
+**Tema kararı (Gökhan, 2026-07-13):** Yeşil palet (#fffeef / #9fd700 / #446158 / #272c1a) + yeşil küpler arka plan fotoğrafı onaylandı. İleride **arka plan seçenekleri** eklenecek: işletme Ayarlar'dan hazır arka planlardan seçebilecek veya kendi görselini yükleyebilecek (isteyen istediğini kullanır).

@@ -400,11 +400,11 @@ export default function MenuPage() {
               <div style={{ flex: 1.3, minWidth: 0, overflowY: "auto", overflowX: "hidden" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                   <span style={{ fontSize: 18, fontWeight: 600, color: "var(--ink-green)" }}>Ürün</span>
-                  <button onClick={deleteProduct} style={{ ...btnSecondary, color: "#a32d2d", borderColor: "#e7c9c9" }}><Trash2 size={14} /> Sil</button>
+                  <button onClick={deleteProduct} style={{ ...btnSecondary, color: "var(--danger)", borderColor: "var(--danger-bg)" }}><Trash2 size={14} /> Sil</button>
                 </div>
 
                 {selectedProduct.is_active && !receteVar && (
-                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 12, background: "#fbeaea", color: "#a32d2d", fontSize: 13, marginBottom: 12 }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13, marginBottom: 12 }}>
                     <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
                     <span>Bu ürünün reçetesi eksik. Satış yapılabilir ama stok, maliyet ve kârlılık hesapları eksik kalır.</span>
                   </div>
@@ -451,7 +451,7 @@ export default function MenuPage() {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
                     {ALLERGENS.map((a) => {
                       const on = alerjenlerEffective.includes(a);
-                      return <button key={a} onClick={() => setSelectedProduct({ ...selectedProduct, allergens_override: (selectedProduct.allergens_override ?? alerjenlerAuto).includes(a) ? (selectedProduct.allergens_override ?? alerjenlerAuto).filter((x) => x !== a) : [...(selectedProduct.allergens_override ?? alerjenlerAuto), a] })} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--gold)" : "var(--card)", color: on ? "#3d2c05" : "var(--muted)" }}>{a}</button>;
+                      return <button key={a} onClick={() => setSelectedProduct({ ...selectedProduct, allergens_override: (selectedProduct.allergens_override ?? alerjenlerAuto).includes(a) ? (selectedProduct.allergens_override ?? alerjenlerAuto).filter((x) => x !== a) : [...(selectedProduct.allergens_override ?? alerjenlerAuto), a] })} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--gold)" : "var(--card)", color: on ? "#272c1a" : "var(--muted)" }}>{a}</button>;
                     })}
                   </div>
 
@@ -561,7 +561,7 @@ export default function MenuPage() {
                   />
                   <button onClick={addRecipeRow} style={btnSmall}><Plus size={15} /></button>
                 </div>
-                {recQtyError && <div style={{ fontSize: 12, color: "#a32d2d", marginTop: 6 }}>Anlaşılamadı — örn. 15 gr, 250 ml, 1 adet</div>}
+                {recQtyError && <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 6 }}>Anlaşılamadı — örn. 15 gr, 250 ml, 1 adet</div>}
                 {showNewIng && (
                   <div style={{ marginTop: 10, border: "1px solid var(--line)", borderRadius: 12, padding: 12, background: "var(--recede)" }}>
                     <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Yeni malzeme</div>
@@ -584,7 +584,7 @@ export default function MenuPage() {
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
                       {ALLERGENS.map((a) => {
                         const on = niAllergens.includes(a);
-                        return <button key={a} onClick={() => setNiAllergens((prev) => on ? prev.filter((x) => x !== a) : [...prev, a])} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--gold)" : "var(--card)", color: on ? "#3d2c05" : "var(--muted)" }}>{a}</button>;
+                        return <button key={a} onClick={() => setNiAllergens((prev) => on ? prev.filter((x) => x !== a) : [...prev, a])} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--gold)" : "var(--card)", color: on ? "#272c1a" : "var(--muted)" }}>{a}</button>;
                       })}
                     </div>
                     <button onClick={addIngredient} style={btnPrimary}>Ekle</button>
@@ -746,7 +746,7 @@ function ProdItem({ prod, pad }: { prod: Product; pad: number }) {
       <button {...attributes} {...listeners} aria-label="taşı" style={{ all: "unset", cursor: "grab", padding: "0 6px", color: "var(--muted-2)", touchAction: "none", display: "inline-flex" }}><GripVertical size={15} /></button>
       <div onClick={() => m.selectProduct(prod)} style={{ cursor: "pointer", flex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 8px", fontSize: 13.5, fontWeight: selected ? 600 : 400, color: selected ? "var(--brand)" : "var(--ink)" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          {missingRecipe && <AlertTriangle size={12} color="#a32d2d" aria-label="Reçete eksik" />}
+          {missingRecipe && <AlertTriangle size={12} color="var(--danger)" aria-label="Reçete eksik" />}
           {!missingRecipe && priceMismatch && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--gold-text)", flexShrink: 0 }} aria-label="Tavsiye fiyattan farklı" />}
           {!prod.is_active && <span style={{ fontSize: 10.5, color: "var(--muted-2)" }}>(pasif)</span>}
           <EditableText value={prod.name} onSave={(v) => m.renameProduct(prod.id, v)} />

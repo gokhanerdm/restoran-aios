@@ -326,7 +326,7 @@ export default function TableOrderPanel({
                 {i.status === "active" && (
                   <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
                     <button onClick={() => compItem(i)} disabled={busy} title="İkram et" style={miniAction}>İkram</button>
-                    <button onClick={() => voidItem(i)} disabled={busy} title="İptal et" style={{ ...miniAction, color: "#a32d2d" }}>İptal</button>
+                    <button onClick={() => voidItem(i)} disabled={busy} title="İptal et" style={{ ...miniAction, color: "var(--danger)" }}>İptal</button>
                   </span>
                 )}
               </div>
