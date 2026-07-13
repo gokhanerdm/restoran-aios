@@ -22,6 +22,8 @@ const BOX_W = 148;
 const BOX_H = 108;
 const GAP = 14;
 const COLS = 5;
+// Masayı bıraktığında en yakın kutu hizasına yapıştırır — yan yana getirince otomatik hizalanır.
+const snapCoord = (v: number, size: number) => Math.max(0, GAP + Math.round((v - GAP) / (size + GAP)) * (size + GAP));
 
 export default function SalonlarPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
@@ -36,6 +38,9 @@ export default function SalonlarPage() {
   const [mergeFirst, setMergeFirst] = useState<string | null>(null);
   const [mergeChoice, setMergeChoice] = useState<{ a: TableRow; b: TableRow } | null>(null);
   const [now, setNow] = useState<number | null>(null);
+  const [addingTable, setAddingTable] = useState(false);
+  const [newTableName, setNewTableName] = useState("");
+  const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
@@ -83,53 +88,75 @@ export default function SalonlarPage() {
       const ok = window.confirm(`Bu salonda ${count} masa var. Silersen masalar da silinir. Yine de silinsin mi?`);
       if (!ok) return;
     }
-    await supabase.from("dining_areas").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+    setErr(null);
+    const { error } = await supabase.from("dining_areas").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+    if (error) { setErr(error.message); return; }
     if (selectedAreaId === a.id) setSelectedAreaId(null);
     await load();
   };
   const addArea = async () => {
     if (!restaurantId || !newAreaName.trim()) return;
-    const { data } = await supabase.from("dining_areas").insert({ restaurant_id: restaurantId, name: toUpperTr(newAreaName), sort_order: areas.length }).select("id").single();
+    setErr(null);
+    const { data, error } = await supabase.from("dining_areas").insert({ restaurant_id: restaurantId, name: toUpperTr(newAreaName), sort_order: areas.length }).select("id").single();
+    if (error) { setErr(error.message); return; }
     setNewAreaName(""); setAddingArea(false);
     await load();
     if (data) setSelectedAreaId(data.id);
   };
 
-  const addTablePrompt = async () => {
-    if (!restaurantId || !selectedAreaId) return;
-    const name = window.prompt("Masa adı (Masa 9):", "");
-    if (!name || !name.trim()) return;
+  const addTable = async () => {
+    if (!restaurantId || !selectedAreaId || !newTableName.trim()) return;
+    setErr(null);
     const count = tables.filter((t) => t.area_id === selectedAreaId).length;
-    await supabase.from("restaurant_tables").insert({ restaurant_id: restaurantId, name: toTitleTr(name), area_id: selectedAreaId, status: "empty", sort_order: count });
+    const { error } = await supabase.from("restaurant_tables").insert({ restaurant_id: restaurantId, name: toTitleTr(newTableName), area_id: selectedAreaId, status: "empty", sort_order: count });
+    if (error) { setErr(error.message); return; }
+    setNewTableName(""); setAddingTable(false);
     await load();
   };
-  const renameTable = async (id: string, name: string) => { await supabase.from("restaurant_tables").update({ name: toTitleTr(name) }).eq("id", id); await load(); };
+  const renameTable = async (id: string, name: string) => {
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ name: toTitleTr(name) }).eq("id", id);
+    if (error) { setErr(error.message); return; }
+    await load();
+  };
   const deleteTable = async (t: TableRow) => {
     const ok = window.confirm(`"${t.name}" silinsin mi?`);
     if (!ok) return;
-    await supabase.from("restaurant_tables").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);
+    if (error) { setErr(error.message); return; }
     if (selectedTableId === t.id) setSelectedTableId(null);
     await load();
   };
   const moveTable = async (id: string, x: number, y: number) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, position_x: x, position_y: y } : t)));
-    await supabase.from("restaurant_tables").update({ position_x: x, position_y: y }).eq("id", id);
+    const { error } = await supabase.from("restaurant_tables").update({ position_x: x, position_y: y }).eq("id", id);
+    if (error) setErr(error.message);
   };
   const reserveTable = async (id: string) => {
-    const note = window.prompt("Rezervasyon notu (isim, saat vb. — opsiyonel):", "") ?? "";
-    await supabase.from("restaurant_tables").update({ status: "reserved", reservation_note: note || null }).eq("id", id);
+    const note = window.prompt("Rezervasyon notu (isim, saat vb. — opsiyonel):", "");
+    if (note == null) return; // Vazgeç'e basıldı
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ status: "reserved", reservation_note: note || null }).eq("id", id);
+    if (error) { setErr(error.message); return; }
     await load();
   };
   const unreserveTable = async (id: string) => {
-    await supabase.from("restaurant_tables").update({ status: "empty", reservation_note: null }).eq("id", id);
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ status: "empty", reservation_note: null }).eq("id", id);
+    if (error) { setErr(error.message); return; }
     await load();
   };
   const unmergeTable = async (id: string) => {
-    await supabase.from("restaurant_tables").update({ merged_into_table_id: null }).eq("id", id);
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ merged_into_table_id: null }).eq("id", id);
+    if (error) { setErr(error.message); return; }
     await load();
   };
   const mergeInto = async (sourceId: string, targetId: string) => {
-    await supabase.from("restaurant_tables").update({ merged_into_table_id: targetId }).eq("id", sourceId);
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ merged_into_table_id: targetId }).eq("id", sourceId);
+    if (error) { setErr(error.message); return; }
     setMergeChoice(null);
     await load();
   };
@@ -187,18 +214,8 @@ export default function SalonlarPage() {
           </div>
         </div>
 
-        {/* kat planı */}
+        {/* kat planı — sol menüyle aynı hizada başlar */}
         <div style={{ flex: 1.6, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexShrink: 0 }}>
-            <div style={{ fontSize: 13, color: "var(--muted)" }}>{tablesInArea.length} masa</div>
-            <button
-              onClick={() => { setMergeMode((m) => !m); setMergeFirst(null); }}
-              style={{ ...btnSecondary, width: "auto", background: mergeMode ? "var(--ink-green)" : "var(--card)", color: mergeMode ? "#fff" : "var(--ink-green)" }}
-            >
-              {mergeMode ? "Birleştirmeyi iptal et" : "Masa birleştir"}
-            </button>
-          </div>
-
           <div style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}>
             <div style={{ position: "relative", width: "100%", height: containerHeight }}>
               {positioned.map(({ table: t, x, y }) => (
@@ -223,19 +240,53 @@ export default function SalonlarPage() {
                   onUnmerge={() => unmergeTable(t.id)}
                 />
               ))}
-              <button
-                onClick={addTablePrompt}
-                style={{
-                  position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
-                  border: "1px dashed var(--line-2)", borderRadius: 14, background: "transparent", color: "var(--muted)",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13,
-                }}
-              >
-                <Plus size={18} /> Masa ekle
-              </button>
+              {!addingTable ? (
+                <button
+                  onClick={() => { setAddingTable(true); setErr(null); }}
+                  style={{
+                    position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
+                    border: "1px dashed var(--line-2)", borderRadius: 14, background: "transparent", color: "var(--muted)",
+                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13,
+                  }}
+                >
+                  <Plus size={18} /> Masa ekle
+                </button>
+              ) : (
+                <div
+                  style={{
+                    position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
+                    border: "1px solid var(--line-2)", borderRadius: 14, background: "var(--card)", boxSizing: "border-box",
+                    display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 6, padding: 10,
+                  }}
+                >
+                  <input
+                    value={newTableName}
+                    onChange={(e) => setNewTableName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") addTable(); if (e.key === "Escape") { setAddingTable(false); setNewTableName(""); } }}
+                    placeholder="Masa 9"
+                    style={{ ...inp, fontSize: 13, padding: "6px 8px" }}
+                    autoFocus
+                  />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={addTable} style={{ ...btnSmall, flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Ekle</button>
+                    <button onClick={() => { setAddingTable(false); setNewTableName(""); }} style={{ ...btnSecondary, width: "auto", flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Vazgeç</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, flexShrink: 0 }}>
+            <div style={{ fontSize: 13, color: "var(--muted)" }}>{tablesInArea.length} masa</div>
+            <button
+              onClick={() => { setMergeMode((m) => !m); setMergeFirst(null); }}
+              style={{ ...btnSecondary, width: "auto", background: mergeMode ? "var(--ink-green)" : "var(--card)", color: mergeMode ? "#fff" : "var(--ink-green)" }}
+            >
+              {mergeMode ? "Birleştirmeyi iptal et" : "Masa birleştir"}
+            </button>
+          </div>
           {mergeMode && <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 8, flexShrink: 0 }}>İki masaya sırayla tıkla, sonra hangisinde birleşeceğini seç.</div>}
+          {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginTop: 8, flexShrink: 0 }}>{err}</div>}
         </div>
 
         {/* sipariş paneli */}
@@ -304,7 +355,7 @@ function TableBox({
     const dy = dragOffset?.dy ?? 0;
     startRef.current = null;
     setDragOffset(null);
-    if (moved) onMove(table.id, Math.max(0, x + dx), Math.max(0, y + dy));
+    if (moved) onMove(table.id, snapCoord(x + dx, BOX_W), snapCoord(y + dy, BOX_H));
     else onClick();
   };
 

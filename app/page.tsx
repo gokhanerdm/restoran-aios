@@ -25,6 +25,15 @@ export default function Home() {
   const [cmAmount, setCmAmount] = useState("");
   const [cmNote, setCmNote] = useState("");
   const [cmMsg, setCmMsg] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const load = useCallback(async () => {
     const { data: rest } = await supabase.from("restaurants").select("id, name").is("deleted_at", null).limit(1).single();
@@ -60,9 +69,9 @@ export default function Home() {
   const acikToplam = tables.reduce((s, t) => s + orderTotal(orderForTable(t.id)), 0);
 
   return (
-    <div style={{ padding: "26px 28px", display: "flex", gap: 22, alignItems: "flex-start" }}>
+    <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", display: "flex", gap: 22, alignItems: "flex-start" }}>
       <div style={{ flex: 1.6, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 22 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 22, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Salon</div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{doluSayisi} masa dolu · {money(acikToplam)} açık hesap</div>
@@ -85,7 +94,7 @@ export default function Home() {
           )}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${isMobile ? 128 : 150}px, 1fr))`, gap: isMobile ? 10 : 14 }}>
           {tables.map((t) => {
             const ord = orderForTable(t.id);
             const total = orderTotal(ord);
@@ -122,14 +131,35 @@ export default function Home() {
         </div>
       </div>
 
-      <div style={{ position: "sticky", top: 26 }}>
-        <TableOrderPanel
-          restaurantId={restaurantId}
-          table={selectedTable ? { id: selectedTable.id, name: selectedTable.name, status: selectedTable.status } : null}
-          onChanged={load}
-          onClosed={() => setSelectedTableId(null)}
-        />
-      </div>
+      {!isMobile && (
+        <div style={{ position: "sticky", top: 26 }}>
+          <TableOrderPanel
+            restaurantId={restaurantId}
+            table={selectedTable ? { id: selectedTable.id, name: selectedTable.name, status: selectedTable.status } : null}
+            onChanged={load}
+            onClosed={() => setSelectedTableId(null)}
+          />
+        </div>
+      )}
+
+      {isMobile && selectedTable && (
+        <>
+          <div
+            className="backdrop-fade-in"
+            onClick={() => setSelectedTableId(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", zIndex: 40 }}
+          />
+          <div className="sheet-slide-up" style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 50 }}>
+            <TableOrderPanel
+              variant="sheet"
+              restaurantId={restaurantId}
+              table={{ id: selectedTable.id, name: selectedTable.name, status: selectedTable.status }}
+              onChanged={load}
+              onClosed={() => setSelectedTableId(null)}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }

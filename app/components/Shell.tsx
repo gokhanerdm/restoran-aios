@@ -29,8 +29,8 @@ const nav = [
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // Müşteriye açık menü (QR / site embed) yönetim kabuğunu kullanmaz
-  if (pathname.startsWith("/m/")) return <>{children}</>;
+  // Müşteriye açık menü (QR / site embed) ve garson mobil sipariş modülü yönetim kabuğunu kullanmaz
+  if (pathname.startsWith("/m/") || pathname.startsWith("/garson")) return <>{children}</>;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>

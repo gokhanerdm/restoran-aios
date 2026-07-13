@@ -36,11 +36,14 @@ export default function TableOrderPanel({
   table,
   onChanged,
   onClosed,
+  variant = "sidebar",
 }: {
   restaurantId: string | null;
   table: TableForOrder | null;
   onChanged: () => void;
   onClosed?: () => void;
+  // "sidebar": masaüstünde masa gridinin yanında sabit sütun. "sheet": mobilde alttan açılan tam genişlik panel.
+  variant?: "sidebar" | "sheet";
 }) {
   const [order, setOrder] = useState<Order | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -273,13 +276,14 @@ export default function TableOrderPanel({
   const cfgModList = config ? (cfgGroups.flatMap((gr) => (chosenMods[gr.id] ?? []).map((id) => gr.modifiers.find((m) => m.id === id)).filter(Boolean)) as CfgMod[]) : [];
   const cfgPrice = cfgBase + cfgModList.reduce((s, m) => s + m.price_delta, 0);
 
+  const rootStyle: React.CSSProperties =
+    variant === "sheet"
+      ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "auto" }
+      : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460 };
+
   return (
-    <div
-      style={{
-        flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)",
-        borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460,
-      }}
-    >
+    <div style={rootStyle}>
+      {variant === "sheet" && <div style={{ width: 40, height: 4, borderRadius: 980, background: "var(--line-2)", margin: "0 auto 14px" }} />}
       {!table && <div style={{ color: "var(--muted)", fontSize: 14, margin: "auto" }}>Bir masa seç</div>}
 
       {table && !order && (
@@ -300,7 +304,12 @@ export default function TableOrderPanel({
 
       {table && order && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)", flexShrink: 0 }}>{table.name}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{table.name}</div>
+            {variant === "sheet" && (
+              <button onClick={() => onClosed?.()} aria-label="kapat" style={{ all: "unset", cursor: "pointer", width: 28, height: 28, borderRadius: "50%", background: "var(--recede)", color: "var(--muted)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>✕</button>
+            )}
+          </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "6px 0 12px", flexShrink: 0 }}>
             <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Adisyon</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--muted)" }}>
@@ -488,11 +497,14 @@ export default function TableOrderPanel({
               <button
                 onClick={() => {
                   const remaining = orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0);
+                  // Ödenecek bir şey yoksa (ürün eklenmedi ya da hepsi iptal edildi) doğrudan masayı boşalt —
+                  // ödeme adımına girip "kalan 0₺" yüzünden tüm yöntem butonlarının pasif kalmasını engeller.
+                  if (remaining <= 0) { closeBill(); return; }
                   setPayStep(true); setMenuOpen(false); setPayAmount(String(Math.max(0, Math.round(remaining * 100) / 100)));
                 }}
                 disabled={busy}
                 style={{ ...pillPrimary, width: "100%" }}
-              >Hesap al</button>
+              >{orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0) <= 0 ? "Masayı boşalt" : "Hesap al"}</button>
             </div>
           ) : (() => {
             const total = orderTotal(order);

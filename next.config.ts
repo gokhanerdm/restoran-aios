@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Geliştirme sunucusunu telefon/tablet gibi yerel ağdaki cihazlardan test edebilmek için
+  // (garson mobil modülü) — Next.js varsayılan olarak localhost dışı istekleri güvenlik
+  // amacıyla engelliyor. IP değişirse burayı güncellemek gerekir (ipconfig ile bakılır).
+  allowedDevOrigins: ["192.168.1.102"],
 };
 
 export default nextConfig;

@@ -1,51 +1,40 @@
 @import "tailwindcss";
 
-/* Palet: Gökhan'ın gönderdiği yeşil palet (Noguchi, 2026-07-13).
-   #fffeef krem · #9fd700 fıstık yeşili · #446158 adaçayı · #272c1a koyu zeytin
-   Arka plan: public/arkaplan.jpg (yeşil küpler) */
 :root {
-  --canvas: #272c1a;
-  --card: #33422E;
-  --recede: #2B3623;
-  --rail: #1D2213;
-  --brand: #9fd700;
-  --brand-strong: #446158;
-  --gold: #9fd700;
-  --gold-text: #C0E66A;
-  --ink: #fffeef;
-  --ink-green: #C9E979;
-  --muted: #A9B79B;
-  --muted-2: #7E8A72;
-  --line: #3C4A34;
-  --line-2: #446158;
-  --info: #9CC0B2;
-  --info-bg: #446158;
-  --danger: #E8907F;
-  --danger-bg: #4A3128;
+  --canvas: #faf8f3;
+  --card: #ffffff;
+  --recede: #f1efe8;
+  --rail: #1e3932;
+  --brand: #00704a;
+  --brand-strong: #006241;
+  --gold: #c8a24c;
+  --gold-text: #9a7b2e;
+  --ink: #1e1e1c;
+  --ink-green: #1e3932;
+  --muted: #7c8a82;
+  --muted-2: #9a998f;
+  --line: #efede6;
+  --line-2: #dde6e1;
+  --info: #4a6fa5;
+  --info-bg: #e9eff7;
+  --danger: #a32d2d;
+  --danger-bg: #fbeaea;
 }
 
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
   padding: 0;
+  background: var(--canvas);
   color: var(--ink);
   font-family: -apple-system, "SF Pro Display", "Segoe UI", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-/* Düz renk html'de kalır (fotoğraf yüklenemezse yedek); body şeffaf ki ::before'daki fotoğraf görünsün */
-html { background: var(--canvas); }
-body { background: transparent; }
-
-/* Sayfa arka planı fotoğrafı (public/arkaplan.jpg) — dosya yoksa düz --canvas rengi kalır.
-   Üstteki koyu degrade, fotoğrafın deseni yazıları yormasın diye. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  background:
-    linear-gradient(rgba(39, 44, 26, 0.45), rgba(39, 44, 26, 0.45)),
-    url("/arkaplan.jpg") center / cover no-repeat;
-}
 button { font-family: inherit; cursor: pointer; }
 .tnum { font-variant-numeric: tabular-nums; }
+
+/* Mobil sipariş paneli — alttan yukarı kayan panel (Kasa ekranı) */
+@keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes backdropFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.sheet-slide-up { animation: sheetSlideUp .22s ease-out; }
+.backdrop-fade-in { animation: backdropFadeIn .22s ease-out; }
