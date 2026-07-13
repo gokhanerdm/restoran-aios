@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Home,
-  Grid2x2,
   LayoutGrid,
   LineChart,
   BarChart3,
@@ -16,7 +15,6 @@ import {
 
 const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
-  { href: "/salonlar", icon: Grid2x2, label: "Salonlar" },
   { href: "/", icon: LayoutGrid, label: "Kasa" },
   { href: "/gun-sonu", icon: LineChart, label: "Gün sonu" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
