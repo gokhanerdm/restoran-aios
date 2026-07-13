@@ -172,24 +172,28 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
-  // İkram satırındaki adet sıfıra inince satır iptal olmaz — ürün geri normal (aktif/paralı) kaleme döner.
-  // Aynı üründen zaten aktif bir satır varsa oraya eklenir (mükerrer satır oluşmasın).
+  // İkram adedi her zaman aktif (satılan) taraftan gelir/gider — satılmamış bir ürün ikram edilemez.
+  // "+": aynı üründen aktif bir birim varsa oradan 1 alıp ikrama ekler (aktif birim yoksa hiçbir şey yapmaz).
+  // "−": ikramdan 1 birimi geri aktif tarafa verir (aynı simetri, ters yönde).
   const changeCompQuantity = async (item: OrderItem, delta: number) => {
-    if (!order) return;
+    if (!order || !restaurantId) return;
+    const sibling = order.order_items.find(
+      (x) => x.status === "active" && x.menu_item_id === item.menu_item_id && x.variant_id === item.variant_id
+    );
     setBusy(true);
-    const next = item.quantity + delta;
-    if (next > 0) {
-      await supabase.from("order_items").update({ quantity: next }).eq("id", item.id);
+    if (delta > 0) {
+      if (!sibling) { setBusy(false); return; } // satmadığın bir şeyi ikram edemezsin
+      if (sibling.quantity > 1) await supabase.from("order_items").update({ quantity: sibling.quantity - 1 }).eq("id", sibling.id);
+      else await supabase.from("order_items").delete().eq("id", sibling.id);
+      await supabase.from("order_items").update({ quantity: item.quantity + 1 }).eq("id", item.id);
     } else {
-      const sibling = order.order_items.find(
-        (x) => x.status === "active" && x.menu_item_id === item.menu_item_id && x.variant_id === item.variant_id
-      );
-      if (sibling) {
-        await supabase.from("order_items").update({ quantity: sibling.quantity + 1 }).eq("id", sibling.id);
-        await supabase.from("order_items").delete().eq("id", item.id);
-      } else {
-        await supabase.from("order_items").update({ status: "active" }).eq("id", item.id);
-      }
+      if (sibling) await supabase.from("order_items").update({ quantity: sibling.quantity + 1 }).eq("id", sibling.id);
+      else await supabase.from("order_items").insert({
+        restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
+        quantity: 1, unit_price: item.unit_price, status: "active",
+      });
+      if (item.quantity > 1) await supabase.from("order_items").update({ quantity: item.quantity - 1 }).eq("id", item.id);
+      else await supabase.from("order_items").delete().eq("id", item.id);
     }
     await loadOrder(); onChanged();
     setBusy(false);
