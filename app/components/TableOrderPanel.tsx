@@ -9,6 +9,8 @@ type OrderItem = {
   quantity: number;
   unit_price: number;
   status: string;
+  menu_item_id: string;
+  variant_id: string | null;
   menu_items: { name: string } | null;
 };
 type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
@@ -87,8 +89,11 @@ export default function TableOrderPanel({
     if (!table) { setOrder(null); return; }
     const { data } = await supabase
       .from("orders")
-      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_items(name))")
-      .eq("table_id", table.id).eq("status", "open").maybeSingle();
+      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_item_id, variant_id, created_at, menu_items(name))")
+      .eq("table_id", table.id).eq("status", "open")
+      // Kalemler her zaman eklenme sırasına göre listelensin — adet değiştirince satır yerinden oynamasın.
+      .order("created_at", { referencedTable: "order_items" })
+      .maybeSingle();
     const o = (data as unknown as Order) ?? null;
     setOrder(o);
     if (o) {
@@ -164,10 +169,17 @@ export default function TableOrderPanel({
   const addItem = async (item: MenuItem) => {
     if (!restaurantId || !order) return;
     setBusy(true);
-    await supabase.from("order_items").insert({
-      restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.id,
-      quantity: 1, unit_price: item.sale_price, status: "active",
-    });
+    // Aynı ürün (varyantsız/modifiersiz) adisyonda zaten aktif olarak duruyorsa yeni satır açmak yerine
+    // adedini artır — üst üste tıklayınca listede ikinci bir satır belirmesin, sıradaki yeri korusun.
+    const existing = order.order_items.find((i) => i.status === "active" && i.menu_item_id === item.id && !i.variant_id);
+    if (existing) {
+      await supabase.from("order_items").update({ quantity: existing.quantity + 1 }).eq("id", existing.id);
+    } else {
+      await supabase.from("order_items").insert({
+        restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.id,
+        quantity: 1, unit_price: item.sale_price, status: "active",
+      });
+    }
     await loadOrder(); onChanged();
     setBusy(false);
   };
