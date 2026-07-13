@@ -295,7 +295,9 @@ export default function TableOrderPanel({
 
   const rootStyle: React.CSSProperties =
     variant === "sheet"
-      ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "auto" }
+      // touchAction: dikey kaydırmayı yatay sürüklemeden ayırır — mobilde parmakla yukarı/aşağı
+      // kaydırırken panelin sağa sola kaymasını (diagonal dokunuşlarda) engeller.
+      ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "auto", overflowX: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
       : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460 };
 
   return (
@@ -445,7 +447,7 @@ export default function TableOrderPanel({
           </button>
 
           {menuOpen && !config && (
-            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, touchAction: "pan-y" }}>
               {categories.map((c) => {
                 const open = expandedCats.has(c.id);
                 const items = menuItems.filter((m) => m.category_id === c.id);
@@ -478,7 +480,7 @@ export default function TableOrderPanel({
               <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-green)", marginBottom: 4, marginTop: 8 }}>{config.name}</div>
               <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Seçenekleri belirle</div>
 
-              <div style={{ overflowY: "auto", flex: 1 }}>
+              <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, touchAction: "pan-y" }}>
                 {cfgVariants.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Boy</div>
