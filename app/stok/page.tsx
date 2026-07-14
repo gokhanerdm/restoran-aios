@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2 } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import {
@@ -71,6 +71,16 @@ export default function StokPage() {
   const [nsName, setNsName] = useState("");
   const [nsFreq, setNsFreq] = useState("weekly");
 
+  // Çok kalemli fatura girişi (Fire/Kaçak Radarı Faz 1) — bir faturadaki tüm kalemler tek seferde
+  type InvRow = { ingredientId: string; qty: string; price: string };
+  const [showInvoice, setShowInvoice] = useState(false);
+  const [invSupplier, setInvSupplier] = useState("");
+  const [invRef, setInvRef] = useState("");
+  const [invDate, setInvDate] = useState("");
+  const [invRows, setInvRows] = useState<InvRow[]>([{ ingredientId: "", qty: "", price: "" }]);
+  const [invErr, setInvErr] = useState<string | null>(null);
+  const [invBusy, setInvBusy] = useState(false);
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
@@ -125,6 +135,53 @@ export default function StokPage() {
       p_source: "manuel",
     });
     setInQty("");
+    await load();
+  };
+
+  const bugunTarih = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+
+  const openInvoice = () => {
+    setInvSupplier(""); setInvRef(""); setInvDate(bugunTarih());
+    setInvRows([{ ingredientId: "", qty: "", price: "" }]);
+    setInvErr(null); setShowInvoice(true);
+  };
+
+  const setInvRow = (idx: number, patch: Partial<InvRow>) => {
+    setInvRows((rows) => rows.map((r, i) => {
+      if (i !== idx) return r;
+      const next = { ...r, ...patch };
+      // Malzeme seçilince fiyatı son bilinen birim maliyetle öner (elle değiştirilebilir)
+      if (patch.ingredientId && !r.price) {
+        const it = items.find((x) => x.ingredient_id === patch.ingredientId);
+        if (it && it.current_unit_cost > 0) next.price = String(it.current_unit_cost);
+      }
+      return next;
+    }));
+  };
+
+  const invTotal = invRows.reduce((s, r) => s + (parseFloat(r.qty.replace(",", ".")) || 0) * (parseFloat(r.price.replace(",", ".")) || 0), 0);
+
+  const saveInvoice = async () => {
+    if (!restaurantId || invBusy) return;
+    const kalemler = invRows
+      .filter((r) => r.ingredientId && (parseFloat(r.qty.replace(",", ".")) || 0) > 0)
+      .map((r) => ({
+        ingredient_id: r.ingredientId,
+        quantity: parseFloat(r.qty.replace(",", ".")) || 0,
+        unit_price: parseFloat(r.price.replace(",", ".")) || 0,
+      }));
+    if (kalemler.length === 0) { setInvErr("En az bir satırda malzeme ve miktar girilmeli."); return; }
+    setInvBusy(true); setInvErr(null);
+    const { error } = await supabase.rpc("add_purchase_invoice", {
+      p_restaurant: restaurantId,
+      p_supplier: invSupplier || null,
+      p_invoice_ref: invRef || null,
+      p_purchased_at: invDate ? new Date(invDate + "T12:00:00+03:00").toISOString() : null,
+      p_items: kalemler,
+    });
+    setInvBusy(false);
+    if (error) { setInvErr(`Fatura kaydedilemedi: ${error.message}`); return; }
+    setShowInvoice(false);
     await load();
   };
 
@@ -257,7 +314,10 @@ export default function StokPage() {
             {items.length} malzeme · {kritikSayisi} kritik
           </div>
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980 }}>
+        <button onClick={openInvoice} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 980, padding: "9px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500 }}>
+          <ReceiptText size={15} /> Fatura gir
+        </button>
+        <div style={{ marginLeft: 12, display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980 }}>
           {(["kritik", "tumu", "gida", "sarf"] as const).map((f) => (
             <button key={f} onClick={() => setFilter(f)} style={{
               fontSize: 12.5, padding: "6px 14px", borderRadius: 980, border: "none",
@@ -379,6 +439,66 @@ export default function StokPage() {
           )}
         </div>
       </div>
+
+      {/* ÇOK KALEMLİ FATURA GİRİŞİ — bir faturadaki tüm kalemler tek seferde (ROADMAP L, Faz 1) */}
+      {showInvoice && (
+        <>
+          <div onClick={() => setShowInvoice(false)} style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", zIndex: 40 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 50, width: "min(760px, 94vw)", maxHeight: "88vh", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 18px 50px rgba(30,57,50,.18)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--ink-green)" }}>Fatura gir</div>
+              <button onClick={() => setShowInvoice(false)} aria-label="kapat" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><X size={18} /></button>
+            </div>
+
+            <div style={{ padding: "14px 20px", overflowY: "auto", minHeight: 0 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <select value={invSupplier} onChange={(e) => setInvSupplier(e.target.value)} style={{ ...inp, flex: 1.4, minWidth: 160 }}>
+                  <option value="">Tedarikçi (opsiyonel)</option>
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} ({freqLabel[s.delivery_frequency]})</option>)}
+                </select>
+                <input value={invRef} onChange={(e) => setInvRef(e.target.value)} placeholder="Fatura no (opsiyonel)" style={{ ...inp, flex: 1, minWidth: 130 }} />
+                <input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} style={{ ...inp, width: 140 }} />
+              </div>
+
+              <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--muted-2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                <span style={{ flex: 1.6 }}>Malzeme</span>
+                <span style={{ width: 100 }}>Miktar</span>
+                <span style={{ width: 110 }}>Birim fiyat ₺</span>
+                <span style={{ width: 90, textAlign: "right" }}>Tutar</span>
+                <span style={{ width: 26 }} />
+              </div>
+              {invRows.map((r, idx) => {
+                const it = items.find((x) => x.ingredient_id === r.ingredientId);
+                const satirTutar = (parseFloat(r.qty.replace(",", ".")) || 0) * (parseFloat(r.price.replace(",", ".")) || 0);
+                return (
+                  <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
+                    <select value={r.ingredientId} onChange={(e) => setInvRow(idx, { ingredientId: e.target.value })} style={{ ...inp, flex: 1.6 }}>
+                      <option value="">Malzeme seç</option>
+                      {items.map((i) => <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_name} ({i.unit})</option>)}
+                    </select>
+                    <input value={r.qty} onChange={(e) => setInvRow(idx, { qty: e.target.value })} placeholder={it ? `Miktar (${it.unit})` : "Miktar"} inputMode="decimal" style={{ ...inp, width: 100 }} />
+                    <input value={r.price} onChange={(e) => setInvRow(idx, { price: e.target.value })} placeholder="₺" inputMode="decimal" style={{ ...inp, width: 110 }} />
+                    <span className="tnum" style={{ width: 90, textAlign: "right", fontSize: 13.5, color: satirTutar > 0 ? "var(--ink)" : "var(--muted-2)" }}>{satirTutar > 0 ? money(satirTutar) : "—"}</span>
+                    <button onClick={() => setInvRows((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows)} aria-label="satırı sil" style={{ all: "unset", cursor: "pointer", width: 26, color: "var(--muted-2)", display: "inline-flex", justifyContent: "center" }}><Trash2 size={14} /></button>
+                  </div>
+                );
+              })}
+              <button onClick={() => setInvRows((rows) => [...rows, { ingredientId: "", qty: "", price: "" }])} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)", padding: "10px 0 4px", display: "block" }}>
+                + satır ekle
+              </button>
+
+              {invErr && <div style={{ marginTop: 10, padding: "9px 13px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{invErr}</div>}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "14px 20px", borderTop: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 13.5, color: "var(--muted)" }}>Toplam <b className="tnum" style={{ color: "var(--ink-green)", fontSize: 16 }}>{money(invTotal)}</b></div>
+              <button onClick={saveInvoice} disabled={invBusy} style={{ border: "none", borderRadius: 980, padding: "11px 26px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, opacity: invBusy ? 0.6 : 1 }}>
+                {invBusy ? "Kaydediliyor…" : "Faturayı kaydet"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

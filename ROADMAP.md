@@ -209,3 +209,65 @@ Kullanıcı yorumlarında tasarımı/kolaylığı en çok övülen sistemler inc
 - Haftalık özet görünümü (Toast varsayılanı haftalık kadans) → Raporlar sayfasına
 
 **Tema kararı (Gökhan, 2026-07-13):** Yeşil palet (#fffeef / #9fd700 / #446158 / #272c1a) + yeşil küpler arka plan fotoğrafı onaylandı. İleride **arka plan seçenekleri** eklenecek: işletme Ayarlar'dan hazır arka planlardan seçebilecek veya kendi görselini yükleyebilecek (isteyen istediğini kullanır).
+
+## L) "İşletme Beyni" Vizyonu — Fire/Kaçak, Para Takibi, Tedarik Ajanı, Satış Tahmini, Personel (Gökhan, 2026-07-13)
+
+Gökhan 10 yıl işletmecilik yapmış, 15 mekan açmış biri. Programın "sıradan kasa/stok yazılımı" olmasını istemiyor — **aktif, gözlemci bir sistem** istiyor: veriyi sadece tutan değil, kendi kendine yorumlayıp sorun gördüğünde **kendisi haber veren** bir program. "Program patronun eli ayağı olacak" — patron ekranından her şeye hakim olacak, personel araya girip kağıda dökmeyecek. Fark: **pasif** bir program (veriyi tutar, sen bakıp anlarsın) değil, **aktif/gözlemci** bir program (veriyi tutar, kendisi anlar, sana söyler).
+
+**"İşletme beyni" — büyük çerçeve (Gökhan, birkaç sohbet turunun özeti):** "Program bir işletme beyni olacak, işletme kullanır kullanmaz onun bileceği işi ama biz yapacağız... müşteri siparişini verdi, parayı ödedi, sonra olan her şeyi program takip edecek, işletecek." Yani ödeme kapandıktan sonraki zincir (stok düşümü, maliyet/kâr hesabı, fire/kaçak karşılaştırması, tedarik tetikleme) elle araya girilmeden otomatik akmalı. Aşağıdaki beş parça (fire/kaçak, para takibi, tedarik ajanı, satış tahmini, personel) bu tek çerçevenin farklı yüzleri.
+
+**Somut örnek (peçete, Gökhan'ın kendi anlatımı):** "Sarf malzemeleri sayılmaz, kontrol edemezsin ama ne geldiğini bilirsin. Fatura sisteme girilir, mekana gelen müşteri belli. 500 peçete alınmış, şu ana kadar 100 müşteri girmiş — müşteri başına 5 peçete. Stok var mı bilmiyoruz, sayılana kadar tahmin yürütmemiz gerekiyor. Yeni sipariş geldi, 500 peçete daha — 1000 peçetemiz oldu, müşteri 300 oldu — öğreniyoruz ki şu an müşteri başına düşen peçete 3.33. Böyle devam ediyor, öğreniyor... 1 sene böyle gitti, sonra bir baktık peçete 5 tane gidiyor 6 tane gidiyor — program bunu görecek, diyecek ki sorun var." Yani: **öğrenilen referans oran** (müşteri başına düşen sarf miktarı) zamanla oturur; bu orandan **sapma başladığı an** program kendisi uyarmalı — işletmeci bunu bir yıl sonra tesadüfen değil, o anda öğrenmeli.
+
+**İki büyük parça (ikisi de yapılacak; Gökhan: "ikisinide kuracağız, önceliği önemli değil, plan işi sende"):**
+
+- **(A) Genelleştirilmiş fire/kaçak radarı** — "her üründe bunu uygulayacağız, bizim programımızda kaçak imkansız olacak." Sadece peçete değil, sisteme giren **her fatura/malzeme** — mutfak gereçleri, sandalye dahil ("su, meşrubat bunlar sayılmaz, patronda çok sallamaz" — restoranlarda önemli olabilir dedi, ucuz/önemsiz kalemler hariç tutulabilir). Program kendine kaydedilen her faturayı saymaya başlayacak.
+- **(B) Uçtan uca para takibi** — "diğer programlar kasa tutmaz, biz kasada tutacağız, ödemede tutacağız, para bizim programımıza giriyor, banka kesintilerine kadar hesaplayacağız. Şu an bankada bu kadar olması gerek diyecek, çekilen parayı girecek sisteme, ileri seviyelerde biz hesap bağlantısı sağlayacağız. Nakit çıkışları, kasa kalanı, her şeyi bilecek." Hedef: **"belki ön muhasebe denen şeye gerek kalmayacak"**, "program 3-4 personel ihtiyacını ortadan kaldıracak, bu da bizi kullanımda önceliğe çekecek" (rekabet avantajı).
+
+Ayrıca ikincil bir istek: teknik/spesifik sorularda yardımcı olan bir **chat bot** olursa fena olmaz — ama asıl omurga sessiz çalışan, kendi kendine sorun bulan gözlemci sistem (2. seçenek, konuşan bir asistan değil).
+
+**(C) Tedarik ajanı / sipariş otomasyonu** — "sistem stoklardan ihtiyacı çıkaracak, tedarikçinin zamanına göre... meşrubat grubu haftada bir gelir, sebze günlük, sarf istediğin zaman — sistem bunları bilecek ve siparişini buna göre ayarlayacak, sonra patron ekranına düşecek ya da yetki kimdeyse ona manuel 'şuraya siparişi ver' diyecek ya da siparişi ver diyecek." İki ayrı yol: **manuel mod** işletmenin kendi mevcut tedarikçileri için geçerli, sipariş **WhatsApp mesajı** ile gider; platformun kendi tedarikçi ağı ("bizim tedarikçilerimiz") ayrı bir **tedarikçi modülü**ne düşer. Bilinçli strateji (Gökhan): "manuel olarak kendi tedarikçilerine vermesi zor olacak, zamanla bizimkilere kayacak" — platform tedarikçi ağı kolay/varsayılan yol, kendi tedarikçisine sipariş kasıtlı olarak biraz daha zahmetli. Bu, bölüm I'deki "tedarik sistemi komisyonu" iş modeliyle birebir örtüşüyor; platform tedarikçileri fiyat/kalitede rekabet edecek, şikayet alan tedarikçi sistemden atılacak.
+
+**(D) Satışa dayalı, çok faktörlü talep tahmini** — "program siparişleri öğrendiği satışlara göre çıkaracak... ertesi gün satış olma ihtimali olan yemekleri çıkaracak, ona göre liste hazırlayacak." Sadece aynı gün paterni değil, **genel** değerlendirme: tam takvim farkındalığı — "o gün bayram mı geliyor, geçen bayram ne olmuştu, yas mı, alkollü restoran ise Ramazan mı" — artı menü ve tedarik zamanlaması. **Kritik doğruluk kuralı** (Gökhan'ın kendi tabiriyle): "2 tabak yemek satılıyor, yemek menüden ne olursa olsun zeytin şu kadar gider, marul bu kadar gider, her satılan salataya ayrı ürün hesaplanmayacak ama ortak ürün dikkate alınacak — **stok şişmeyecek yani**" (reçete patlatma / bill-of-materials: ortak malzemeler tek seferde toplanır, yemek başına tekrar sayılmaz). **Tolerans:** "sonuç itibarıyla her ürünün en az 3-4 gün süresi var" — tahminin kusursuz olması gerekmiyor, doğal bir stok/teslimat tamponu var. **Soğuk başlangıç** (onaylandı — "evet"): yeterli geçmiş satış verisi olmayan yeni işletmede sistem elle girişe düşer, veri birikince öğrenme devralır (Ana Sayfa'daki mevcut "tahmin için yeterli veri yok" düşüş mantığıyla aynı desen).
+
+**(E) Personel modülü** — "personel eklenecek, personel giderleri eklenecek, personel yemeği, kıyafeti, içtiği, geri dönüşüm." Kalemler: **personel giderleri** (maaş, SGK/prim, mesai — (B) para takibinin gider tarafına bağlanacak); **personel yemeği ve içtiği** (stoktan düşecek ama **satış değil gider** olarak işlenecek — bu ayrım kritik, aksi halde hem maliyet gizli kalır hem de (A)'daki "müşteri başı tüketim" oranı bozulur); **kıyafet/forma** (personel başına dönemsel gider); **geri dönüşüm** (kullanılmış yağ satışı gibi küçük ek gelir kalemleri de olabilir — detay netleşmedi, ileride sorulacak).
+
+**(F) Personel mobil modülü + otomatik giriş-çıkış** — "zamanla her çalışanın telefonuna indireceği bir modül yaparız, onlara bildirimler gider, telefonları internet ağına bağlanır, ne zaman geldiler ne zaman çıktılar bilir." Bildirim altyapısı + işyeri ağına bağlanmadan mesai/puantaj tespiti. **Teknik not:** iOS ham WiFi SSID okumaya OS kısıtlaması getiriyor (özel izin gerekiyor, güvenilir değil), Android daha kolay — bu faza gelindiğinde GPS/konum tabanlı geofence (iki platformda güvenilir) ilk sürüm, WiFi tabanlı algılama mümkün olan yerde ikinci katman olarak değerlendirilecek.
+
+**Çalışma şekli teyidi (bu konuşmada tekrar netleşti):** Gökhan kendi cümleleriyle anlatır, Claude anlayıp doğru terimlerle plana döker ve onayını alır, kod yazılır, Gökhan kullanıp test eder, sıkıntılı yerler düzeltilir.
+
+### Mevcut altyapı taraması (2026-07-13 itibarıyla kod/şema okunarak doğrulandı)
+
+Şemanın büyük kısmı zaten var, hiç kullanılmıyor/bağlanmamış durumda:
+- `ingredients.category` = `'gida'` (reçeteli) / `'sarf'` (kişi başı tüketilen) — peçete ayrımı zaten var.
+- `ingredients.waste_tolerance_percent` — "et %3 → 10 kg'da 300 gr eksik normal, fazlası kaçak uyarısı" yorumuyla eklenmiş ama hiçbir yerde kullanılmıyor.
+- `purchases` + `purchase_items` — fatura/alış tablosu var ama şu an sadece **tek malzemeli** giriş destekleniyor (`add_stock_purchase` RPC, `app/stok/page.tsx`). Stok sayfasında zaten not var: "Manuel giriş. E-fatura ve AI foto ile giriş yakında."
+- `stock_movements` — purchase/consumption/waste/count_adjustment hareket defteri, ledger hazır.
+- `suppliers`, `purchase_requests`, `efatura_connections` — tedarikçi + eksik-tespiti-onay akışı + e-fatura bağlantı iskeleti var, çoğu henüz UI'sız.
+- `ingredient_expected_usage` RPC — var ama bu **ileriye dönük tüketim tahmini** (son 28 gün ortalaması × gün sayısı, tedarik için), fire/kaçak karşılaştırması değil.
+- Para tarafında bu oturumda kurulanlar: `order_payments`, `order_discounts`, `cash_movements`, `day_closures`, `close_order` RPC, Kasa ekranındaki "Kasa hareketi". (B)'nin nakit/kasa temeli kısmen atılmış; banka entegrasyonu ve ön-muhasebe seviyesi henüz yok.
+- `public_holidays` tablosu + `daily_prep_report.resmi_tatil` — (D)'nin takvim farkındalığı için resmi tatil kısmı **zaten var**; yas günü ve Ramazan-özel mantığı yeni eklenecek.
+
+**Personel/HR altyapısı (2026-07-13 taraması):**
+- `profiles` tablosu var: `id` (auth.users FK), `restaurant_id`, `full_name`, `role` (`admin`/`garson`/`sef`) — personel kimliğinin temeli hazır.
+- **Auth hiç bağlı değil** — `lib/supabase/client.ts` sadece anon-key browser client, RLS bilinçli olarak V0'da kapalı, `middleware.ts` yok. `app/garson/page.tsx` bugün girişsiz.
+- `app/personel/page.tsx` **placeholder** (`<Soon>`): "Kullanıcılar, roller, PIN girişleri burada yönetilecek" — Faz 2'de zaten scope edilmiş, henüz kodlanmamış.
+- `business_expenses` tablosu var ve kullanımda ama sadece sabit aylık gider (kira, fatura); personele/kişiye özel değil, mesai/vardiyaya bağlı değil.
+- **Bildirim/push altyapısı tamamen yok** — greenfield.
+
+**Sonuç:** (A) için asıl eksik — çok kalemli fatura girişi ekranı ve "öğrenen oran + sapma tespiti" hesaplaması + uyarı yüzeyi. Şema hazır, mantık ve UI yok. Personel modülünün kimlik (profiles.role) ve para (business_expenses, cash_movements) temelleri kısmen hazır; asıl eksik auth/PIN girişi, kişiye bağlı gider/tüketim kaydı ve mobil app + bildirim + konum altyapısının tamamı.
+
+### Önerilen fazlı yol haritası (2026-07-13, sıralama bağımlılığa göre — Gökhan: "plan işi sende", istediği an değiştirebilir)
+
+Kapsam tek seferde kurulamayacak kadar büyük; her faz kendi başına test edilebilir bir kazanım vermeli.
+
+1. **Fire/kaçak radarı v1 (sarf malzemeleri)** — çok kalemli fatura girişi ekranı (`purchases`/`purchase_items` zaten uygun, sadece UI + çoklu-satır insert lazım) + "müşteri başına oran" öğrenme/sapma hesaplaması (`category='sarf'` malzemeler için kümülatif alım / kümülatif party_size, geçmiş dönemle karşılaştırma) + Ana Sayfa'da "Fire/Kaçak Uyarıları" paneli. En hazır altyapı, en somut fark yaratan özellik — flagship.
+2. **Personel kimlik temeli** — PIN login + rol bazlı erişim (mevcut `profiles.role` üzerine), masa-garson ataması. Hem kendi başına değerli (zaten bekleyen "Faz 2"), hem de personel mobil modülünün (adım 8) ön koşulu.
+3. **Fire/kaçak radarı v2 (gıda + demirbaş)** — `waste_tolerance_percent` bazlı reçeteli malzeme fire hesabı; mutfak gereçleri/demirbaş için aynı öğrenen-oran mantığı.
+4. **Personel gider/tüketim ayrımı** — maaş/SGK/prim gideri kaydı (kişiye bağlı, `profiles.id` üzerinden), personel yemeği/içeceği için stoktan düşüp **satış değil gider** işaretleyen ayrı bir hareket tipi (mevcut `stock_movements` üzerine yeni movement_type), kıyafet gideri. Adım 1'in oran hesaplamasının personel tüketimini yanlışlıkla müşteri satışına katmamasını burada garanti ederiz.
+5. **Para takibi derinleştirme** — banka hesabı entegrasyonu, "bankada şu an şu kadar olmalı" karşılaştırması, ön-muhasebe seviyesi.
+6. **Tedarik ajanı v1** — mevcut `ingredient_expected_usage` + `suppliers.delivery_frequency` ile stok eşiğine dayalı sipariş önerisi, manuel onay ekranı (`purchase_requests` üzerine), WhatsApp'a mesaj gönderimi (kendi tedarikçileri için).
+7. **Satış tahmini + takvim farkındalığı** — çok faktörlü talep modeli, reçete patlatma (ortak malzeme tekilleştirme), soğuk-başlangıç fallback. Tedarik ajanını v1'den v2'ye (reaktif → öngörülü) yükseltir.
+8. **Personel mobil modülü** — bildirimler, konum/geofence tabanlı otomatik giriş-çıkış.
+9. **Platform tedarikçi ağı / tedarikçi modülü** — pazaryeri tarafı, komisyon modeli. En büyük iş modeli parçası, muhtemelen ayrı bir proje gibi ele alınmalı.
+
+Mantık: önce en hazır altyapıyla en çok fark yaratan şey (1), sonra ileride tekrar tekrar lazım olacak temel kimlik katmanı (2), sonra aynı radar mantığını genişletmek (3-4), sonra para (5), sonra otomasyon zincirinin gövdesi (6-7), en son cihaz/donanım bağımlı ve iş-modeli/pazaryeri gerektiren en karmaşık parçalar (8-9).

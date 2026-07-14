@@ -18,6 +18,12 @@ type PrepReport = {
 };
 type Expense = { id: string; name: string; monthly_amount: number; vat_rate: number };
 type Settings = { fixed_cost_days_override: number | null };
+// Fire/Kaçak radarı (ROADMAP L, Faz 1): sarf malzemesinde öğrenilen "müşteri başına oran"dan sapma
+type RadarRow = {
+  ingredient_id: string; ingredient_name: string; unit: string;
+  baseline_ratio: number | null; recent_ratio: number | null;
+  deviation_percent: number | null; status: "ogreniyor" | "normal" | "sapma";
+};
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
@@ -38,6 +44,7 @@ export default function AnaSayfa() {
   const [periyot, setPeriyot] = useState<{ ciro: number[]; maliyet: number[]; musteri: number[] } | null>(null);
   const [topSellers, setTopSellers] = useState<{ name: string; qty: number; revenue: number }[]>([]);
   const [hourly, setHourly] = useState<number[]>([]);
+  const [radar, setRadar] = useState<RadarRow[] | null>(null);
 
   const [expensesOpen, setExpensesOpen] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
@@ -60,7 +67,7 @@ export default function AnaSayfa() {
     const ayBasiMs = Date.parse(gun.slice(0, 8) + "01T00:00:00+03:00");
     const yilBasiMs = Date.parse(gun.slice(0, 4) + "-01-01T00:00:00+03:00");
 
-    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }] = await Promise.all([
+    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }] = await Promise.all([
       supabase.rpc("daily_prep_report", { p_restaurant: rest.id }),
       supabase.from("restaurant_tables").select("status").eq("restaurant_id", rest.id).is("deleted_at", null),
       supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", rest.id).eq("status", "open"),
@@ -69,9 +76,11 @@ export default function AnaSayfa() {
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", rest.id),
       supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", rest.id).eq("status", "closed").gte("closed_at", otuzGunOnce),
       supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", rest.id).gte("created_at", new Date(yilBasiMs).toISOString()),
+      supabase.rpc("sarf_usage_radar", { p_restaurant: rest.id }),
     ]);
 
     setPrep(rep as PrepReport);
+    setRadar((radarRows as RadarRow[]) ?? []);
     setOpenTables((tables ?? []).filter((t: { status: string }) => t.status !== "empty").length);
     const total = (openOrders ?? []).reduce((s: number, o: { order_items: { quantity: number; unit_price: number; status: string }[] }) =>
       s + o.order_items.filter((i) => i.status === "active").reduce((s2, i) => s2 + i.quantity * i.unit_price, 0), 0);
@@ -196,6 +205,33 @@ export default function AnaSayfa() {
 
       {/* alt bölge — gerekirse kendi içinde kayar, sayfa kaymaz */}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        {/* FİRE/KAÇAK RADARI — sarf malzemesinde öğrenilen orandan sapma uyarısı (ROADMAP L, Faz 1) */}
+        {radar && radar.length > 0 && (() => {
+          const sapmalar = radar.filter((r) => r.status === "sapma");
+          const izlenen = radar.filter((r) => r.status !== "ogreniyor").length;
+          const ogrenen = radar.length - izlenen;
+          const oranFmt = (n: number | null) => n === null ? "?" : Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 2 });
+          if (sapmalar.length === 0) {
+            return (
+              <div style={{ flexShrink: 0, fontSize: 12.5, color: "var(--muted)", padding: "10px 20px", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18 }}>
+                Fire/Kaçak radarı: <b>{izlenen}</b> sarf malzemesi izleniyor, sapma yok{ogrenen > 0 ? ` · ${ogrenen} malzeme henüz öğreniliyor (yeterli geçmiş birikince izlemeye alınır)` : ""}.
+              </div>
+            );
+          }
+          return (
+            <div style={{ flexShrink: 0, background: "var(--danger-bg)", border: "1px solid var(--danger)", borderRadius: 18, padding: "14px 20px" }}>
+              <div style={{ fontWeight: 600, color: "var(--danger)", marginBottom: 6 }}>Fire/Kaçak uyarısı — {sapmalar.length} sarf malzemesinde sapma</div>
+              {sapmalar.map((r) => (
+                <div key={r.ingredient_id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: "1px solid rgba(0,0,0,0.06)", fontSize: 13.5, color: "var(--ink)" }}>
+                  <span><b>{r.ingredient_name}</b>: normalde müşteri başı ~{oranFmt(r.baseline_ratio)} {r.unit}, son 30 günde ~{oranFmt(r.recent_ratio)} {r.unit}</span>
+                  <span className="tnum" style={{ flexShrink: 0, color: "var(--danger)", fontWeight: 600 }}>%{oranFmt(r.deviation_percent)} fazla — kontrol et</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 6 }}>Oran, girilen faturalardan öğrenilir; stok sayılamayan sarf malzemesinde tahmindir.</div>
+            </div>
+          );
+        })()}
+
         {/* GİDERLER AKORDEONU */}
         <div style={{ flexShrink: 0, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, overflow: "hidden" }}>
           <button onClick={() => setExpensesOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "14px 20px", boxSizing: "border-box" }}>
