@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import TableOrderPanel from "../components/TableOrderPanel";
 
 // Garson mobil modülü — el terminali/telefon için tek işi var: masa seç, sipariş al, hesap kapat.
@@ -17,13 +19,44 @@ type TableRow = {
   id: string; name: string; area_id: string | null; status: TableStatus;
   reservation_note: string | null; merged_into_table_id: string | null;
 };
-type OrderItem = { id: string; quantity: number; unit_price: number; status: string };
+type OrderItem = { id: string; quantity: number; unit_price: number; status: string; ready_at: string | null; served_at: string | null };
 type Order = { id: string; table_id: string | null; order_items: OrderItem[] };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const ALL = "__all__";
 
+// Mutfak/bar bir kalemi "hazır" işaretlediğinde garsona haber verir — kısa bir bip sesi.
+// Dosya yok, tarayıcının kendi ses üretme yeteneğiyle (Web Audio API) anlık üretilir.
+function playReadyBeep() {
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+    osc.onended = () => ctx.close();
+  } catch { /* tarayıcı Web Audio'yu desteklemiyor/engelliyor olabilir — sessizce geç */ }
+  // Titreşim: Android Chrome'da çalışır, iOS Safari desteklemiyor (Apple kısıtlaması) — zararsız no-op.
+  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
+
 export default function GarsonPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--canvas)" }} />}>
+      <GarsonInner />
+    </Suspense>
+  );
+}
+
+function GarsonInner() {
+  const rSlug = useSearchParams().get("r");
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
@@ -33,6 +66,9 @@ export default function GarsonPage() {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  // Zaten bip çaldığımız "hazır" kalemleri hatırlar ki her 5sn'lik tazelemede aynı kalem için
+  // tekrar tekrar ses çalmayalım — sadece yeni hazır olan kalemde bir kere çalar.
+  const notifiedReady = useRef<Set<string>>(new Set());
   // Beklenmeyen JS hatalarını sessizce yutmak yerine ekranda göster (mobil ağ sorunlarını teşhis etmeyi kolaylaştırır).
   useEffect(() => {
     const onErr = (e: ErrorEvent) => setErr(`JS hatası: ${e.message}`);
@@ -48,18 +84,14 @@ export default function GarsonPage() {
     // aksi halde "Yükleniyor…" sonsuza kadar takılı kalıyordu.
     const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Bağlantı zaman aşımına uğradı — internete bağlı mısın?")), 10000));
     try {
-      const { data: rest, error: restErr } = await Promise.race([
-        supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single(),
-        timeout,
-      ]);
-      if (restErr) { setErr(`İşletme bilgisi çekilemedi: ${restErr.message}`); setLoading(false); return; }
-      if (!rest) { setErr("İşletme bulunamadı."); setLoading(false); return; }
+      const rest = await Promise.race([resolveRestaurantIdBySlug(rSlug), timeout]);
+      if ("error" in rest) { setErr(rest.error); setLoading(false); return; }
       setRestaurantId(rest.id);
       const [{ data: a, error: aErr }, { data: t, error: tErr }, { data: o, error: oErr }] = await Promise.race([
         Promise.all([
           supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
           supabase.from("restaurant_tables").select("id, name, area_id, status, reservation_note, merged_into_table_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status)").eq("restaurant_id", rest.id).eq("status", "open"),
+          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status, ready_at, served_at)").eq("restaurant_id", rest.id).eq("status", "open"),
         ]),
         timeout,
       ]);
@@ -70,19 +102,39 @@ export default function GarsonPage() {
       // "Öksüz" masaları at: area_id dolu ama o alan silinmişse (Salonlar ekranı da bunları hiç göstermez).
       const areaIds = new Set(areaRows.map((x) => x.id));
       setTables(((t as TableRow[]) ?? []).filter((row) => row.area_id && areaIds.has(row.area_id)));
-      setOrders((o as unknown as Order[]) ?? []);
+      const orderRows = (o as unknown as Order[]) ?? [];
+      setOrders(orderRows);
+
+      // Yeni hazır olmuş (daha önce bip çalmadığımız) kalem var mı — varsa uyar, yoksa sessiz kal.
+      let hasNewReady = false;
+      orderRows.forEach((ord) => ord.order_items.forEach((it) => {
+        if (it.ready_at && !it.served_at) {
+          if (!notifiedReady.current.has(it.id)) { notifiedReady.current.add(it.id); hasNewReady = true; }
+        } else {
+          notifiedReady.current.delete(it.id);
+        }
+      }));
+      if (hasNewReady) playReadyBeep();
       setLoading(false);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Beklenmeyen bir hata oluştu.");
       setLoading(false);
     }
-  }, []);
+  }, [rSlug]);
 
-  useEffect(() => { load(); }, [load]);
+  // Mutfak/bar'ın "hazır" işaretlemesini fark edebilmek için birkaç saniyede bir kendini tazeler
+  // (mutfak ekranıyla aynı desen — gerçek zamanlı değil, basit periyodik yenileme).
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [load]);
 
   const orderForTable = (tableId: string) => orders.find((o) => o.table_id === tableId) ?? null;
   const orderTotal = (order: Order | null) =>
     order ? order.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
+  const hasReadyItems = (order: Order | null) =>
+    order ? order.order_items.some((i) => i.ready_at && !i.served_at) : false;
 
   // Masa başka bir masaya birleştirildiyse hesabın açık olduğu hedef masayı bul (Salonlar ile aynı mantık).
   const resolveTarget = (t: TableRow): TableRow => {
@@ -138,14 +190,16 @@ export default function GarsonPage() {
             const bill = t.status === "bill_requested";
             const reserved = t.status === "reserved";
             const dotColor = merged ? "var(--muted-2)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
+            const ready = !merged && hasReadyItems(ord);
             return (
               <button
                 key={t.id}
                 onClick={() => setSelectedTableId(resolveTarget(t).id)}
                 style={{
-                  textAlign: "left", borderRadius: 16, padding: 14, minHeight: 88, border: "none",
+                  textAlign: "left", borderRadius: 16, padding: 14, minHeight: 88,
+                  border: ready ? "2px solid var(--brand-strong)" : "none",
                   background: merged ? "var(--recede)" : occupied ? "var(--card)" : reserved ? "var(--info-bg)" : "var(--recede)",
-                  boxShadow: occupied && !merged ? "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" : "none",
+                  boxShadow: ready ? "0 0 0 3px var(--success-bg), 0 6px 16px rgba(30,57,50,.12)" : occupied && !merged ? "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" : "none",
                   opacity: merged ? 0.6 : 1,
                 }}
               >
@@ -158,7 +212,7 @@ export default function GarsonPage() {
                 ) : occupied ? (
                   <>
                     <div className="tnum" style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.3px", color: "var(--ink-green)", marginTop: 14 }}>{money(total)}</div>
-                    <div style={{ fontSize: 11.5, color: bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3 }}>{bill ? "hesap istedi" : "açık"}</div>
+                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{ready ? "HAZIR — servis et" : bill ? "hesap istedi" : "açık"}</div>
                   </>
                 ) : reserved ? (
                   <div style={{ fontSize: 11.5, color: "var(--info)", marginTop: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.reservation_note || "Rezerve"}</div>

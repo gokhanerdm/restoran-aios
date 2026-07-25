@@ -12,6 +12,9 @@ type OrderItem = {
   menu_item_id: string;
   variant_id: string | null;
   menu_items: { name: string } | null;
+  sent_at: string | null;
+  ready_at: string | null;
+  served_at: string | null;
 };
 type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
 type Payment = { id: string; amount: number; method: string };
@@ -91,7 +94,7 @@ export default function TableOrderPanel({
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
-      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_item_id, variant_id, created_at, menu_items(name))")
+      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_item_id, variant_id, created_at, sent_at, ready_at, served_at, menu_items(name))")
       .eq("table_id", table.id).eq("status", "open")
       // Kalemler her zaman eklenme sırasına göre listelensin — adet değiştirince satır yerinden oynamasın.
       .order("created_at", { referencedTable: "order_items" })
@@ -113,6 +116,12 @@ export default function TableOrderPanel({
   }, [table?.id]);
 
   useEffect(() => { loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
+  // Mutfak/bar bir kalemi "hazır" işaretlerse bu panel açık kalsa bile görsün diye periyodik tazelenir.
+  useEffect(() => {
+    if (!table) return;
+    const id = setInterval(loadOrder, 5000);
+    return () => clearInterval(id);
+  }, [table, loadOrder]);
 
   const grossTotal = (o: Order | null) =>
     o ? o.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
@@ -147,6 +156,9 @@ export default function TableOrderPanel({
     if (next <= 0) {
       // Adet sıfıra inince kalem iptal sayılır
       await supabase.from("order_items").update({ status: "void", void_reason: "adet sıfırlandı", voided_at: new Date().toISOString() }).eq("id", item.id);
+    } else if (delta > 0 && item.sent_at) {
+      // Zaten gönderilmiş bir kaleme adet eklendi — mutfak/bar yeni miktarı görsün diye tekrar "gönderilmedi" sayılır.
+      await supabase.from("order_items").update({ quantity: next, sent_at: null, preparing_at: null, ready_at: null, served_at: null }).eq("id", item.id);
     } else {
       await supabase.from("order_items").update({ quantity: next }).eq("id", item.id);
     }
@@ -257,6 +269,17 @@ export default function TableOrderPanel({
       })));
     }
     setConfig(null);
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
+  // Henüz gönderilmemiş (sent_at boş) aktif kalemleri mutfak/bar ekranına düşürür.
+  const sendOrder = async () => {
+    if (!order) return;
+    const unsent = order.order_items.filter((i) => i.status === "active" && !i.sent_at);
+    if (unsent.length === 0) return;
+    setBusy(true);
+    await supabase.from("order_items").update({ sent_at: new Date().toISOString() }).in("id", unsent.map((i) => i.id));
     await loadOrder(); onChanged();
     setBusy(false);
   };
@@ -378,6 +401,7 @@ export default function TableOrderPanel({
                 <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {i.menu_items?.name ?? "?"}
                   {i.status === "ikram" && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--gold-text)", marginLeft: 6 }}>İKRAM</span>}
+                  {i.ready_at && !i.served_at && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", marginLeft: 6 }}>HAZIR</span>}
                 </span>
                 <span className="tnum" style={{ flexShrink: 0, textDecoration: i.status === "ikram" ? "line-through" : "none", color: i.status === "ikram" ? "var(--muted-2)" : "var(--ink)" }}>{money(i.quantity * i.unit_price)}</span>
                 {i.status === "active" && (
@@ -541,17 +565,21 @@ export default function TableOrderPanel({
 
           {!payStep ? (
             <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, flexShrink: 0 }}>
-              <button
-                onClick={() => {
-                  const remaining = orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0);
-                  // Ödenecek bir şey yoksa (ürün eklenmedi ya da hepsi iptal edildi) doğrudan masayı boşalt —
-                  // ödeme adımına girip "kalan 0₺" yüzünden tüm yöntem butonlarının pasif kalmasını engeller.
-                  if (remaining <= 0) { closeBill(); return; }
-                  setPayStep(true); setMenuOpen(false); setPayAmount(String(Math.max(0, Math.round(remaining * 100) / 100)));
-                }}
-                disabled={busy}
-                style={{ ...pillPrimary, width: "100%" }}
-              >{orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0) <= 0 ? "Masayı boşalt" : "Hesap al"}</button>
+              {order.order_items.some((i) => i.status === "active" && !i.sent_at) ? (
+                <button onClick={sendOrder} disabled={busy} style={{ ...pillPrimary, width: "100%" }}>Gönder</button>
+              ) : (
+                <button
+                  onClick={() => {
+                    const remaining = orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0);
+                    // Ödenecek bir şey yoksa (ürün eklenmedi ya da hepsi iptal edildi) doğrudan masayı boşalt —
+                    // ödeme adımına girip "kalan 0₺" yüzünden tüm yöntem butonlarının pasif kalmasını engeller.
+                    if (remaining <= 0) { closeBill(); return; }
+                    setPayStep(true); setMenuOpen(false); setPayAmount(String(Math.max(0, Math.round(remaining * 100) / 100)));
+                  }}
+                  disabled={busy}
+                  style={{ ...pillPrimary, width: "100%" }}
+                >{orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0) <= 0 ? "Masayı boşalt" : "Hesap al"}</button>
+              )}
             </div>
           ) : (() => {
             const total = orderTotal(order);
