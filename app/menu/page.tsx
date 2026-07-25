@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { Plus, Trash2, ChevronRight, ChevronDown, Folder, GripVertical, AlertTriangle } from "lucide-react";
 import EditableText from "../components/EditableText";
+import { useConfirm } from "../components/useConfirm";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import { parseNaturalQuantity, formatQuantity, NATURAL_UNIT_HINT, type BaseUnit } from "@/lib/units";
 import {
@@ -71,6 +73,7 @@ const useMenu = () => useContext(MenuCtx)!;
 
 export default function MenuPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -116,17 +119,17 @@ export default function MenuPage() {
   );
 
   const loadBase = useCallback(async () => {
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const [{ data: c }, { data: p }, { data: i }, { data: g }, { data: settingsRow }, { data: usage }, { data: allLinks }] = await Promise.all([
-      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-      supabase.from("ingredients").select("id, name, unit, current_unit_cost").eq("restaurant_id", rest.id).is("deleted_at", null).order("name"),
-      supabase.from("modifier_groups").select("id, name").eq("restaurant_id", rest.id).is("deleted_at", null).order("name"),
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", rest.id).maybeSingle(),
-      supabase.rpc("ingredient_expected_usage", { p_restaurant: rest.id, p_days_ahead: 7 }),
-      supabase.from("recipe_items").select("ingredient_id, menu_item_id").eq("restaurant_id", rest.id),
+      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("ingredients").select("id, name, unit, current_unit_cost").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
+      supabase.from("modifier_groups").select("id, name").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
+      supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
+      supabase.from("recipe_items").select("ingredient_id, menu_item_id").eq("restaurant_id", restId),
     ]);
     setCategories((c as Category[]) ?? []);
     setProducts((p as Product[]) ?? []);
@@ -213,7 +216,7 @@ export default function MenuPage() {
     const childCount = categories.filter((c) => c.parent_id === id).length;
     const prodCount = products.filter((p) => p.category_id === id).length;
     if (childCount + prodCount > 0) {
-      const ok = window.confirm(`Bu kategoride ${prodCount} ürün ve ${childCount} alt kategori var. Silersen menüde görünmez olurlar. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu kategoride ${prodCount} ürün ve ${childCount} alt kategori var. Silersen menüde görünmez olurlar. Yine de silinsin mi?`);
       if (!ok) return;
     }
     await supabase.from("menu_categories").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();
@@ -370,6 +373,7 @@ export default function MenuPage() {
 
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      {confirmDialog}
       <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 20, flexShrink: 0 }}>Menü</div>
 
       <div style={{ display: "flex", gap: 22, flex: 1, minHeight: 0 }}>

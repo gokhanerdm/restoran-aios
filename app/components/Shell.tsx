@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
 import {
   Home,
   LayoutGrid,
@@ -11,6 +13,7 @@ import {
   BookOpen,
   Users,
   Settings,
+  LogOut,
 } from "lucide-react";
 
 const nav = [
@@ -26,21 +29,49 @@ const nav = [
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
 
-  // Müşteriye açık menü (QR / site embed) ve garson mobil sipariş modülü yönetim kabuğunu kullanmaz
-  if (pathname.startsWith("/m/") || pathname.startsWith("/garson")) return <>{children}</>;
+  // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü (Faz 2'ye kadar girişsiz)
+  // ve giriş ekranının kendisi yönetim kabuğunu/oturum kontrolünü kullanmaz.
+  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/garson") || pathname === "/giris";
+
+  useEffect(() => {
+    // isPublic ise render zaten aşağıda erken dönüyor (authChecked/hasSession hiç okunmuyor).
+    if (isPublic) return;
+    let active = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!active) return;
+      if (!session) { router.replace("/giris"); return; }
+      setHasSession(true);
+      setAuthChecked(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.replace("/giris");
+    });
+    return () => { active = false; sub.subscription.unsubscribe(); };
+  }, [isPublic, router]);
+
+  if (isPublic) return <>{children}</>;
+
+  if (!authChecked || !hasSession) {
+    return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: 13 }}>Yükleniyor…</div>;
+  }
+
+  const cikisYap = async () => { await supabase.auth.signOut(); router.replace("/giris"); };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <nav
         style={{
-          width: 64,
+          width: 82,
           background: "var(--rail)",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
           padding: "18px 0",
-          gap: 6,
+          gap: 8,
           position: "sticky",
           top: 0,
           height: "100vh",
@@ -48,8 +79,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       >
         <div
           style={{
-            width: 32,
-            height: 32,
+            width: 41,
+            height: 41,
             borderRadius: "50%",
             background: "var(--brand)",
             color: "#fff",
@@ -57,7 +88,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 600,
-            fontSize: 13,
+            fontSize: 17,
             marginBottom: 12,
           }}
         >
@@ -74,9 +105,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               aria-label={item.label}
               title={item.label}
               style={{
-                width: 46,
-                height: 46,
-                borderRadius: 13,
+                width: 59,
+                height: 59,
+                borderRadius: 16,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -87,29 +118,32 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 color: active ? "#fff" : "rgba(255,255,255,0.45)",
               }}
             >
-              <Icon size={20} strokeWidth={1.75} />
-              <span style={{ fontSize: 9 }}>{item.label}</span>
+              <Icon size={26} strokeWidth={1.75} />
+              <span style={{ fontSize: 11 }}>{item.label}</span>
             </Link>
           );
         })}
 
-        <div
+        <button
+          onClick={cikisYap}
+          aria-label="Çıkış yap"
+          title="Çıkış yap"
           style={{
+            all: "unset",
+            cursor: "pointer",
             marginTop: "auto",
-            width: 32,
-            height: 32,
+            width: 41,
+            height: 41,
             borderRadius: "50%",
             background: "rgba(255,255,255,0.14)",
-            color: "#fff",
+            color: "rgba(255,255,255,0.7)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 12,
-            fontWeight: 500,
           }}
         >
-          A
-        </div>
+          <LogOut size={19} strokeWidth={1.75} />
+        </button>
       </nav>
 
       <main style={{ flex: 1, minWidth: 0 }}>{children}</main>

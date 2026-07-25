@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 
 type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null };
 type RoleVisibility = { garson?: { cost_visible?: boolean }; sef?: { cost_visible?: boolean } };
@@ -39,12 +40,12 @@ export default function Ayarlar() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const [{ data: s }, { data: c }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility").eq("restaurant_id", rest.id).maybeSingle(),
-      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     if (s) setSettings(s as Settings);
     const cats = (c as Category[]) ?? [];

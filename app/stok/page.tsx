@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X } from "lucide-react";
 import EditableText from "../components/EditableText";
+import { useConfirm } from "../components/useConfirm";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
@@ -81,19 +83,21 @@ export default function StokPage() {
   const [invErr, setInvErr] = useState<string | null>(null);
   const [invBusy, setInvBusy] = useState(false);
 
+  const { confirm, dialog: confirmDialog } = useConfirm();
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
   );
 
   const load = useCallback(async () => {
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const [{ data: usage }, { data: sup }, { data: grp }] = await Promise.all([
-      supabase.rpc("ingredient_expected_usage", { p_restaurant: rest.id, p_days_ahead: 7 }),
-      supabase.from("suppliers").select("id, name, delivery_frequency").eq("restaurant_id", rest.id).is("deleted_at", null).order("name"),
-      supabase.from("stock_groups").select("id, name, sort_order").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
+      supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
+      supabase.from("suppliers").select("id, name, delivery_frequency").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
+      supabase.from("stock_groups").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     setItems((usage as Item[]) ?? []);
     setSuppliers((sup as Supplier[]) ?? []);
@@ -234,14 +238,14 @@ export default function StokPage() {
 
   const deleteGroup = async (sec: Section) => {
     if (sec.items.length > 0) {
-      const ok = window.confirm(`Bu başlıkta ${sec.items.length} malzeme var. Silersen malzemeler "Diğer"e düşer. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu başlıkta ${sec.items.length} malzeme var. Silersen malzemeler "Diğer"e düşer. Yine de silinsin mi?`);
       if (!ok) return;
     }
     await supabase.from("stock_groups").update({ deleted_at: new Date().toISOString() }).eq("id", sec.id);
     await load();
   };
   const deleteIngredient = async (i: Item) => {
-    const ok = window.confirm(`"${i.ingredient_name}" silinsin mi?`);
+    const ok = await confirm(`"${i.ingredient_name}" silinsin mi?`);
     if (!ok) return;
     await supabase.from("ingredients").update({ deleted_at: new Date().toISOString() }).eq("id", i.ingredient_id);
     if (selectedId === i.ingredient_id) setSelectedId(null);
@@ -307,6 +311,7 @@ export default function StokPage() {
 
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      {confirmDialog}
       <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 16, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Stok</div>

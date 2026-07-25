@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 
 // Gün Sonu — işletmecinin gece kasadan kalkmadan baktığı kapanış kontrol paneli (ROADMAP H).
@@ -54,21 +55,21 @@ export default function GunSonu() {
 
   const load = useCallback(async () => {
     if (!tarih) return;
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const { start, end } = gunSiniri(tarih);
 
     const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }] = await Promise.all([
-      supabase.from("orders").select("id, total_amount, party_size, channel").eq("restaurant_id", rest.id).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
-      supabase.from("restaurant_settings").select("default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", rest.id).maybeSingle(),
-      supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", rest.id),
-      supabase.from("order_payments").select("amount, method").eq("restaurant_id", rest.id).gte("paid_at", start).lt("paid_at", end),
-      supabase.from("cash_movements").select("id, movement_type, amount, note").eq("restaurant_id", rest.id).gte("occurred_at", start).lt("occurred_at", end).order("occurred_at"),
-      supabase.from("day_closures").select("expected_cash, counted_cash, difference").eq("restaurant_id", rest.id).eq("closure_date", tarih).maybeSingle(),
-      supabase.from("day_closures").select("counted_cash").eq("restaurant_id", rest.id).lt("closure_date", tarih).order("closure_date", { ascending: false }).limit(1).maybeSingle(),
-      supabase.from("restaurant_tables").select("name, status").eq("restaurant_id", rest.id).is("deleted_at", null).neq("status", "empty").neq("status", "reserved"),
-      supabase.rpc("ingredient_expected_usage", { p_restaurant: rest.id, p_days_ahead: 7 }),
+      supabase.from("orders").select("id, total_amount, party_size, channel").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
+      supabase.from("restaurant_settings").select("default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
+      supabase.from("order_payments").select("amount, method").eq("restaurant_id", restId).gte("paid_at", start).lt("paid_at", end),
+      supabase.from("cash_movements").select("id, movement_type, amount, note").eq("restaurant_id", restId).gte("occurred_at", start).lt("occurred_at", end).order("occurred_at"),
+      supabase.from("day_closures").select("expected_cash, counted_cash, difference").eq("restaurant_id", restId).eq("closure_date", tarih).maybeSingle(),
+      supabase.from("day_closures").select("counted_cash").eq("restaurant_id", restId).lt("closure_date", tarih).order("closure_date", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("restaurant_tables").select("name, status").eq("restaurant_id", restId).is("deleted_at", null).neq("status", "empty").neq("status", "reserved"),
+      supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
     ]);
 
     const orderRows = (ords as ClosedOrder[]) ?? [];

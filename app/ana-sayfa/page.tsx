@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toTitleTr } from "@/lib/text";
@@ -54,9 +55,9 @@ export default function AnaSayfa() {
   const [daysInput, setDaysInput] = useState("");
 
   const load = useCallback(async () => {
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const gun = bugunIstanbul();
     const otuzGunOnce = new Date(Date.parse(gun) - 30 * 86400000).toISOString();
     const yediGunOnce = new Date(Date.parse(gun) - 7 * 86400000).toISOString();
@@ -68,15 +69,15 @@ export default function AnaSayfa() {
     const yilBasiMs = Date.parse(gun.slice(0, 4) + "-01-01T00:00:00+03:00");
 
     const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }] = await Promise.all([
-      supabase.rpc("daily_prep_report", { p_restaurant: rest.id }),
-      supabase.from("restaurant_tables").select("status").eq("restaurant_id", rest.id).is("deleted_at", null),
-      supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", rest.id).eq("status", "open"),
-      supabase.from("business_expenses").select("id, name, monthly_amount, vat_rate").eq("restaurant_id", rest.id).eq("active", true).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("fixed_cost_days_override").eq("restaurant_id", rest.id).maybeSingle(),
-      supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", rest.id),
-      supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", rest.id).eq("status", "closed").gte("closed_at", otuzGunOnce),
-      supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", rest.id).gte("created_at", new Date(yilBasiMs).toISOString()),
-      supabase.rpc("sarf_usage_radar", { p_restaurant: rest.id }),
+      supabase.rpc("daily_prep_report", { p_restaurant: restId }),
+      supabase.from("restaurant_tables").select("status").eq("restaurant_id", restId).is("deleted_at", null),
+      supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
+      supabase.from("business_expenses").select("id, name, monthly_amount, vat_rate").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_settings").select("fixed_cost_days_override").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
+      supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", otuzGunOnce),
+      supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", restId).gte("created_at", new Date(yilBasiMs).toISOString()),
+      supabase.rpc("sarf_usage_radar", { p_restaurant: restId }),
     ]);
 
     setPrep(rep as PrepReport);

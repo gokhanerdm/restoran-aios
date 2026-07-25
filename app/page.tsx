@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { Plus, Trash2 } from "lucide-react";
 import EditableText from "./components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import TableOrderPanel from "./components/TableOrderPanel";
+import { useConfirm } from "./components/useConfirm";
 
 // Kasa — masa/sipariş ekranı. Eskiden Kasa (düz masa listesi) ve Salonlar (görsel kat planı)
 // ayrı sekmelerdi; aynı işi iki farklı görünümde yapıyorlardı. Artık tek ekran: kat planı +
@@ -48,6 +50,7 @@ export default function KasaPage() {
   const [isMobile, setIsMobile] = useState(false);
   // Sağ tık menüsü: boş alanda "Masa ekle" (table: null), bir masa üzerinde "Masa sil" (table dolu)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Kasa hareketi (nakit giriş/çıkış) — eski Kasa ekranının kendine has özelliği
   const [addingCm, setAddingCm] = useState(false);
@@ -65,13 +68,13 @@ export default function KasaPage() {
   }, []);
 
   const load = useCallback(async () => {
-    const { data: rest } = await supabase.from("restaurants").select("id").is("deleted_at", null).limit(1).single();
-    if (!rest) return;
-    setRestaurantId(rest.id);
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
     const [{ data: a }, { data: t }, { data: o }] = await Promise.all([
-      supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", rest.id).eq("status", "open"),
+      supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
@@ -107,7 +110,7 @@ export default function KasaPage() {
   const deleteArea = async (a: Area) => {
     const count = tables.filter((t) => t.area_id === a.id).length;
     if (count > 0) {
-      const ok = window.confirm(`Bu salonda ${count} masa var. Silersen masalar da silinir. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu salonda ${count} masa var. Silersen masalar da silinir. Yine de silinsin mi?`);
       if (!ok) return;
     }
     setErr(null);
@@ -142,7 +145,7 @@ export default function KasaPage() {
     await load();
   };
   const deleteTable = async (t: TableRow) => {
-    const ok = window.confirm(`"${t.name}" silinsin mi?`);
+    const ok = await confirm(`"${t.name}" silinsin mi?`);
     if (!ok) return;
     setErr(null);
     const { error } = await supabase.from("restaurant_tables").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);
@@ -232,6 +235,7 @@ export default function KasaPage() {
 
   return (
     <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      {confirmDialog}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 20, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Kasa</div>
