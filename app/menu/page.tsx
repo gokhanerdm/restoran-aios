@@ -14,7 +14,7 @@ import {
 import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null };
+type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null; default_station_id: string | null };
 type Product = {
   id: string; name: string; sale_price: number; vat_rate: number; category_id: string | null;
   calorie_override: number | null; is_active: boolean;
@@ -22,7 +22,9 @@ type Product = {
   allergens_override: string[] | null;
   available_dine_in: boolean; available_takeaway: boolean; available_quick_sale: boolean;
   recommended_price: number | null; variable_cost_override: number | null; fixed_cost_share_override: number | null;
+  station_override_id: string | null;
 };
+type Station = { id: string; name: string; sort_order: number };
 type Nutri = { kcal_per_unit: number; diet_class: string; allergens: string[] };
 type Ingredient = { id: string; name: string; unit: BaseUnit; current_unit_cost: number };
 type RecipeRow = { id: string; ingredient_id: string; quantity: number; ingredients: ({ name: string; unit: BaseUnit; current_unit_cost: number } & Nutri) | null };
@@ -30,6 +32,7 @@ type Settings = {
   default_vat_rate: number; default_menu_design: string;
   default_variable_cost_per_cover: number; default_fixed_cost_share_percent: number;
 };
+type ConceptTemplate = { id: string; name: string; description: string | null };
 
 const ALLERGENS = ["Gluten", "Süt", "Yumurta", "Sert kabuklu", "Yer fıstığı", "Soya", "Balık", "Kabuklu deniz", "Susam", "Hardal"];
 const DIET_OPTS = [
@@ -56,6 +59,7 @@ function flattenCategories(cats: Category[], parentId: string | null = null, dep
 type Ctx = {
   categories: Category[];
   products: Product[];
+  stations: Station[];
   expanded: Set<string>;
   selectedId: string | null;
   menuItemsWithRecipe: Set<string>;
@@ -67,6 +71,7 @@ type Ctx = {
   renameCategory: (id: string, name: string) => void;
   renameProduct: (id: string, name: string) => void;
   defaultVatFor: (catId: string | null) => number;
+  setCategoryStation: (catId: string, stationId: string | null) => void;
 };
 const MenuCtx = createContext<Ctx | null>(null);
 const useMenu = () => useContext(MenuCtx)!;
@@ -83,6 +88,11 @@ export default function MenuPage() {
   const [usageCountByIngredient, setUsageCountByIngredient] = useState<Record<string, number>>({});
   const [menuItemsWithRecipe, setMenuItemsWithRecipe] = useState<Set<string>>(new Set());
   const [priceChanges, setPriceChanges] = useState<Record<string, { from: number; to: number }>>({});
+  const [concepts, setConcepts] = useState<ConceptTemplate[]>([]);
+  const [applyingConcept, setApplyingConcept] = useState<string | null>(null);
+  const [conceptErr, setConceptErr] = useState<string | null>(null);
+  const [stations, setStations] = useState<Station[]>([]);
+  const [newStationName, setNewStationName] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [recipe, setRecipe] = useState<RecipeRow[]>([]);
@@ -122,20 +132,24 @@ export default function MenuPage() {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: c }, { data: p }, { data: i }, { data: g }, { data: settingsRow }, { data: usage }, { data: allLinks }] = await Promise.all([
-      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+    const [{ data: c }, { data: p }, { data: i }, { data: g }, { data: settingsRow }, { data: usage }, { data: allLinks }, { data: concepts }, { data: st }] = await Promise.all([
+      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent, default_station_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override, station_override_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("ingredients").select("id, name, unit, current_unit_cost").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("modifier_groups").select("id, name").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
       supabase.from("recipe_items").select("ingredient_id, menu_item_id").eq("restaurant_id", restId),
+      supabase.from("concept_templates").select("id, name, description").order("sort_order"),
+      supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     setCategories((c as Category[]) ?? []);
     setProducts((p as Product[]) ?? []);
     setIngredients((i as Ingredient[]) ?? []);
     setAllGroups((g as { id: string; name: string }[]) ?? []);
     setSettings((settingsRow as Settings) ?? null);
+    setConcepts((concepts as ConceptTemplate[]) ?? []);
+    setStations((st as Station[]) ?? []);
 
     const stockMap: Record<string, number> = {};
     (usage as { ingredient_id: string; current_stock: number }[] ?? []).forEach((u) => { stockMap[u.ingredient_id] = u.current_stock; });
@@ -203,6 +217,14 @@ export default function MenuPage() {
     if (parentId) setExpanded((prev) => new Set(prev).add(parentId));
     setRootCat(""); await loadBase();
   };
+  const applyConcept = async (conceptId: string) => {
+    if (!restaurantId || applyingConcept) return;
+    setApplyingConcept(conceptId); setConceptErr(null);
+    const { error } = await supabase.rpc("apply_concept_template", { p_restaurant_id: restaurantId, p_concept_id: conceptId });
+    setApplyingConcept(null);
+    if (error) { setConceptErr(`Şablon uygulanamadı: ${error.message}`); return; }
+    await loadBase();
+  };
   const renameCategory = async (id: string, name: string) => {
     await supabase.from("menu_categories").update({ name: toUpperTr(name) }).eq("id", id);
     await loadBase();
@@ -220,6 +242,27 @@ export default function MenuPage() {
       if (!ok) return;
     }
     await supabase.from("menu_categories").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();
+  };
+  const setCategoryStation = async (catId: string, stationId: string | null) => {
+    await supabase.from("menu_categories").update({ default_station_id: stationId }).eq("id", catId);
+    await loadBase();
+  };
+  const addStation = async (name: string) => {
+    if (!restaurantId || !name.trim()) return;
+    await supabase.from("stations").insert({ restaurant_id: restaurantId, name: toTitleTr(name), sort_order: stations.length });
+    setNewStationName(""); await loadBase();
+  };
+  const renameStation = async (id: string, name: string) => {
+    await supabase.from("stations").update({ name: toTitleTr(name) }).eq("id", id); await loadBase();
+  };
+  const deleteStation = async (id: string) => {
+    const catCount = categories.filter((c) => c.default_station_id === id).length;
+    const prodCount = products.filter((p) => p.station_override_id === id).length;
+    if (catCount + prodCount > 0) {
+      const ok = await confirm(`Bu istasyon ${catCount} kategoride ve ${prodCount} üründe kullanılıyor. Silersen o kategori/ürünler istasyonsuz kalır. Yine de silinsin mi?`);
+      if (!ok) return;
+    }
+    await supabase.from("stations").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();
   };
   const addProduct = async (catId: string, name: string, price: string, vat: string) => {
     if (!restaurantId || !name.trim()) return;
@@ -246,6 +289,7 @@ export default function MenuPage() {
       recommended_price: selectedProduct.recommended_price,
       variable_cost_override: selectedProduct.variable_cost_override,
       fixed_cost_share_override: selectedProduct.fixed_cost_share_override,
+      station_override_id: selectedProduct.station_override_id,
     }).eq("id", selectedProduct.id);
     await loadBase();
   };
@@ -366,9 +410,9 @@ export default function MenuPage() {
   }
 
   const ctx: Ctx = {
-    categories, products, expanded, selectedId: selectedProduct?.id ?? null, menuItemsWithRecipe,
+    categories, products, stations, expanded, selectedId: selectedProduct?.id ?? null, menuItemsWithRecipe,
     toggle, selectProduct, deleteCategory, addCategory, addProduct,
-    renameCategory, renameProduct, defaultVatFor,
+    renameCategory, renameProduct, defaultVatFor, setCategoryStation,
   };
 
   return (
@@ -384,7 +428,25 @@ export default function MenuPage() {
                 <SortableContext items={roots.map((c) => c.id)} strategy={verticalListSortingStrategy}>
                   {roots.map((c) => <CatItem key={c.id} cat={c} depth={0} />)}
                 </SortableContext>
-                {roots.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: 12 }}>Henüz kategori yok.</div>}
+                {roots.length === 0 && concepts.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: 12 }}>Henüz kategori yok.</div>}
+                {roots.length === 0 && concepts.length > 0 && (
+                  <div style={{ padding: 12 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 4 }}>Hazır konseptle başla</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Bir konsept seç, menü + reçete + malzeme listesi otomatik kurulsun. Sonra istediğin gibi düzenlersin.</div>
+                    {conceptErr && <div style={{ marginBottom: 10, padding: "8px 11px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 12.5 }}>{conceptErr}</div>}
+                    {concepts.map((c) => (
+                      <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", marginBottom: 8 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{c.name}</div>
+                          {c.description && <div style={{ fontSize: 11.5, color: "var(--muted-2)" }}>{c.description}</div>}
+                        </div>
+                        <button onClick={() => applyConcept(c.id)} disabled={applyingConcept === c.id} style={{ ...btnSmall, flexShrink: 0, opacity: applyingConcept === c.id ? 0.6 : 1 }}>
+                          {applyingConcept === c.id ? "…" : "Uygula"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </DndContext>
           </MenuCtx.Provider>
@@ -393,6 +455,23 @@ export default function MenuPage() {
             <button onClick={() => addCategory(null, rootCat)} style={btnSmall}><Plus size={15} /> Kategori</button>
           </div>
           <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 8, flexShrink: 0 }}>Sıralamak için soldaki tutma kolundan sürükle. Kırmızı işaret = reçete eksik, sarı işaret = tavsiye fiyattan farklı satılıyor (bu uyarılar yalnızca burada görünür, müşteri menüsünde yok).</div>
+
+          <div style={{ flexShrink: 0 }}>
+            <Section title="İstasyonlar (Mutfak, Bar…)" collapsible defaultOpen={false}>
+              {stations.map((s) => (
+                <Row key={s.id}>
+                  <EditableText value={s.name} onSave={(v) => renameStation(s.id, v)} />
+                  <IconBtn onClick={() => deleteStation(s.id)} />
+                </Row>
+              ))}
+              {stations.length === 0 && <Empty>Henüz istasyon yok — Mutfak, Bar gibi ekle</Empty>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <input value={newStationName} onChange={(e) => setNewStationName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addStation(newStationName)} placeholder="İstasyon adı (Mutfak)" style={inp} />
+                <button onClick={() => addStation(newStationName)} style={btnSmall}><Plus size={15} /></button>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8 }}>Her kategori satırındaki küçük seçiciden o kategorinin varsayılan istasyonunu seçebilirsin. Ürün bazında farklı istasyon istersen ürünü açıp orada değiştir.</div>
+            </Section>
+          </div>
         </div>
 
         {/* editor */}
@@ -421,6 +500,16 @@ export default function MenuPage() {
                 <select value={selectedProduct.category_id ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, category_id: e.target.value || null })} style={{ ...inp, width: "100%", marginBottom: 6 }}>
                   {flatCats.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
+
+                {stations.length > 0 && (
+                  <>
+                    <label style={lbl}>İstasyon (mutfak ekranında nereye düşsün)</label>
+                    <select value={selectedProduct.station_override_id ?? ""} onChange={(e) => setSelectedProduct({ ...selectedProduct, station_override_id: e.target.value || null })} style={{ ...inp, width: "100%", marginBottom: 6 }}>
+                      <option value="">{`Kategori varsayılanı${(() => { const catStation = stations.find((s) => s.id === categories.find((c) => c.id === selectedProduct.category_id)?.default_station_id); return catStation ? ` (${catStation.name})` : " (yok)"; })()}`}</option>
+                      {stations.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </>
+                )}
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}><label style={lbl}>Menü fiyatı ₺</label><input value={String(selectedProduct.sale_price)} onChange={(e) => setSelectedProduct({ ...selectedProduct, sale_price: parseFloat(e.target.value) || 0 })} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
@@ -691,6 +780,18 @@ function CatItem({ cat, depth }: { cat: Category; depth: number }) {
             style={{ fontWeight: open ? 600 : 500, fontSize: 14, color: "var(--ink-green)" }}
           />
         </div>
+        {m.stations.length > 0 && (
+          <select
+            value={cat.default_station_id ?? ""}
+            onChange={(e) => m.setCategoryStation(cat.id, e.target.value || null)}
+            onClick={(e) => e.stopPropagation()}
+            title="Bu kategorideki ürünler varsayılan olarak hangi istasyona gitsin"
+            style={{ fontSize: 11, border: "1px solid var(--line-2)", borderRadius: 8, padding: "3px 5px", background: "var(--card)", color: "var(--muted)", maxWidth: 90 }}
+          >
+            <option value="">İstasyon yok</option>
+            {m.stations.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
         <button onClick={() => m.deleteCategory(cat.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", padding: "0 10px", color: "var(--muted-2)" }}><Trash2 size={13} /></button>
       </div>
 
