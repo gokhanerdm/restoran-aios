@@ -17,6 +17,7 @@ type TableRow = { id: string; name: string };
 type Card = {
   id: string; tableId: string | null; name: string; quantity: number;
   stationId: string | null; sentAt: string; preparingAt: string | null; readyAt: string | null;
+  prepMinutes: number | null;
 };
 
 const ALL = "__all__";
@@ -55,7 +56,7 @@ function MutfakInner() {
         supabase.from("restaurant_tables").select("id, name").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
         supabase.from("menu_categories").select("id, default_station_id").eq("restaurant_id", restId).is("deleted_at", null),
-        supabase.from("menu_items").select("id, name, category_id, station_override_id").eq("restaurant_id", restId).is("deleted_at", null),
+        supabase.from("menu_items").select("id, name, category_id, station_override_id, prep_minutes").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("orders").select("id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at)").eq("restaurant_id", restId).eq("status", "open"),
       ]);
       const anyErr = tErr ?? stErr ?? cErr ?? iErr ?? oErr;
@@ -71,10 +72,10 @@ function MutfakInner() {
 
       const catStation = new Map<string, string | null>();
       (cats as { id: string; default_station_id: string | null }[] ?? []).forEach((c) => catStation.set(c.id, c.default_station_id));
-      const itemInfo = new Map<string, { name: string; stationId: string | null }>();
-      (items as { id: string; name: string; category_id: string | null; station_override_id: string | null }[] ?? []).forEach((m) => {
+      const itemInfo = new Map<string, { name: string; stationId: string | null; prepMinutes: number | null }>();
+      (items as { id: string; name: string; category_id: string | null; station_override_id: string | null; prep_minutes: number | null }[] ?? []).forEach((m) => {
         const stationId = m.station_override_id ?? (m.category_id ? catStation.get(m.category_id) ?? null : null);
-        itemInfo.set(m.id, { name: m.name, stationId });
+        itemInfo.set(m.id, { name: m.name, stationId, prepMinutes: m.prep_minutes });
       });
 
       type OI = { id: string; quantity: number; menu_item_id: string; status: string; sent_at: string | null; preparing_at: string | null; ready_at: string | null; served_at: string | null };
@@ -87,6 +88,7 @@ function MutfakInner() {
           list.push({
             id: oi.id, tableId: o.table_id, name: info?.name ?? "?", quantity: oi.quantity,
             stationId: info?.stationId ?? null, sentAt: oi.sent_at, preparingAt: oi.preparing_at, readyAt: oi.ready_at,
+            prepMinutes: info?.prepMinutes ?? null,
           });
         });
       });
@@ -126,8 +128,19 @@ function MutfakInner() {
     (byTable.get(key) ?? byTable.set(key, []).get(key)!).push(c);
   });
   const tableGroups = Array.from(byTable.entries())
-    .map(([tableId, items]) => ({ tableId, items, oldestSentAt: Math.min(...items.map((i) => Date.parse(i.sentAt))) }))
+    .map(([tableId, items]) => {
+      const preps = items.map((i) => i.prepMinutes).filter((p): p is number => p != null);
+      return { tableId, items, oldestSentAt: Math.min(...items.map((i) => Date.parse(i.sentAt))), maxPrep: preps.length ? Math.max(...preps) : null };
+    })
     .sort((a, b) => a.oldestSentAt - b.oldestSentAt);
+  // Bir masanın tüm ürünleri aynı anda çıksın diye: en uzun pişme süresi olan ürün hemen başlar,
+  // kısa sürenler o kadar geç başlar ki hepsi birlikte biter. Sadece bilgi amaçlı — buton kilitlenmez.
+  const startHint = (c: Card, maxPrep: number | null): string | null => {
+    if (c.prepMinutes == null || maxPrep == null) return null;
+    const startAt = Date.parse(c.sentAt) + (maxPrep - c.prepMinutes) * 60000;
+    const diffMin = Math.round(((now || Date.now()) - startAt) / 60000);
+    return diffMin >= 0 ? "Şimdi başlat" : `${-diffMin} dk sonra başlat`;
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
@@ -157,11 +170,12 @@ function MutfakInner() {
                 {g.items.map((c) => {
                   const stage = c.readyAt ? "hazir" : c.preparingAt ? "hazirlaniyor" : "yeni";
                   const mins = elapsedMin(c.sentAt);
+                  const hint = stage === "yeni" ? startHint(c, g.maxPrep) : null;
                   return (
                     <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 14 }}><span className="tnum">{c.quantity}×</span> {c.name}</div>
-                        <div className="tnum" style={{ fontSize: 11, color: mins >= 10 ? "var(--danger)" : "var(--muted-2)" }}>{mins} dk</div>
+                        <div className="tnum" style={{ fontSize: 11, color: mins >= 10 ? "var(--danger)" : "var(--muted-2)" }}>{mins} dk{hint && <span style={{ color: hint === "Şimdi başlat" ? "var(--brand)" : "var(--muted-2)", fontWeight: hint === "Şimdi başlat" ? 700 : 400 }}> · {hint}</span>}</div>
                       </div>
                       {stage === "yeni" && <button onClick={() => setStage(c.id, "preparing_at")} style={stageBtnSm}>Hazırlanıyor</button>}
                       {stage === "hazirlaniyor" && <button onClick={() => setStage(c.id, "ready_at")} style={stageBtnSm}>Hazır</button>}

@@ -19,7 +19,7 @@ type TableRow = {
   id: string; name: string; area_id: string | null; status: TableStatus;
   reservation_note: string | null; merged_into_table_id: string | null;
 };
-type OrderItem = { id: string; quantity: number; unit_price: number; status: string; ready_at: string | null; served_at: string | null };
+type OrderItem = { id: string; quantity: number; unit_price: number; status: string; sent_at: string | null; ready_at: string | null; served_at: string | null };
 type Order = { id: string; table_id: string | null; order_items: OrderItem[] };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
@@ -116,7 +116,7 @@ function GarsonInner() {
         Promise.all([
           supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
           supabase.from("restaurant_tables").select("id, name, area_id, status, reservation_note, merged_into_table_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status, ready_at, served_at)").eq("restaurant_id", rest.id).eq("status", "open"),
+          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status, sent_at, ready_at, served_at)").eq("restaurant_id", rest.id).eq("status", "open"),
         ]),
         timeout,
       ]);
@@ -158,8 +158,14 @@ function GarsonInner() {
   const orderForTable = (tableId: string) => orders.find((o) => o.table_id === tableId) ?? null;
   const orderTotal = (order: Order | null) =>
     order ? order.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
-  const hasReadyItems = (order: Order | null) =>
-    order ? order.order_items.some((i) => i.ready_at && !i.served_at) : false;
+  // Mutfak/bar'a gönderilmiş ama henüz servis edilmemiş kalemler arasında kaçı "hazır" —
+  // garson bununla kaçının çıktığını, kaçının hâlâ beklendiğini görüp servisini kendi ayarlar.
+  const readyProgress = (order: Order | null) => {
+    if (!order) return null;
+    const pending = order.order_items.filter((i) => i.status === "active" && i.sent_at && !i.served_at);
+    const ready = pending.filter((i) => i.ready_at);
+    return ready.length > 0 ? { ready: ready.length, total: pending.length } : null;
+  };
 
   // Masa başka bir masaya birleştirildiyse hesabın açık olduğu hedef masayı bul (Salonlar ile aynı mantık).
   const resolveTarget = (t: TableRow): TableRow => {
@@ -215,7 +221,8 @@ function GarsonInner() {
             const bill = t.status === "bill_requested";
             const reserved = t.status === "reserved";
             const dotColor = merged ? "var(--muted-2)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
-            const ready = !merged && hasReadyItems(ord);
+            const progress = !merged ? readyProgress(ord) : null;
+            const ready = !!progress;
             return (
               <button
                 key={t.id}
@@ -237,7 +244,7 @@ function GarsonInner() {
                 ) : occupied ? (
                   <>
                     <div className="tnum" style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.3px", color: "var(--ink-green)", marginTop: 14 }}>{money(total)}</div>
-                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{ready ? "HAZIR — servis et" : bill ? "hesap istedi" : "açık"}</div>
+                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{progress ? `${progress.ready}/${progress.total} ürün hazır` : bill ? "hesap istedi" : "açık"}</div>
                   </>
                 ) : reserved ? (
                   <div style={{ fontSize: 11.5, color: "var(--info)", marginTop: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.reservation_note || "Rezerve"}</div>
