@@ -27,21 +27,38 @@ const ALL = "__all__";
 
 // Mutfak/bar bir kalemi "hazır" işaretlediğinde garsona haber verir — kısa bir bip sesi.
 // Dosya yok, tarayıcının kendi ses üretme yeteneğiyle (Web Audio API) anlık üretilir.
+//
+// Tarayıcılar, kullanıcı sayfaya hiç dokunmadan otomatik ses çalınmasını güvenlik amacıyla
+// engeller (autoplay policy). Bu yüzden ses bağlamını (AudioContext) her bipte sıfırdan
+// açmak yerine, sayfadaki İLK dokunuşta bir kere açıp "kilidini kaldırıyoruz", sonraki
+// bildirimlerde hep aynı (zaten izinli) bağlamı kullanıyoruz.
+let sharedAudioCtx: AudioContext | null = null;
+function getAudioCtxCtor(): typeof AudioContext | null {
+  if (typeof window === "undefined") return null;
+  return window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext ?? null;
+}
+function unlockAudio() {
+  const Ctx = getAudioCtxCtor();
+  if (!Ctx) return;
+  if (!sharedAudioCtx) sharedAudioCtx = new Ctx();
+  if (sharedAudioCtx.state === "suspended") sharedAudioCtx.resume().catch(() => {});
+}
 function playReadyBeep() {
   try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.4);
-    osc.onended = () => ctx.close();
+    const ctx = sharedAudioCtx;
+    if (ctx) {
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    }
   } catch { /* tarayıcı Web Audio'yu desteklemiyor/engelliyor olabilir — sessizce geç */ }
   // Titreşim: Android Chrome'da çalışır, iOS Safari desteklemiyor (Apple kısıtlaması) — zararsız no-op.
   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([200, 100, 200]);
@@ -76,6 +93,14 @@ function GarsonInner() {
     window.addEventListener("error", onErr);
     window.addEventListener("unhandledrejection", onRej);
     return () => { window.removeEventListener("error", onErr); window.removeEventListener("unhandledrejection", onRej); };
+  }, []);
+
+  // "Hazır" bip sesi otomatik çalabilsin diye, sayfadaki ilk dokunuşta ses iznini bir kere alır
+  // (masa seçmek, sipariş girmek gibi normal kullanım zaten bunu tetikler).
+  useEffect(() => {
+    const onFirstTouch = () => { unlockAudio(); document.removeEventListener("pointerdown", onFirstTouch); };
+    document.addEventListener("pointerdown", onFirstTouch);
+    return () => document.removeEventListener("pointerdown", onFirstTouch);
   }, []);
 
   const load = useCallback(async () => {
