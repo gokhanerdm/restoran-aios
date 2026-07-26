@@ -362,7 +362,9 @@ export default function TableOrderPanel({
     variant === "sheet"
       // touchAction: dikey kaydırmayı yatay sürüklemeden ayırır — mobilde parmakla yukarı/aşağı
       // kaydırırken panelin sağa sola kaymasını (diagonal dokunuşlarda) engeller.
-      ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "auto", overflowX: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
+      // overflowY burada "auto" değil "hidden" — sayfanın tamamı değil, sadece ürün listesi
+      // (aşağıda flex:1+overflowY:auto+minHeight:0 üçlüsüyle) kendi içinde kayar (bkz. PAGE_STANDARDS #1).
+      ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "hidden", overflowX: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
       : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460 };
 
   // Menü, tam ekran/yan panel ayrı bir katman — sipariş listesi ne kadar uzarsa uzasın menü hep
@@ -417,7 +419,7 @@ export default function TableOrderPanel({
             </span>
           </div>
 
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0, touchAction: "pan-y" }}>
             {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").map((i) => (
               <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", fontSize: 14 }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
