@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Shell from "./components/Shell";
+import EnableTouchActive from "./components/EnableTouchActive";
 
 export const metadata: Metadata = {
   title: "Restoran AIOS",
@@ -15,6 +16,7 @@ export default function RootLayout({
   return (
     <html lang="tr">
       <body>
+        <EnableTouchActive />
         <Shell>{children}</Shell>
       </body>
     </html>
