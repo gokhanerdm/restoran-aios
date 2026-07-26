@@ -228,7 +228,8 @@ function GarsonInner() {
                 key={t.id}
                 onClick={() => setSelectedTableId(resolveTarget(t).id)}
                 style={{
-                  textAlign: "left", borderRadius: 16, padding: 14, minHeight: 88,
+                  textAlign: "left", borderRadius: 16, padding: 14, height: 108, boxSizing: "border-box",
+                  display: "flex", flexDirection: "column",
                   border: ready ? "2px solid var(--brand-strong)" : "none",
                   background: merged ? "var(--recede)" : occupied ? "var(--card)" : reserved ? "var(--info-bg)" : "var(--recede)",
                   boxShadow: ready ? "0 0 0 3px var(--success-bg), 0 6px 16px rgba(30,57,50,.12)" : occupied && !merged ? "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" : "none",
