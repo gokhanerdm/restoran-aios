@@ -283,6 +283,10 @@ export default function AnaSayfa() {
               </div>
             )}
           </div>
+
+          <div style={{ marginTop: 10 }}>
+            <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={90} />
+          </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <PeriyotMiniTablo
@@ -295,9 +299,6 @@ export default function AnaSayfa() {
             ]}
           />
         </div>
-      </div>
-      <div style={{ flexShrink: 0 }}>
-        <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={110} />
       </div>
       <div style={{ flexShrink: 0, fontSize: 11.5, color: "var(--muted-2)", margin: "4px 0 12px" }}>
         {`Başabaş ve kârlılık tahmindir (son 30 günün malzeme oranı + sabit gider payı) · her 1.000₺ ciro ~${money(marjinalKar1000)} kâr bırakır`}
