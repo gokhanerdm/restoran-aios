@@ -396,7 +396,10 @@ export default function TableOrderPanel({
     variant === "sheet"
       // Sipariş panelindeki alttan-kayan sheet ile aynı görünüm (yuvarlak üst köşe, arkada backdrop)
       // ama olabildiğince yükseğe kadar açılır — sadece tepede çentik/durum çubuğu payı kadar boşluk kalır.
-      ? { position: "fixed", left: 0, right: 0, bottom: 0, top: "max(14px, env(safe-area-inset-top, 0px))", zIndex: 61, background: "var(--card)", borderRadius: "20px 20px 0 0", boxShadow: "0 -10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", boxSizing: "border-box", padding: "14px 16px 20px", overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
+      // z-index 70+ — StaffLoginGate'in sağ üstteki personel rozeti/çıkış butonu 70'te sabit
+      // duruyor; menü açılınca onu tamamen kaplasın diye üstüne çıkıyor (aksi halde aynı köşede
+      // çakışıyorlardı).
+      ? { position: "fixed", left: 0, right: 0, bottom: 0, top: "max(14px, env(safe-area-inset-top, 0px))", zIndex: 75, background: "var(--card)", borderRadius: "20px 20px 0 0", boxShadow: "0 -10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", boxSizing: "border-box", padding: "14px 16px 20px", overflow: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
       // Sipariş paneliyle aynı eski genişlik (280-340px) — tüm ekranı kaplamasın, sadece onun
       // soluna, masa ızgarasının üstüne binen dar bir panel olsun. 380: sağdan sipariş paneli + boşluk payı.
       : { position: "fixed", top: 22, right: 380, bottom: 22, width: 340, zIndex: 60, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", padding: 22 };
@@ -626,7 +629,7 @@ export default function TableOrderPanel({
           <div
             className="backdrop-fade-in"
             onClick={() => { setMenuOpen(false); setConfig(null); }}
-            style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(20,20,15,0.4)" }}
+            style={{ position: "fixed", inset: 0, zIndex: 74, background: "rgba(20,20,15,0.4)" }}
           />
         )}
         <div className={variant === "sheet" ? "sheet-slide-up" : undefined} style={menuOverlayStyle}>
