@@ -197,7 +197,7 @@ export default function AnaSayfa() {
         {([
           { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
           { l: "Nakit", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-          { l: "KK", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+          { l: "Kredi K.", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
           { l: "Yemek Kartı", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
           { l: "BAŞABAŞ", vals: basabasArr, fmt: (v: number) => money(v), renk: () => "var(--ink)" },
           { l: "KÂRLILIK", vals: karArr, fmt: (v: number) => money(v), renk: (v: number) => (v < 0 ? "var(--danger)" : "var(--brand)") },
