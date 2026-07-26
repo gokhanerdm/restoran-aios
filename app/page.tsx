@@ -472,10 +472,12 @@ function TableBox({
   const onPointerDown = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
     startRef.current = { x: e.clientX, y: e.clientY, moved: false };
-    setDragOffset({ dx: 0, dy: 0 });
+    // Birleştirme modunda sürükleme tamamen kapalı — aksi halde tıklarken 4px'ten fazla
+    // kayan bir parmak/mouse "sürükleme" sayılıp masa birleştirme seçimi yerine yer değiştiriyordu.
+    if (!mergeMode) setDragOffset({ dx: 0, dy: 0 });
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!startRef.current) return;
+    if (!startRef.current || mergeMode) return;
     const dx = e.clientX - startRef.current.x;
     const dy = e.clientY - startRef.current.y;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) startRef.current.moved = true;
@@ -488,6 +490,7 @@ function TableBox({
     const dy = dragOffset?.dy ?? 0;
     startRef.current = null;
     setDragOffset(null);
+    if (mergeMode) { onClick(); return; }
     if (moved) onMove(table.id, snapCoord(x + dx, BOX_W), snapCoord(y + dy, BOX_H));
     else onClick();
   };
