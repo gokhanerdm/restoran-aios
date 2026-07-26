@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X, ClipboardList } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { useConfirm } from "../components/useConfirm";
 import { toUpperTr, toTitleTr } from "@/lib/text";
@@ -28,6 +28,11 @@ type Item = {
   stock_group_id: string | null;
   stock_group_name: string | null;
   sort_order: number;
+};
+type NeedRow = {
+  ingredient_id: string; ingredient_name: string; unit: string;
+  needed_quantity: number; current_stock: number; shortfall: number;
+  unit_cost: number; estimated_cost: number;
 };
 type Supplier = { id: string; name: string; delivery_frequency: string };
 type Group = { id: string; name: string; sort_order: number };
@@ -83,6 +88,16 @@ export default function StokPage() {
   const [invErr, setInvErr] = useState<string | null>(null);
   const [invBusy, setInvBusy] = useState(false);
 
+  // İhtiyaç listesi (günlük tahmini sipariş) — "hangi ürün satacak bilmiyoruz" sorununu
+  // menüdeki tahmini satış payı + reçeteler üzerinden ağırlıklı ortalama ile çözer.
+  const [menuCategories, setMenuCategories] = useState<{ id: string; name: string }[]>([]);
+  const [showNeeds, setShowNeeds] = useState(false);
+  const [needsCategoryId, setNeedsCategoryId] = useState("");
+  const [needsCovers, setNeedsCovers] = useState("200");
+  const [needsResults, setNeedsResults] = useState<NeedRow[] | null>(null);
+  const [needsBusy, setNeedsBusy] = useState(false);
+  const [needsErr, setNeedsErr] = useState<string | null>(null);
+
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const sensors = useSensors(
@@ -94,14 +109,16 @@ export default function StokPage() {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: usage }, { data: sup }, { data: grp }] = await Promise.all([
+    const [{ data: usage }, { data: sup }, { data: grp }, { data: cats }] = await Promise.all([
       supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
       supabase.from("suppliers").select("id, name, delivery_frequency").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("stock_groups").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("menu_categories").select("id, name").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     setItems((usage as Item[]) ?? []);
     setSuppliers((sup as Supplier[]) ?? []);
     setGroups((grp as Group[]) ?? []);
+    setMenuCategories((cats as { id: string; name: string }[]) ?? []);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -148,6 +165,23 @@ export default function StokPage() {
     setInvSupplier(""); setInvRef(""); setInvDate(bugunTarih());
     setInvRows([{ ingredientId: "", qty: "", price: "" }]);
     setInvErr(null); setShowInvoice(true);
+  };
+
+  const openNeeds = () => {
+    setNeedsCategoryId(""); setNeedsResults(null); setNeedsErr(null); setShowNeeds(true);
+  };
+
+  const calcNeeds = async () => {
+    if (!restaurantId || !needsCategoryId) return;
+    const covers = parseInt(needsCovers) || 0;
+    if (covers <= 0) return;
+    setNeedsBusy(true); setNeedsErr(null);
+    const { data, error } = await supabase.rpc("category_daily_ingredient_needs", {
+      p_restaurant_id: restaurantId, p_category_id: needsCategoryId, p_total_covers: covers,
+    });
+    setNeedsBusy(false);
+    if (error) { setNeedsErr(error.message); return; }
+    setNeedsResults((data as NeedRow[]) ?? []);
   };
 
   const setInvRow = (idx: number, patch: Partial<InvRow>) => {
@@ -319,7 +353,10 @@ export default function StokPage() {
             {items.length} malzeme · {kritikSayisi} kritik
           </div>
         </div>
-        <button onClick={openInvoice} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 980, padding: "9px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500 }}>
+        <button onClick={openNeeds} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 18px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, fontWeight: 500 }}>
+          <ClipboardList size={15} /> İhtiyaç listesi
+        </button>
+        <button onClick={openInvoice} style={{ marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 980, padding: "9px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500 }}>
           <ReceiptText size={15} /> Fatura gir
         </button>
         <div style={{ marginLeft: 12, display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980 }}>
@@ -500,6 +537,59 @@ export default function StokPage() {
               <button onClick={saveInvoice} disabled={invBusy} style={{ border: "none", borderRadius: 980, padding: "11px 26px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, opacity: invBusy ? 0.6 : 1 }}>
                 {invBusy ? "Kaydediliyor…" : "Faturayı kaydet"}
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {showNeeds && (
+        <>
+          <div onClick={() => setShowNeeds(false)} style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", zIndex: 40 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 50, width: "min(640px, 94vw)", maxHeight: "88vh", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 18px 50px rgba(30,57,50,.18)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--ink-green)" }}>İhtiyaç listesi</div>
+              <button onClick={() => setShowNeeds(false)} aria-label="kapat" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><X size={18} /></button>
+            </div>
+
+            <div style={{ padding: "14px 20px", overflowY: "auto", minHeight: 0 }}>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
+                Bir kategori seç, günlük kaç porsiyon satılacağını tahmin et — hangi ürünün tam olarak ne kadar satacağı bilinmese de, menüdeki tahmini satış paylarına göre malzeme ihtiyacı hesaplanır.
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                <select value={needsCategoryId} onChange={(e) => setNeedsCategoryId(e.target.value)} style={{ ...inp, flex: 1.6 }}>
+                  <option value="">Kategori seç</option>
+                  {menuCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+                <input value={needsCovers} onChange={(e) => setNeedsCovers(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && calcNeeds()} placeholder="Porsiyon" inputMode="numeric" style={{ ...inp, width: 100 }} />
+                <button onClick={calcNeeds} disabled={needsBusy || !needsCategoryId} style={btnSmall}>Hesapla</button>
+              </div>
+
+              {needsErr && <div style={{ marginBottom: 10, padding: "9px 13px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{needsErr}</div>}
+
+              {needsResults && (
+                <>
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--muted-2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                    <span style={{ flex: 1.6 }}>Malzeme</span>
+                    <span style={{ width: 90, textAlign: "right" }}>Gereken</span>
+                    <span style={{ width: 80, textAlign: "right" }}>Mevcut</span>
+                    <span style={{ width: 80, textAlign: "right" }}>Eksik</span>
+                    <span style={{ width: 90, textAlign: "right" }}>Tahmini ₺</span>
+                  </div>
+                  {needsResults.map((r) => (
+                    <div key={r.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+                      <span style={{ flex: 1.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.ingredient_name}</span>
+                      <span className="tnum" style={{ width: 90, textAlign: "right" }}>{num(r.needed_quantity)} {r.unit}</span>
+                      <span className="tnum" style={{ width: 80, textAlign: "right", color: "var(--muted)" }}>{num(r.current_stock)}</span>
+                      <span className="tnum" style={{ width: 80, textAlign: "right", color: r.shortfall > 0 ? "var(--danger)" : "var(--muted-2)", fontWeight: r.shortfall > 0 ? 600 : 400 }}>{r.shortfall > 0 ? num(r.shortfall) : "—"}</span>
+                      <span className="tnum" style={{ width: 90, textAlign: "right" }}>{money(r.estimated_cost)}</span>
+                    </div>
+                  ))}
+                  {needsResults.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu kategorideki ürünlerde reçete tanımlı değil.</div>}
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, fontSize: 13.5 }}>
+                    Toplam tahmini maliyet: <b className="tnum" style={{ marginLeft: 6, color: "var(--ink-green)" }}>{money(needsResults.reduce((s, r) => s + r.estimated_cost, 0))}</b>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </>

@@ -24,6 +24,7 @@ type Product = {
   recommended_price: number | null; variable_cost_override: number | null; fixed_cost_share_override: number | null;
   station_override_id: string | null;
   prep_minutes: number | null;
+  expected_daily_share: number | null;
 };
 type Station = { id: string; name: string; sort_order: number };
 type Nutri = { kcal_per_unit: number; diet_class: string; allergens: string[] };
@@ -135,7 +136,7 @@ export default function MenuPage() {
     setRestaurantId(restId);
     const [{ data: c }, { data: p }, { data: i }, { data: g }, { data: settingsRow }, { data: usage }, { data: allLinks }, { data: concepts }, { data: st }] = await Promise.all([
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent, default_station_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override, station_override_id, prep_minutes").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("menu_items").select("id, name, sale_price, vat_rate, category_id, calorie_override, is_active, description, ingredients_text, image_url, allergens_override, available_dine_in, available_takeaway, available_quick_sale, recommended_price, variable_cost_override, fixed_cost_share_override, station_override_id, prep_minutes, expected_daily_share").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("ingredients").select("id, name, unit, current_unit_cost").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("modifier_groups").select("id, name").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
@@ -292,6 +293,7 @@ export default function MenuPage() {
       fixed_cost_share_override: selectedProduct.fixed_cost_share_override,
       station_override_id: selectedProduct.station_override_id,
       prep_minutes: selectedProduct.prep_minutes,
+      expected_daily_share: selectedProduct.expected_daily_share,
     }).eq("id", selectedProduct.id);
     await loadBase();
   };
@@ -522,6 +524,16 @@ export default function MenuPage() {
                   style={{ ...inp, width: "100%", marginBottom: 6 }}
                 />
                 <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: -2, marginBottom: 8 }}>Girilirse mutfak ekranı, bir masanın tüm ürünleri aynı anda çıksın diye hangi ürünün ne zaman başlaması gerektiğini önerir.</div>
+
+                <label style={lbl}>Tahmini günlük satış payı (%)</label>
+                <input
+                  value={selectedProduct.expected_daily_share != null ? String(selectedProduct.expected_daily_share) : ""}
+                  onChange={(e) => setSelectedProduct({ ...selectedProduct, expected_daily_share: e.target.value === "" ? null : (parseFloat(e.target.value) || 0) })}
+                  placeholder="boşsa kategori içinde eşit paylaşılır"
+                  inputMode="decimal"
+                  style={{ ...inp, width: "100%", marginBottom: 6 }}
+                />
+                <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: -2, marginBottom: 8 }}>Stok ekranındaki "İhtiyaç listesi" hesaplaması bu payı kullanır — hangi ürünün tam olarak ne kadar satacağı bilinmese de, malzeme ihtiyacı bu tahminle hesaplanır.</div>
 
                 <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                   <div style={{ flex: 1 }}><label style={lbl}>Menü fiyatı ₺</label><input value={String(selectedProduct.sale_price)} onChange={(e) => setSelectedProduct({ ...selectedProduct, sale_price: parseFloat(e.target.value) || 0 })} inputMode="decimal" style={{ ...inp, width: "100%" }} /></div>
