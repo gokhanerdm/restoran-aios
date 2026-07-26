@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -50,6 +51,10 @@ export default function TableOrderPanel({
   // "sidebar": masaüstünde masa gridinin yanında sabit sütun. "sheet": mobilde alttan açılan tam genişlik panel.
   variant?: "sidebar" | "sheet";
 }) {
+  // Menü katmanını document.body'ye portal'layabilmek için (bkz. aşağıdaki createPortal) —
+  // sunucu tarafında render sırasında `document` yok, o yüzden mount olana kadar bekleriz.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [order, setOrder] = useState<Order | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -357,8 +362,9 @@ export default function TableOrderPanel({
   const menuOverlayStyle: React.CSSProperties =
     variant === "sheet"
       ? { position: "fixed", inset: 0, zIndex: 60, background: "var(--canvas)", display: "flex", flexDirection: "column" }
-      // 82: sol nav rayının genişliği (Shell.tsx) · 362: sipariş panelinin azami genişliği + boşluk payı.
-      : { position: "fixed", top: 22, left: 82, right: 362, bottom: 22, zIndex: 60, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", padding: 22 };
+      // Sipariş paneliyle aynı eski genişlik (280-340px) — tüm ekranı kaplamasın, sadece onun
+      // soluna, masa ızgarasının üstüne binen dar bir panel olsun. 380: sağdan sipariş paneli + boşluk payı.
+      : { position: "fixed", top: 22, right: 380, bottom: 22, width: 340, zIndex: 60, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", padding: 22 };
 
   return (
     <>
@@ -559,7 +565,7 @@ export default function TableOrderPanel({
       )}
     </div>
 
-    {menuOpen && table && order && (
+    {mounted && menuOpen && table && order && createPortal(
       <div style={menuOverlayStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginBottom: 10 }}>
           <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600 }}>
@@ -630,7 +636,8 @@ export default function TableOrderPanel({
             </div>
           </div>
         )}
-      </div>
+      </div>,
+      document.body
     )}
     </>
   );
