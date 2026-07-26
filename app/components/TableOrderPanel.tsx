@@ -617,8 +617,8 @@ export default function TableOrderPanel({
                   {open && (
                     <div style={{ paddingBottom: 6 }}>
                       {items.map((m) => (
-                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy}
-                          style={{ all: "unset", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box" }}>
+                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy} className="tap-feedback"
+                          style={{ border: "none", background: "transparent", textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box" }}>
                           <span>{m.name}</span>
                           <span className="tnum" style={{ color: "var(--muted)" }}>{money(m.sale_price)}</span>
                         </button>

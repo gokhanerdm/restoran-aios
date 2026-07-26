@@ -39,6 +39,10 @@ html, body {
   height: 100%;
 }
 button { font-family: inherit; cursor: pointer; }
+
+/* Dokunma/tıklama geri bildirimi — büyük bir buton görünümü değil, sadece basıldığı an belli olsun. */
+.tap-feedback { transition: background-color .08s ease; border-radius: 10px; }
+.tap-feedback:active { background: var(--recede); }
 .tnum { font-variant-numeric: tabular-nums; }
 
 /* Mobil sipariş paneli — alttan yukarı kayan panel (Kasa ekranı) */
