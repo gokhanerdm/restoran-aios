@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import TableOrderPanel from "../components/TableOrderPanel";
-import StaffLoginGate from "../components/StaffLoginGate";
+import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate";
 
 // Garson mobil modülü — el terminali/telefon için tek işi var: masa seç, sipariş al, hesap kapat.
 // Salonlar ekranındaki AYNI salon/masa yapısını kullanır (dining_areas + restaurant_tables.area_id)
@@ -220,7 +220,10 @@ function GarsonInner() {
             <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>Siparişler</div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${doluSayisi} masa dolu`}</div>
           </div>
-          {err && <button onClick={() => { setLoading(true); load(); }} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, fontWeight: 600 }}>Yenile</button>}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {err && <button onClick={() => { setLoading(true); load(); }} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, fontWeight: 600 }}>Yenile</button>}
+            <StaffProfileBadge restaurantId={restaurantId} />
+          </div>
         </div>
         {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{err}</div>}
 

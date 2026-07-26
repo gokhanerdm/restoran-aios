@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
-import StaffLoginGate from "../components/StaffLoginGate";
+import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate";
 import { getStaffSession } from "@/lib/supabase/staffSession";
 
 // Mutfak/Bar ekranı (KDS v1) — garson "Gönder"e basınca buraya düşer.
@@ -156,8 +156,13 @@ function MutfakInner() {
     <StaffLoginGate restaurantId={restaurantId} roles={["mutfak", "bar"]}>
     <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
       <div style={{ padding: "18px 16px 40px" }}>
-        <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} masa · ${visible.length} bekleyen kalem`}</div>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} masa · ${visible.length} bekleyen kalem`}</div>
+          </div>
+          <StaffProfileBadge restaurantId={restaurantId} />
+        </div>
         {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{err}</div>}
 
         {stations.length > 0 && (

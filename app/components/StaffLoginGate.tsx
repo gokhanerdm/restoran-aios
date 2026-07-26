@@ -10,6 +10,11 @@ import { getStaffSession, setStaffSession, clearStaffSession, type StaffSession 
 // etiketlemek, gerçek bir yetkilendirme/güvenlik katmanı değil.
 const StaffSessionContext = createContext<StaffSession | null>(null);
 export const useStaffSession = () => useContext(StaffSessionContext);
+// Çıkış fonksiyonu ayrı bir context'te — StaffProfileBadge (rozet+profil+çıkış) sabit/fixed
+// bir katman olarak DEĞİL, her sayfanın kendi başlığının içine normal bir öğe olarak konur
+// (aksi halde her yeni üst katmanla (menü, onay kutusu vb.) z-index çakışması çıkıyordu).
+const StaffLogoutContext = createContext<(() => void) | null>(null);
+const useStaffLogout = () => useContext(StaffLogoutContext);
 
 export default function StaffLoginGate({
   restaurantId,
@@ -76,8 +81,9 @@ export default function StaffLoginGate({
 
   return (
     <StaffSessionContext.Provider value={session}>
-      <StaffTopBar restaurantId={restaurantId} session={session} onLogout={logout} />
-      {children}
+      <StaffLogoutContext.Provider value={logout}>
+        {children}
+      </StaffLogoutContext.Provider>
     </StaffSessionContext.Provider>
   );
 }
@@ -88,9 +94,15 @@ type Summary = {
 };
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 
-function StaffTopBar({ restaurantId, session, onLogout }: { restaurantId: string | null; session: StaffSession; onLogout: () => void }) {
+// Sayfanın kendi başlığının içine konacak rozet — isim + Profilim + Çıkış yap. Sabit/fixed değil,
+// normal akışta bir öğe; her ekran (Siparişler, mutfak) kendi header'ında nereye koyacağına karar verir.
+export function StaffProfileBadge({ restaurantId }: { restaurantId: string | null }) {
+  const session = useStaffSession();
+  const logout = useStaffLogout();
   const [showProfile, setShowProfile] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
+
+  if (!session) return null;
 
   const openProfile = async () => {
     setShowProfile(true);
@@ -101,9 +113,9 @@ function StaffTopBar({ restaurantId, session, onLogout }: { restaurantId: string
 
   return (
     <>
-      <div style={{ position: "fixed", top: "calc(10px + env(safe-area-inset-top, 0px))", right: 12, zIndex: 70, display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         <button onClick={openProfile} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12, fontWeight: 600 }}>{session.full_name}</button>
-        <button onClick={onLogout} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12, fontWeight: 600 }}>Çıkış yap</button>
+        <button onClick={() => logout?.()} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12, fontWeight: 600 }}>Çıkış yap</button>
       </div>
 
       {showProfile && (
