@@ -43,8 +43,8 @@ button { font-family: inherit; cursor: pointer; }
 /* Dokunma/tıklama geri bildirimi — büyük bir buton görünümü değil, sadece basıldığı an belli olsun.
    background/border burada tanımlı, satır-içi style'da DEĞİL — inline stil her zaman CSS sınıfından
    önce geldiği için :active hiç görünmüyordu, bunu ilk seferde atladık. */
-.tap-feedback { background: transparent; border: none; transition: background-color .08s ease; border-radius: 10px; }
-.tap-feedback:active { background: var(--recede); }
+.tap-feedback { background: transparent; border: none; transition: background-color .08s ease, transform .08s ease; border-radius: 10px; }
+.tap-feedback:active { background: var(--line-2); transform: scale(0.97); }
 .tnum { font-variant-numeric: tabular-nums; }
 
 /* Mobil sipariş paneli — alttan yukarı kayan panel (Kasa ekranı) */
