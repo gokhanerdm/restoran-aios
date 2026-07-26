@@ -4,9 +4,14 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
+import { Plus, Trash2, GripVertical } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toTitleTr } from "@/lib/text";
+import {
+  DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // Ana Sayfa — işletmenin veri merkezi. Başabaş: "bugün X₺ ciro dükkanı çevirir,
 // ondan sonraki her 1.000₺'nin ~Y₺'si kâr" (ROADMAP + Gökhan şablonu, 2026-07-10).
@@ -55,6 +60,10 @@ export default function AnaSayfa() {
   const [neAmount, setNeAmount] = useState("");
   const [neVat, setNeVat] = useState("20");
   const [daysInput, setDaysInput] = useState("");
+  const expenseSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+  );
 
   const load = useCallback(async () => {
     const restId = await getMyRestaurantId();
@@ -191,11 +200,13 @@ export default function AnaSayfa() {
     await load();
   };
   const deleteExpense = async (id: string) => { await supabase.from("business_expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id); await load(); };
-  const moveExpense = async (index: number, dir: -1 | 1) => {
-    const next = index + dir;
-    if (next < 0 || next >= expenses.length) return;
-    const reordered = [...expenses];
-    [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
+  const onExpenseDragEnd = async (ev: DragEndEvent) => {
+    const { active, over } = ev;
+    if (!over || active.id === over.id) return;
+    const oldIndex = expenses.findIndex((x) => x.id === active.id);
+    const newIndex = expenses.findIndex((x) => x.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(expenses, oldIndex, newIndex);
     await Promise.all(reordered.map((r, i) => supabase.from("business_expenses").update({ sort_order: i }).eq("id", r.id)));
     await load();
   };
@@ -245,35 +256,24 @@ export default function AnaSayfa() {
                 {/* Sütunlar dar sütuna (Başabaş panelinin altı, ekranın yarısı) sığacak şekilde
                     daraltıldı — "KDV hariç" kaldırıldı (türetilmiş değer, gerekirse başka yerde var). */}
                 <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                  <span style={{ width: 20, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0 }}>Gider kalemi</span>
                   <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>KDV'siz</span>
                   <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>KDV%</span>
                   <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>KDV dahil</span>
-                  <span style={{ width: 16, flexShrink: 0 }} />
                   <span style={{ width: 20, flexShrink: 0 }} />
                 </div>
-                {expenses.map((e, i) => (
-                  <div key={e.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} inputWidth="100%" /></span>
-                    <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(r2(e.monthly_amount))} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} inputWidth={48} />
-                    </span>
-                    <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} inputWidth={22} />
-                      <span className="tnum" style={{ color: "var(--muted)" }}>%</span>
-                    </span>
-                    <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(r2(e.monthly_amount * (1 + e.vat_rate / 100)))} onSave={(v) => updateExpenseGross(e.id, v, e.vat_rate)} style={{ display: "inline-block" }} inputWidth={48} />
-                    </span>
-                    <span style={{ width: 16, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-                      <button onClick={() => moveExpense(i, -1)} disabled={i === 0} aria-label="yukarı taşı" style={{ all: "unset", cursor: i === 0 ? "default" : "pointer", color: "var(--muted-2)", opacity: i === 0 ? 0.3 : 1, display: "inline-flex" }}><ChevronUp size={13} /></button>
-                      <button onClick={() => moveExpense(i, 1)} disabled={i === expenses.length - 1} aria-label="aşağı taşı" style={{ all: "unset", cursor: i === expenses.length - 1 ? "default" : "pointer", color: "var(--muted-2)", opacity: i === expenses.length - 1 ? 0.3 : 1, display: "inline-flex" }}><ChevronDown size={13} /></button>
-                    </span>
-                    <span style={{ width: 20, textAlign: "right", flexShrink: 0 }}>
-                      <button onClick={() => deleteExpense(e.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={13} /></button>
-                    </span>
-                  </div>
-                ))}
+                <DndContext sensors={expenseSensors} collisionDetection={closestCenter} onDragEnd={onExpenseDragEnd}>
+                  <SortableContext items={expenses.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+                    {expenses.map((e) => (
+                      <ExpenseRow
+                        key={e.id} e={e}
+                        onRename={renameExpense} onAmount={updateExpenseAmount} onVat={updateExpenseVat}
+                        onGross={updateExpenseGross} onDelete={deleteExpense}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
                 {expenses.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Henüz gider kalemi yok — kira, elektrik, su, aidat, personel gibi aylık giderlerini ekle.</div>}
 
                 {!addingExpense ? (
@@ -430,6 +430,39 @@ function PeriyotMiniTablo({
           ))}
         </Fragment>
       ))}
+    </div>
+  );
+}
+
+function ExpenseRow({
+  e, onRename, onAmount, onVat, onGross, onDelete,
+}: {
+  e: Expense;
+  onRename: (id: string, name: string) => void;
+  onAmount: (id: string, amount: string) => void;
+  onVat: (id: string, vat: string) => void;
+  onGross: (id: string, gross: string, vatRate: number) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: e.id });
+  const style: React.CSSProperties = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  return (
+    <div ref={setNodeRef} style={{ ...style, display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+      <button {...attributes} {...listeners} aria-label="taşı" style={{ all: "unset", cursor: "grab", padding: "0 6px 0 0", color: "var(--muted-2)", touchAction: "none", display: "inline-flex", flexShrink: 0 }}><GripVertical size={14} /></button>
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => onRename(e.id, v)} inputWidth="100%" /></span>
+      <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>
+        <EditableText value={String(r2(e.monthly_amount))} onSave={(v) => onAmount(e.id, v)} style={{ display: "inline-block" }} inputWidth={48} />
+      </span>
+      <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>
+        <EditableText value={String(e.vat_rate)} onSave={(v) => onVat(e.id, v)} style={{ display: "inline-block" }} inputWidth={22} />
+        <span className="tnum" style={{ color: "var(--muted)" }}>%</span>
+      </span>
+      <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>
+        <EditableText value={String(r2(e.monthly_amount * (1 + e.vat_rate / 100)))} onSave={(v) => onGross(e.id, v, e.vat_rate)} style={{ display: "inline-block" }} inputWidth={48} />
+      </span>
+      <span style={{ width: 20, textAlign: "right", flexShrink: 0 }}>
+        <button onClick={() => onDelete(e.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={13} /></button>
+      </span>
     </div>
   );
 }
