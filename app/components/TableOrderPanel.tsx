@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 type OrderItem = {
   id: string;
@@ -351,7 +351,17 @@ export default function TableOrderPanel({
       ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "auto", overflowX: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
       : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460 };
 
+  // Menü, tam ekran/yan panel ayrı bir katman — sipariş listesi ne kadar uzarsa uzasın menü hep
+  // temiz açılsın diye. Mobilde ("sheet") her şeyin üstüne tam sayfa açılır; masaüstünde ("sidebar")
+  // sipariş paneli her zaman görünür kalsın diye onun SOLUNA, masa ızgarasının üstüne biner.
+  const menuOverlayStyle: React.CSSProperties =
+    variant === "sheet"
+      ? { position: "fixed", inset: 0, zIndex: 60, background: "var(--canvas)", display: "flex", flexDirection: "column" }
+      // 82: sol nav rayının genişliği (Shell.tsx) · 362: sipariş panelinin azami genişliği + boşluk payı.
+      : { position: "fixed", top: 22, left: 82, right: 362, bottom: 22, zIndex: 60, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", padding: 22 };
+
   return (
+    <>
     <div style={rootStyle}>
       {variant === "sheet" && <div style={{ width: 40, height: 4, borderRadius: 980, background: "var(--line-2)", margin: "0 auto 14px" }} />}
       {err && <div style={{ background: "var(--danger-bg)", color: "var(--danger)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -491,77 +501,12 @@ export default function TableOrderPanel({
             </div>
           )}
 
-          {/* Menü — akordeon başlığı, tıklanınca kategoriler açılır. Adisyon her zaman görünür kalır. */}
+          {/* Menü artık burada açılmıyor — ayrı, tam ekran/yan panel bir katman olarak alta render ediliyor
+              (bkz. bileşenin sonundaki menuOpen bloğu) ki sipariş listesi uzadıkça menü aşağı itilmesin. */}
           <button onClick={() => setMenuOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, padding: "10px 0", borderTop: "1px solid var(--line)", flexShrink: 0 }}>
-            {menuOpen ? <ChevronDown size={15} color="var(--muted)" /> : <ChevronRight size={15} color="var(--muted)" />}
+            <ChevronRight size={15} color="var(--muted)" />
             <span style={{ fontWeight: 600, fontSize: 14, color: "var(--ink-green)" }}>Menü</span>
           </button>
-
-          {menuOpen && !config && (
-            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, touchAction: "pan-y" }}>
-              {categories.map((c) => {
-                const open = expandedCats.has(c.id);
-                const items = menuItems.filter((m) => m.category_id === c.id);
-                return (
-                  <div key={c.id} style={{ borderBottom: "1px solid var(--line)" }}>
-                    <button onClick={() => toggleCat(c.id)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 4px" }}>
-                      {open ? <ChevronDown size={15} color="var(--muted)" /> : <ChevronRight size={15} color="var(--muted)" />}
-                      <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--ink-green)" }}>{c.name}</span>
-                    </button>
-                    {open && (
-                      <div style={{ paddingBottom: 6 }}>
-                        {items.map((m) => (
-                          <button key={m.id} onClick={() => openProduct(m)} disabled={busy}
-                            style={{ all: "unset", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box" }}>
-                            <span>{m.name}</span>
-                            <span className="tnum" style={{ color: "var(--muted)" }}>{money(m.sale_price)}</span>
-                          </button>
-                        ))}
-                        {items.length === 0 && <div style={{ fontSize: 12, color: "var(--muted-2)", padding: "6px 4px 6px 23px" }}>Ürün yok</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {menuOpen && config && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-green)", marginBottom: 4, marginTop: 8 }}>{config.name}</div>
-              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>Seçenekleri belirle</div>
-
-              <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, touchAction: "pan-y" }}>
-                {cfgVariants.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Boy</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {cfgVariants.map((v) => (
-                        <button key={v.id} onClick={() => setChosenVariant(v.id)} style={chip(chosenVariant === v.id)}>{v.name} · {money(v.sale_price)}</button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {cfgGroups.map((gr) => (
-                  <div key={gr.id} style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{gr.name}</div>
-                    <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 8 }}>{gr.required ? "zorunlu" : "opsiyonel"} · {gr.max_select === 1 ? "tek seç" : "çok seç"}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {gr.modifiers.map((m) => {
-                        const on = (chosenMods[gr.id] ?? []).includes(m.id);
-                        return <button key={m.id} onClick={() => toggleMod(gr, m.id)} style={chip(on)}>{m.name}{m.price_delta > 0 ? ` +${money(m.price_delta)}` : ""}</button>;
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
-                <button onClick={confirmAdd} disabled={busy} style={pillPrimary}>Ekle · {money(cfgPrice)}</button>
-                <button onClick={() => setConfig(null)} style={pillSecondary}>Vazgeç</button>
-              </div>
-            </div>
-          )}
 
           {!payStep ? (
             <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, flexShrink: 0 }}>
@@ -613,6 +558,81 @@ export default function TableOrderPanel({
         </div>
       )}
     </div>
+
+    {menuOpen && table && order && (
+      <div style={menuOverlayStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginBottom: 10 }}>
+          <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600 }}>
+            <ChevronLeft size={17} /> Geri
+          </button>
+          <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)" }}>{config ? config.name : `Menü · ${table.name}`}</span>
+        </div>
+
+        {!config && (
+          <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, touchAction: "pan-y" }}>
+            {categories.map((c) => {
+              const open = expandedCats.has(c.id);
+              const items = menuItems.filter((m) => m.category_id === c.id);
+              return (
+                <div key={c.id} style={{ borderBottom: "1px solid var(--line)" }}>
+                  <button onClick={() => toggleCat(c.id)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 4px" }}>
+                    {open ? <ChevronDown size={15} color="var(--muted)" /> : <ChevronRight size={15} color="var(--muted)" />}
+                    <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--ink-green)" }}>{c.name}</span>
+                  </button>
+                  {open && (
+                    <div style={{ paddingBottom: 6 }}>
+                      {items.map((m) => (
+                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy}
+                          style={{ all: "unset", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box" }}>
+                          <span>{m.name}</span>
+                          <span className="tnum" style={{ color: "var(--muted)" }}>{money(m.sale_price)}</span>
+                        </button>
+                      ))}
+                      {items.length === 0 && <div style={{ fontSize: 12, color: "var(--muted-2)", padding: "6px 4px 6px 23px" }}>Ürün yok</div>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {config && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <div style={{ overflowY: "auto", overflowX: "hidden", flex: 1, touchAction: "pan-y" }}>
+              {cfgVariants.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>Boy</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {cfgVariants.map((v) => (
+                      <button key={v.id} onClick={() => setChosenVariant(v.id)} style={chip(chosenVariant === v.id)}>{v.name} · {money(v.sale_price)}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {cfgGroups.map((gr) => (
+                <div key={gr.id} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{gr.name}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 8 }}>{gr.required ? "zorunlu" : "opsiyonel"} · {gr.max_select === 1 ? "tek seç" : "çok seç"}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {gr.modifiers.map((m) => {
+                      const on = (chosenMods[gr.id] ?? []).includes(m.id);
+                      return <button key={m.id} onClick={() => toggleMod(gr, m.id)} style={chip(on)}>{m.name}{m.price_delta > 0 ? ` +${money(m.price_delta)}` : ""}</button>;
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 10, flexShrink: 0 }}>
+              <button onClick={confirmAdd} disabled={busy} style={pillPrimary}>Ekle · {money(cfgPrice)}</button>
+              <button onClick={() => setConfig(null)} style={pillSecondary}>Vazgeç</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+    </>
   );
 }
 
