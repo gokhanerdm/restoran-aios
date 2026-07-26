@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toTitleTr } from "@/lib/text";
 
@@ -217,8 +217,7 @@ export default function AnaSayfa() {
               onClick={() => setExpensesOpen((o) => !o)}
               style={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "90px repeat(4, 1fr)", gap: 8, width: "100%", boxSizing: "border-box" }}
             >
-              <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start", textAlign: "left", gap: 6 }}>
-                {expensesOpen ? <ChevronDown size={14} color="var(--muted)" /> : <ChevronRight size={14} color="var(--muted)" />}
+              <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start", textAlign: "left" }}>
                 SABİT GİDER
               </div>
               {[gunlukSabitGider, gunlukSabitGider * 7, aylikGiderToplam, aylikGiderToplam * 12].map((v, k) => (
