@@ -285,7 +285,7 @@ export default function AnaSayfa() {
           </div>
 
           <div style={{ marginTop: 10 }}>
-            <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={90} />
+            <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={90} showHeader={false} />
           </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -395,15 +395,16 @@ export default function AnaSayfa() {
 // Dönem tablosunun tek bir grubu (başabaş/kârlılık VEYA ciro/ödeme türleri) — kendi GÜN/HAFTA/AY/YIL
 // başlığıyla birlikte, iki grup yan yana konabilsin diye ayrı bir bileşen.
 function PeriyotMiniTablo({
-  rows, labelWidth = 90,
+  rows, labelWidth = 90, showHeader = true,
 }: {
   rows: { l: string; vals: number[] | null; fmt: (v: number) => string; renk: (v: number) => string }[];
   labelWidth?: number;
+  showHeader?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: `${labelWidth}px repeat(4, 1fr)`, gap: 8 }}>
-      <div />
-      {["GÜN", "HAFTA", "AY", "YIL"].map((b, i) => (
+      {showHeader && <div />}
+      {showHeader && ["GÜN", "HAFTA", "AY", "YIL"].map((b, i) => (
         <div key={i} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--muted)", padding: "2px 0", letterSpacing: "0.5px" }}>{b}</div>
       ))}
       {rows.map((r) => (
