@@ -236,12 +236,12 @@ export default function AnaSayfa() {
                 </div>
                 {expenses.map((e) => (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} /></span>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} inputWidth="100%" /></span>
                     <span style={{ width: 80, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(e.monthly_amount)} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} />
+                      <EditableText value={String(e.monthly_amount)} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} inputWidth={55} />
                     </span>
                     <span style={{ width: 46, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} />
+                      <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} inputWidth={26} />
                       <span className="tnum" style={{ color: "var(--muted)" }}>%</span>
                     </span>
                     <span style={{ width: 22, textAlign: "right", flexShrink: 0 }}>
