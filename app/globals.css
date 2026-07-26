@@ -32,6 +32,11 @@ html, body {
   /* Sayfa kendisi hiç yatay kaymaz (PAGE_STANDARDS #1) — mobilde ufak bir taşma bile
      elastik kaydırma sırasında tüm ekranın sağa sola "sallanması" hissi veriyordu. */
   overflow-x: hidden;
+  /* iOS Safari'nin "elastik" geri-tepme kaydırması — içerik taşmasa bile parmakla
+     çekince tüm sayfa zıplıyordu. overflow:hidden tek başına bunu engellemiyor,
+     asıl engelleyen bu (Safari 16+; desteklemeyen tarayıcıda etkisiz, zararsız). */
+  overscroll-behavior: none;
+  height: 100%;
 }
 button { font-family: inherit; cursor: pointer; }
 .tnum { font-variant-numeric: tabular-nums; }
