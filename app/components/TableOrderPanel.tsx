@@ -361,9 +361,9 @@ export default function TableOrderPanel({
   // sipariş paneli her zaman görünür kalsın diye onun SOLUNA, masa ızgarasının üstüne biner.
   const menuOverlayStyle: React.CSSProperties =
     variant === "sheet"
-      // Telefonun durum çubuğuna (saat/pil, çentik/Dynamic Island) yapışmasın diye üstten pay —
-      // env(safe-area-inset-top) çentikli telefonlarda otomatik büyür, desteklemeyen tarayıcıda 0 olur.
-      ? { position: "fixed", inset: 0, zIndex: 60, background: "var(--canvas)", display: "flex", flexDirection: "column", boxSizing: "border-box", padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 20px" }
+      // Sipariş panelindeki alttan-kayan sheet ile aynı görünüm (yuvarlak üst köşe, arkada backdrop)
+      // ama olabildiğince yükseğe kadar açılır — sadece tepede çentik/durum çubuğu payı kadar boşluk kalır.
+      ? { position: "fixed", left: 0, right: 0, bottom: 0, top: "max(14px, env(safe-area-inset-top, 0px))", zIndex: 61, background: "var(--card)", borderRadius: "20px 20px 0 0", boxShadow: "0 -10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", boxSizing: "border-box", padding: "14px 16px 20px" }
       // Sipariş paneliyle aynı eski genişlik (280-340px) — tüm ekranı kaplamasın, sadece onun
       // soluna, masa ızgarasının üstüne binen dar bir panel olsun. 380: sağdan sipariş paneli + boşluk payı.
       : { position: "fixed", top: 22, right: 380, bottom: 22, width: 340, zIndex: 60, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 10px 30px rgba(30,57,50,.18)", display: "flex", flexDirection: "column", padding: 22 };
@@ -568,7 +568,15 @@ export default function TableOrderPanel({
     </div>
 
     {mounted && menuOpen && table && order && createPortal(
-      <div style={menuOverlayStyle}>
+      <>
+        {variant === "sheet" && (
+          <div
+            className="backdrop-fade-in"
+            onClick={() => { setMenuOpen(false); setConfig(null); }}
+            style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(20,20,15,0.4)" }}
+          />
+        )}
+        <div className={variant === "sheet" ? "sheet-slide-up" : undefined} style={menuOverlayStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginBottom: 10 }}>
           <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600 }}>
             <ChevronLeft size={17} /> Geri
@@ -638,7 +646,8 @@ export default function TableOrderPanel({
             </div>
           </div>
         )}
-      </div>,
+        </div>
+      </>,
       document.body
     )}
     </>
