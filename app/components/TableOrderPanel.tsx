@@ -487,7 +487,7 @@ export default function TableOrderPanel({
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
                 <input value={dcValue} onChange={(e) => setDcValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyDiscount()} placeholder={dcIsPercent ? "Yüzde" : "Tutar ₺"} inputMode="decimal" autoFocus
-                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 14, flex: 1, minWidth: 0, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 16, flex: 1, minWidth: 0, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
                 <div style={{ display: "flex", background: "var(--recede)", borderRadius: 980, padding: 2 }}>
                   {[{ v: false, l: "₺" }, { v: true, l: "%" }].map((t) => (
                     <button key={t.l} onClick={() => setDcIsPercent(t.v)} style={{ border: "none", borderRadius: 980, padding: "6px 12px", fontSize: 13, background: dcIsPercent === t.v ? "var(--ink-green)" : "transparent", color: dcIsPercent === t.v ? "#fff" : "var(--muted)" }}>{t.l}</button>
@@ -495,7 +495,7 @@ export default function TableOrderPanel({
                 </div>
               </div>
               <input value={dcReason} onChange={(e) => setDcReason(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyDiscount()} placeholder="Sebep (örn. müşteri memnuniyeti)"
-                style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, width: "100%", boxSizing: "border-box", marginBottom: 10, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
+                style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 16, width: "100%", boxSizing: "border-box", marginBottom: 10, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={applyDiscount} disabled={busy} style={{ ...pillPrimary, flex: 1, padding: 10, fontSize: 13.5 }}>Uygula</button>
                 <button onClick={() => setDiscountFor(null)} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13.5 }}>Vazgeç</button>
@@ -560,7 +560,7 @@ export default function TableOrderPanel({
                   onChange={(e) => setPayAmount(e.target.value)}
                   placeholder={`Tutar (kalan: ${money(remaining)})`}
                   inputMode="decimal"
-                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "10px 12px", fontSize: 15, width: "100%", boxSizing: "border-box", marginBottom: 4, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "10px 12px", fontSize: 16, width: "100%", boxSizing: "border-box", marginBottom: 4, background: "var(--card)", color: "var(--ink)", outline: "none" }}
                 />
                 {change > 0 && <div className="tnum" style={{ fontSize: 12, color: "var(--gold-text)", marginBottom: 4 }}>Para üstü: {money(change)}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
