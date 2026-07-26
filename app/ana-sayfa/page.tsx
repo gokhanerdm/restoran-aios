@@ -27,6 +27,7 @@ type RadarRow = {
 };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
+const r2 = (n: number) => Math.round(n * 100) / 100;
 const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
 const ayGunSayisi = () => {
   const [y, m] = bugunIstanbul().split("-").map(Number);
@@ -94,8 +95,9 @@ export default function AnaSayfa() {
     // yerine sadece rakamları doldurur.
     if (expRows.length === 0) {
       const varsayilanlar = ["Kira", "Elektrik", "Su", "Doğalgaz", "İnternet/Telefon", "Aidat", "Personel Maaşı", "SGK Primi", "Vergi", "Muhasebe/Mali Müşavir", "Sigorta", "Temizlik"];
+      const kdvsizKalemler = ["Elektrik", "Su", "Doğalgaz"]; // bu kalemlerde KDV yok, varsayılan %0
       const { data: seeded } = await supabase.from("business_expenses").insert(
-        varsayilanlar.map((name, i) => ({ restaurant_id: restId, name, monthly_amount: 0, vat_rate: 20, sort_order: i }))
+        varsayilanlar.map((name, i) => ({ restaurant_id: restId, name, monthly_amount: 0, vat_rate: kdvsizKalemler.includes(name) ? 0 : 20, sort_order: i }))
       ).select("id, name, monthly_amount, vat_rate");
       expRows = (seeded as Expense[]) ?? [];
     }
@@ -182,6 +184,12 @@ export default function AnaSayfa() {
   const renameExpense = async (id: string, name: string) => { await supabase.from("business_expenses").update({ name: toTitleTr(name) }).eq("id", id); await load(); };
   const updateExpenseAmount = async (id: string, amount: string) => { await supabase.from("business_expenses").update({ monthly_amount: parseFloat(amount.replace(",", ".")) || 0 }).eq("id", id); await load(); };
   const updateExpenseVat = async (id: string, vat: string) => { await supabase.from("business_expenses").update({ vat_rate: parseFloat(vat.replace(",", ".")) || 0 }).eq("id", id); await load(); };
+  const updateExpenseGross = async (id: string, gross: string, vatRate: number) => {
+    const grossNum = parseFloat(gross.replace(",", ".")) || 0;
+    const net = r2(grossNum / (1 + vatRate / 100));
+    await supabase.from("business_expenses").update({ monthly_amount: net }).eq("id", id);
+    await load();
+  };
   const deleteExpense = async (id: string) => { await supabase.from("business_expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id); await load(); };
   const saveDays = async () => {
     if (!restaurantId) return;
@@ -230,21 +238,25 @@ export default function AnaSayfa() {
                     daraltıldı — "KDV hariç" kaldırıldı (türetilmiş değer, gerekirse başka yerde var). */}
                 <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
                   <span style={{ flex: 1, minWidth: 0 }}>Gider kalemi</span>
-                  <span style={{ width: 80, textAlign: "right", flexShrink: 0 }}>Tutar ₺</span>
-                  <span style={{ width: 46, textAlign: "right", flexShrink: 0 }}>KDV %</span>
-                  <span style={{ width: 22, flexShrink: 0 }} />
+                  <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>KDV'siz</span>
+                  <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>KDV%</span>
+                  <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>KDV dahil</span>
+                  <span style={{ width: 20, flexShrink: 0 }} />
                 </div>
                 {expenses.map((e) => (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} inputWidth="100%" /></span>
-                    <span style={{ width: 80, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(e.monthly_amount)} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} inputWidth={55} />
+                    <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>
+                      <EditableText value={String(r2(e.monthly_amount))} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} inputWidth={48} />
                     </span>
-                    <span style={{ width: 46, textAlign: "right", flexShrink: 0 }}>
-                      <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} inputWidth={26} />
+                    <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>
+                      <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} inputWidth={22} />
                       <span className="tnum" style={{ color: "var(--muted)" }}>%</span>
                     </span>
-                    <span style={{ width: 22, textAlign: "right", flexShrink: 0 }}>
+                    <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>
+                      <EditableText value={String(r2(e.monthly_amount * (1 + e.vat_rate / 100)))} onSave={(v) => updateExpenseGross(e.id, v, e.vat_rate)} style={{ display: "inline-block" }} inputWidth={48} />
+                    </span>
+                    <span style={{ width: 20, textAlign: "right", flexShrink: 0 }}>
                       <button onClick={() => deleteExpense(e.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={13} /></button>
                     </span>
                   </div>
