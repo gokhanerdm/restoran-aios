@@ -40,8 +40,10 @@ html, body {
 }
 button { font-family: inherit; cursor: pointer; }
 
-/* Dokunma/tıklama geri bildirimi — büyük bir buton görünümü değil, sadece basıldığı an belli olsun. */
-.tap-feedback { transition: background-color .08s ease; border-radius: 10px; }
+/* Dokunma/tıklama geri bildirimi — büyük bir buton görünümü değil, sadece basıldığı an belli olsun.
+   background/border burada tanımlı, satır-içi style'da DEĞİL — inline stil her zaman CSS sınıfından
+   önce geldiği için :active hiç görünmüyordu, bunu ilk seferde atladık. */
+.tap-feedback { background: transparent; border: none; transition: background-color .08s ease; border-radius: 10px; }
 .tap-feedback:active { background: var(--recede); }
 .tnum { font-variant-numeric: tabular-nums; }
 
