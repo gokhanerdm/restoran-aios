@@ -29,6 +29,9 @@ html, body {
   color: var(--ink);
   font-family: -apple-system, "SF Pro Display", "Segoe UI", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Sayfa kendisi hiç yatay kaymaz (PAGE_STANDARDS #1) — mobilde ufak bir taşma bile
+     elastik kaydırma sırasında tüm ekranın sağa sola "sallanması" hissi veriyordu. */
+  overflow-x: hidden;
 }
 button { font-family: inherit; cursor: pointer; }
 .tnum { font-variant-numeric: tabular-nums; }
