@@ -188,33 +188,32 @@ export default function AnaSayfa() {
         <div style={{ fontSize: 13, color: "var(--muted)" }}>Bugün · {bugunIstanbul()}</div>
       </div>
 
-      {/* DÖNEM TABLOSU — satırlar: Ciro/Başabaş/Kârlılık/Müşteri · sütunlar: Gün/Hafta/Ay/Yıl/boş */}
-      <div style={{ flexShrink: 0, display: "grid", gridTemplateColumns: "110px repeat(5, 1fr)", gap: 8, marginBottom: 6 }}>
-        <div />
-        {["GÜN", "HAFTA", "AY", "YIL", ""].map((b, i) => (
-          <div key={i} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--muted)", padding: "2px 0", letterSpacing: "0.5px" }}>{b || "—"}</div>
-        ))}
-        {([
-          { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
-          { l: "Nakit", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-          { l: "Kredi K.", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-          { l: "Yemek Kartı", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-          { l: "BAŞABAŞ", vals: basabasArr, fmt: (v: number) => money(v), renk: () => "var(--ink)" },
-          { l: "KÂRLILIK", vals: karArr, fmt: (v: number) => money(v), renk: (v: number) => (v < 0 ? "var(--danger)" : "var(--brand)") },
-          { l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" },
-        ] as { l: string; vals: number[] | null; fmt: (v: number) => string; renk: (v: number) => string }[]).map((r) => (
-          <Fragment key={r.l}>
-            <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start" }}>{r.l}</div>
-            {[0, 1, 2, 3].map((k) => (
-              <div key={k} className="tnum" style={{ ...matrisKutu, color: r.vals ? r.renk(r.vals[k]) : "var(--muted-2)" }}>
-                {r.vals ? r.fmt(r.vals[k]) : "…"}
-              </div>
-            ))}
-            <div style={{ ...matrisKutu, background: "transparent", border: "1px dashed var(--line)", color: "var(--muted-2)" }}>—</div>
-          </Fragment>
-        ))}
+      {/* DÖNEM TABLOSU — sol: başabaş/kârlılık, sağ: ciro + ödeme türü kırılımı. Ekran genişliği
+          yeterli olduğu için yan yana, iki ayrı mini tablo (Gökhan kararı, 2026-07-26). */}
+      <div style={{ flexShrink: 0, display: "flex", gap: 18, marginBottom: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PeriyotMiniTablo
+            rows={[
+              { l: "BAŞABAŞ", vals: basabasArr, fmt: (v: number) => money(v), renk: () => "var(--ink)" },
+              { l: "KÂRLILIK", vals: karArr, fmt: (v: number) => money(v), renk: (v: number) => (v < 0 ? "var(--danger)" : "var(--brand)") },
+            ]}
+          />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <PeriyotMiniTablo
+            rows={[
+              { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
+              { l: "Nakit", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+              { l: "Kredi K.", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+              { l: "Yemek Kartı", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+            ]}
+          />
+        </div>
       </div>
-      <div style={{ flexShrink: 0, fontSize: 11.5, color: "var(--muted-2)", marginBottom: 12 }}>
+      <div style={{ flexShrink: 0 }}>
+        <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={110} />
+      </div>
+      <div style={{ flexShrink: 0, fontSize: 11.5, color: "var(--muted-2)", margin: "4px 0 12px" }}>
         {`Başabaş ve kârlılık tahmindir (son 30 günün malzeme oranı + sabit gider payı) · her 1.000₺ ciro ~${money(marjinalKar1000)} kâr bırakır`}
       </div>
 
@@ -365,6 +364,34 @@ export default function AnaSayfa() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Dönem tablosunun tek bir grubu (başabaş/kârlılık VEYA ciro/ödeme türleri) — kendi GÜN/HAFTA/AY/YIL
+// başlığıyla birlikte, iki grup yan yana konabilsin diye ayrı bir bileşen.
+function PeriyotMiniTablo({
+  rows, labelWidth = 90,
+}: {
+  rows: { l: string; vals: number[] | null; fmt: (v: number) => string; renk: (v: number) => string }[];
+  labelWidth?: number;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: `${labelWidth}px repeat(4, 1fr)`, gap: 8 }}>
+      <div />
+      {["GÜN", "HAFTA", "AY", "YIL"].map((b, i) => (
+        <div key={i} style={{ textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--muted)", padding: "2px 0", letterSpacing: "0.5px" }}>{b}</div>
+      ))}
+      {rows.map((r) => (
+        <Fragment key={r.l}>
+          <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start" }}>{r.l}</div>
+          {[0, 1, 2, 3].map((k) => (
+            <div key={k} className="tnum" style={{ ...matrisKutu, color: r.vals ? r.renk(r.vals[k]) : "var(--muted-2)" }}>
+              {r.vals ? r.fmt(r.vals[k]) : "…"}
+            </div>
+          ))}
+        </Fragment>
+      ))}
     </div>
   );
 }
