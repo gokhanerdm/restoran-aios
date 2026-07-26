@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useStaffSession } from "./StaffLoginGate";
 
 type OrderItem = {
@@ -643,10 +643,6 @@ export default function TableOrderPanel({
           )}
         </div>
 
-        <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="ekle" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 700, flexShrink: 0, marginBottom: 10 }}>
-          <ChevronLeft size={17} /> EKLE
-        </button>
-
         {!config && (
           <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, touchAction: "pan-y" }}>
             {categories.map((c) => {
@@ -681,6 +677,12 @@ export default function TableOrderPanel({
               );
             })}
           </div>
+        )}
+
+        {/* Liste kaysa da yerinde sabit kalsın diye scroll alanının dışında, en altta —
+            Gönder butonuyla aynı ölçüde/renkte. */}
+        {!config && (
+          <button onClick={() => { setMenuOpen(false); setConfig(null); }} style={{ ...pillPrimary, width: "100%", flexShrink: 0, marginTop: 10 }}>EKLE</button>
         )}
 
         {config && (
