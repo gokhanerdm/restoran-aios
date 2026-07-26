@@ -634,12 +634,7 @@ export default function TableOrderPanel({
         )}
         <div className={variant === "sheet" ? "sheet-slide-up" : undefined} style={menuOverlayStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0, marginBottom: 10, minWidth: 0 }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
-              <ChevronLeft size={17} /> Geri
-            </button>
-            <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config ? config.name : `Menü · ${table.name}`}</span>
-          </span>
+          <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config ? config.name : `Menü · Masa' ${table.name}`}</span>
           {/* Menüde gezerken adisyonda şu an ne olduğu (kaç ürün, toplam) görünsün diye özet şerit. */}
           {!config && (
             <span className="tnum" style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: "var(--muted)", background: "var(--recede)", borderRadius: 980, padding: "5px 12px" }}>
@@ -647,6 +642,10 @@ export default function TableOrderPanel({
             </span>
           )}
         </div>
+
+        <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="ekle" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 700, flexShrink: 0, marginBottom: 10 }}>
+          <ChevronLeft size={17} /> EKLE
+        </button>
 
         {!config && (
           <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, touchAction: "pan-y" }}>
