@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
@@ -86,6 +86,13 @@ export default function TableOrderPanel({
   const [cfgGroups, setCfgGroups] = useState<CfgGroup[]>([]);
   const [chosenVariant, setChosenVariant] = useState<string | null>(null);
   const [chosenMods, setChosenMods] = useState<Record<string, string[]>>({});
+  // Menüdeki ürüne dokunma geri bildirimi — CSS :active'e güvenmiyoruz çünkü mobilde çok hızlı bir
+  // dokunuşta tarayıcı :active'i göstermeye fırsat bulamadan parmak zaten kalkmış oluyor. JS ile
+  // basılı state'i en az bir süre (140ms) görünür tutuyoruz ki gerçekten fark edilsin.
+  const [pressedItemId, setPressedItemId] = useState<string | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handlePressStart = (id: string) => { if (pressTimer.current) clearTimeout(pressTimer.current); setPressedItemId(id); };
+  const handlePressEnd = () => { pressTimer.current = setTimeout(() => setPressedItemId(null), 140); };
 
   const loadMenu = useCallback(async () => {
     if (!restaurantId) return;
@@ -617,8 +624,15 @@ export default function TableOrderPanel({
                   {open && (
                     <div style={{ paddingBottom: 6 }}>
                       {items.map((m) => (
-                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy} className="tap-feedback"
-                          style={{ textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box" }}>
+                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy}
+                          onPointerDown={() => handlePressStart(m.id)} onPointerUp={handlePressEnd} onPointerLeave={handlePressEnd} onPointerCancel={handlePressEnd}
+                          style={{
+                            textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+                            width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box", border: "none", borderRadius: 10,
+                            background: pressedItemId === m.id ? "var(--line-2)" : "transparent",
+                            transform: pressedItemId === m.id ? "scale(0.97)" : "scale(1)",
+                            transition: "background-color .08s ease, transform .08s ease",
+                          }}>
                           <span>{m.name}</span>
                           <span className="tnum" style={{ color: "var(--muted)" }}>{money(m.sale_price)}</span>
                         </button>
