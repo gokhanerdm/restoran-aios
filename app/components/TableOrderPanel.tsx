@@ -634,7 +634,7 @@ export default function TableOrderPanel({
         )}
         <div className={variant === "sheet" ? "sheet-slide-up" : undefined} style={menuOverlayStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0, marginBottom: 10, minWidth: 0 }}>
-          <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config ? config.name : `Menü · Masa' ${table.name}`}</span>
+          <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config ? config.name : `Menü · Masa - ${table.name}`}</span>
           {/* Menüde gezerken adisyonda şu an ne olduğu (kaç ürün, toplam) görünsün diye özet şerit. */}
           {!config && (
             <span className="tnum" style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: "var(--muted)", background: "var(--recede)", borderRadius: 980, padding: "5px 12px" }}>
