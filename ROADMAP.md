@@ -271,3 +271,81 @@ Kapsam tek seferde kurulamayacak kadar büyük; her faz kendi başına test edil
 9. **Platform tedarikçi ağı / tedarikçi modülü** — pazaryeri tarafı, komisyon modeli. En büyük iş modeli parçası, muhtemelen ayrı bir proje gibi ele alınmalı.
 
 Mantık: önce en hazır altyapıyla en çok fark yaratan şey (1), sonra ileride tekrar tekrar lazım olacak temel kimlik katmanı (2), sonra aynı radar mantığını genişletmek (3-4), sonra para (5), sonra otomasyon zincirinin gövdesi (6-7), en son cihaz/donanım bağımlı ve iş-modeli/pazaryeri gerektiren en karmaşık parçalar (8-9).
+
+## M) Dünya + Türkiye pazar taraması ve sayfa-sayfa boşluk analizi (2026-07-27)
+
+Gökhan'ın isteğiyle yapılan kapsamlı tarama: dünyada ve Türkiye'de kim lider, ne yapıyor; bizim hangi sayfalarımız boş, dokunduklarımızda ne eksik kaldı, neyi fazladan/erken ekledik.
+
+> **Kaynak güvenilirliği notu:** Aşağıdaki linklerden yalnızca [Türkiye karşılaştırma](https://karekodgarson.com/blog/en-iyi-restoran-yazilimlari-2026-kapsamli-karsilastirma) sayfası doğrudan açılıp okundu. Diğerleri arama sonucu özetlerinden derlendi — **rakam ve iddiaları (müşteri sayısı, pazar payı, tasarruf yüzdeleri) karar dayanağı yapmadan önce teyit et.** Buna karşılık "kod tarafı" bulguları (§4) doğrudan bu depoda `grep`/dosya okumasıyla doğrulandı, onlar kesin.
+
+### M1) Ülke ülke liderler
+
+| Bölge | Lider(ler) | Ayırt edici yanı |
+|---|---|---|
+| ABD/Kanada | **Toast**, Square, SpotOn, TouchBistro, Lightspeed | Toast pano tasarımı sektör referansı (bkz. §K); ödeme işlemciliğinden para kazanıyor |
+| Almanya | **orderbird**, **gastronovi** | TSE (fiskal donanım) sertifikalı — yasal zorunluluk yerel oyuncuyu koruyor |
+| İrlanda/UK | **Nory** | Bizim vizyonun birebir rakibi — ayrı başlık, §M2 |
+| MENA | **Foodics** (Suudi) | Bölgesel all-in-one, hızlı büyüyor |
+| Hindistan | **Petpooja**, **UrbanPiper** | UrbanPiper POS↔yemek platformları arası "middleware" olarak konumlanmış |
+| Türkiye | **Adisyo** (7.000+ müşteri), **Simpra** (22 ülke/3.000+ işletme), Menülux, SambaPOS, Karekodgarson | Adisyo yaygınlık lideri; Simpra kurumsal; Karekodgarson "130+ modül + AI satış tahmini + personel İK" iddiasıyla saldırıyor |
+
+Pazar büyüklüğü: global ~6 milyar $ (2026); Avrupa %30, Asya-Pasifik %25 pay.
+
+### M2) En kritik bulgu — Nory
+
+İrlanda merkezli, 2021 kurulmuş, 2026'da ABD'ye açılıyor. Konumlandırması **§L'deki "işletme beyni" cümlesinin birebir aynısı**: *"raporlayan değil, işi kendisi yapan"* — tahmin, vardiya planlama, sipariş verme, fatura işleme, bordro ve uyumu yöneten bir AI asistan ekibi. İddiaları: %8-20 işçilik tasarrufu, %50'ye varan fire azalması.
+
+İki sonuç:
+- **İyi haber:** vizyon doğru, pazar bunu satın alıyor — Gökhan'ın sezgisi sektörle örtüşüyor.
+- **Uyarı:** bu fikir artık "bulunmamış" değil. Avantajımız Türkiye'ye özgü derinlik (ÖKC/fiskal uyum, yerel tedarik zinciri, yerel çalışma kültürü) ve bedava+tedarik-komisyonu iş modeli (§I) olmalı. Jenerik "AI'lı restoran yazılımı" başlığında yarışamayız.
+
+### M3) Kaçırdığımız 1 numaralı sektör kavramı — Prime Cost
+
+Sektörün tek en önemli yönetim metriği bu ve **bizde yok**:
+
+```
+Prime Cost = (Malzeme maliyeti + İşçilik maliyeti) ÷ Ciro
+```
+
+Sektör hedefleri: fast food %55-60, normal restoran %60-65, fine dining %68'e kadar. İşçilik tek başına %25-35 olmalı.
+
+Neden önemli: kira/fatura kontrol edilemez, ama bu ikisi **edilir** — dünyada işletmeciler günlük olarak buna bakıyor. Bizde food cost oranı zaten var, personel maaşı da eklendi (§M4'teki tarih) — **iki parça da elimizde, sadece birleştirip tek satır olarak göstermiyoruz.** Ana Sayfa'ya eklenecek en yüksek getirili tek şey bu.
+
+> Uyarı: tam doğru prime cost **günlük işçilik** ister; bizde maaş aylık sabit girildiği ve vardiya takibi olmadığı için (§M4) ilk sürüm yaklaşık olacak. Vardiya modülü gelene kadar "aylık maaş ÷ gün sayısı" ile tahmini gösterilmeli, bu varsayım ekranda belirtilmeli.
+
+### M4) Sayfa sayfa durum (kod tarafı — bu depoda doğrulandı)
+
+**Hiç dokunmadıklarımız:**
+
+| Sayfa | Durum | Olması gereken |
+|---|---|---|
+| **Raporlar** | 10 satır, tamamen boş placeholder | **En büyük boşluk.** Garson satış, ürün kârlılığı, saatlik yoğunluk, iptal/ikram raporu, dönem karşılaştırma |
+| **Profil** | 79 satır, sadece "bugün" özeti | Gökhan'ın "içi detaylandırılacak" dediği yer — hâlâ açık. Haftalık/aylık geçmiş, maaş/avans hareketleri, vardiya geçmişi |
+| **QR Menü** (`/m/[slug]`) | 138 satır, sadece görüntüleme | Müşteri masadan QR ile sipariş verebilmeli — sektörde artık standart |
+| **Ayarlar** | Var ama yarım | Restoran bilgisi (ad/adres/vergi no), çalışma saatleri, yedekleme, arka plan seçimi (§K sonu) |
+| **Gün Sonu** | 395 satır, dolu ama simüle edilmedi | Test edilmeli |
+
+**Dokunduklarımızda eksik kalanlar:**
+
+- **Hesap bölme (split bill)** — masa birleştirmenin tersi, hiç yok. Sektörde zorunlu çekirdek.
+- **Vardiya/mesai takibi** — kodda `shift`/`mesai`/`clock_in` diye tek satır yok. Bu yüzden işçilik maliyeti günlük hesaplanamıyor → **prime cost tam çalışmaz** (§M3).
+- **Bahşiş yönetimi** — hiç yok. Sektörde en sık şikayet edilen eksiklerden.
+- **Rezervasyon takvimi** — sadece masada `reserved` durumu var, takvim yok.
+- **Fiş/mutfak yazıcısı (ESC/POS)** — kodda hiç yok. Türkiye'de adisyon kültürü açısından kritik.
+- **Sayım ekranı** — `inventory_counts` tablosu ilk migration'dan beri duruyor, UI hiç yazılmamış. **Fire/kaçak radarının ön koşulu** — yani §L'deki en çok istenen özellik bu eksik yüzünden kurulamıyor.
+- **Çevrimdışı çalışma** — yok. Sektördeki 1 numaralı şikayet konusu.
+- **Paket servis entegrasyonu** — yok.
+
+**Fazla/erken eklediklerimiz:**
+
+- **"Tahmini günlük satış payı %"** (menü ürününe elle girilen) — sistem bunu satış geçmişinden kendisi öğrenebilir. Veri birikince gereksizleşecek; zararsız ama geçici.
+- **Konsept şablonları** — sadece "Pizzacı" var, tek örnekle yarım kaldı; ya çoğaltılmalı ya beklemeye alınmalı.
+- **Personel karşılaştırma/gamification** — "fazla" diye değerlendirilmişti, ama Karekodgarson tam da bunu satış argümanı yapıyor; **doğru bir bahis çıkmış.**
+
+### M5) Önerilen sıradaki 3 iş
+
+1. **Prime cost satırı** — küçük iş, büyük değer; parçalar zaten elimizde (§M3).
+2. **Sayım ekranı** — fire/kaçak radarının kilidini açar, §L'deki asıl hedef.
+3. **Raporlar sayfası** — tamamen boş duran en büyük delik.
+
+**Kaynaklar:** [Nory 2026 rehberi](https://www.nory.ai/blog/restaurant-tech-stack-2026) · [Nory ABD açılımı](https://restauranttechnologynews.com/2026/03/nory-expands-into-u-s-as-restaurants-seek-ai-tools-to-manage-rising-costs/) · [Restaurant365 prime cost](https://www.restaurant365.com/blog/how-to-calculate-prime-cost-in-a-restaurant/) · [Lightspeed KPI listesi](https://www.lightspeedhq.com/blog/restaurant-kpis/) · [Almanya POS liderleri](https://www.zendikt.com/top-10-restaurant-pos-software/germany/) · [Türkiye karşılaştırma](https://karekodgarson.com/blog/en-iyi-restoran-yazilimlari-2026-kapsamli-karsilastirma) · [Restoran tech büyüme](https://www.landbase.com/blog/fastest-growing-restaurant-tech) · [POS eksik özellik şikayetleri](https://getquantic.com/restaurant-pos-system-features/)
