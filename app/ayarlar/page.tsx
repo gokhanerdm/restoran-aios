@@ -12,6 +12,7 @@ type Settings = {
   default_variable_cost_per_cover: number;
   default_fixed_cost_share_percent: number;
   role_visibility: RoleVisibility;
+  staff_comparison_enabled: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: Settings = {
   default_variable_cost_per_cover: 0,
   default_fixed_cost_share_percent: 0,
   role_visibility: {},
+  staff_comparison_enabled: false,
 };
 
 function flatten(cats: Category[], parentId: string | null = null, depth = 0): { id: string; label: string }[] {
@@ -44,7 +46,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     if (s) setSettings(s as Settings);
@@ -125,6 +127,12 @@ export default function Ayarlar() {
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
               <input type="checkbox" checked={!!settings.role_visibility?.sef?.cost_visible} onChange={() => toggleRole("sef")} /> Şef maliyet/kârlılık görsün
             </label>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Personel karşılaştırması</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={settings.staff_comparison_enabled} onChange={() => setSettings((s) => ({ ...s, staff_comparison_enabled: !s.staff_comparison_enabled }))} /> Garsonlar birbirinin satış yüzdesini görsün
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8 }}>Kapalıyken herkes sadece kendi profilindeki rakamları görür, kimse başkasıyla kıyaslanmaz.</div>
 
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 14, lineHeight: 1.6 }}>
               Restoran bilgisi, masa &amp; salon düzeni (Salonlar sayfasında) ve sabit giderlerin tam dökümü ileride buraya eklenecek.

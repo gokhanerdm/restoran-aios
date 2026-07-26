@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { useStaffSession } from "./StaffLoginGate";
 
 type OrderItem = {
   id: string;
@@ -54,6 +55,9 @@ export default function TableOrderPanel({
   // Menü katmanını document.body'ye portal'layabilmek için (bkz. aşağıdaki createPortal) —
   // sunucu tarafında render sırasında `document` yok, o yüzden mount olana kadar bekleriz.
   const [mounted, setMounted] = useState(false);
+  // Garsondan açılınca StaffLoginGate'in sağladığı oturum burada okunur (kim gönderdi/kapattı
+  // etiketlemesi için); Kasa'dan (PC) açılınca gate yok, bu null döner — sorun değil.
+  const staffSession = useStaffSession();
   useEffect(() => { setMounted(true); }, []);
   const [order, setOrder] = useState<Order | null>(null);
   // Sipariş verisi gelene kadar order=null oluyor, bu da bir masaya tıklayınca doluysa bile
@@ -77,6 +81,9 @@ export default function TableOrderPanel({
   const [payStep, setPayStep] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [payAmount, setPayAmount] = useState("");
+  // Ödeme türüne basınca direkt kapatmak yerine kısa bir onay adımı — yanlış dokunuşla
+  // hesabın geri dönüşsüz kapanmasını engellemek için.
+  const [confirmPayment, setConfirmPayment] = useState<{ method: string; amount: number; remaining: number } | null>(null);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   // İndirim formu: hangi kaleme (null = adisyon geneli), girilen değer, tür (TL/%), sebep
   const [discountFor, setDiscountFor] = useState<{ itemId: string | null; itemName: string } | null>(null);
@@ -141,7 +148,7 @@ export default function TableOrderPanel({
     setLoadingOrder(false);
   }, [table?.id]);
 
-  useEffect(() => { setLoadingOrder(true); loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
+  useEffect(() => { setLoadingOrder(true); loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); setConfirmPayment(null); }, [table?.id, loadOrder]);
   // Mutfak/bar bir kalemi "hazır" işaretlerse bu panel açık kalsa bile görsün diye periyodik tazelenir.
   useEffect(() => {
     if (!table) return;
@@ -305,7 +312,10 @@ export default function TableOrderPanel({
     const unsent = order.order_items.filter((i) => i.status === "active" && !i.sent_at);
     if (unsent.length === 0) return;
     setBusy(true);
-    await supabase.from("order_items").update({ sent_at: new Date().toISOString() }).in("id", unsent.map((i) => i.id));
+    await supabase.from("order_items").update({
+      sent_at: new Date().toISOString(),
+      ...(staffSession ? { sent_by_staff_id: staffSession.id } : {}),
+    }).in("id", unsent.map((i) => i.id));
     await loadOrder(); onChanged();
     setBusy(false);
   };
@@ -313,7 +323,7 @@ export default function TableOrderPanel({
   const closeBill = async () => {
     if (!order) return;
     setBusy(true);
-    await supabase.rpc("close_order", { p_order_id: order.id });
+    await supabase.rpc("close_order", { p_order_id: order.id, p_staff_id: staffSession?.id ?? null });
     setMenuOpen(false); setPayStep(false);
     await loadOrder(); onChanged();
     setBusy(false);
@@ -579,12 +589,30 @@ export default function TableOrderPanel({
                   style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "10px 12px", fontSize: 16, width: "100%", boxSizing: "border-box", marginBottom: 4, background: "var(--card)", color: "var(--ink)", outline: "none" }}
                 />
                 {change > 0 && <div className="tnum" style={{ fontSize: 12, color: "var(--gold-text)", marginBottom: 4 }}>Para üstü: {money(change)}</div>}
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  {PAY_METHODS.map((m) => (
-                    <button key={m.v} onClick={() => addPayment(m.v, remaining)} disabled={busy || remaining <= 0} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13 }}>{m.l}</button>
-                  ))}
-                </div>
-                <button onClick={() => setPayStep(false)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--muted)", marginTop: 10, display: "block" }}>Vazgeç</button>
+                {!confirmPayment ? (
+                  <>
+                    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                      {PAY_METHODS.map((m) => (
+                        <button key={m.v} onClick={() => setConfirmPayment({ method: m.v, amount: Math.min(typed || remaining, remaining), remaining })} disabled={busy || remaining <= 0} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13 }}>{m.l}</button>
+                      ))}
+                    </div>
+                    <button onClick={() => setPayStep(false)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--muted)", marginTop: 10, display: "block" }}>Vazgeç</button>
+                  </>
+                ) : (
+                  <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 6 }}>
+                    <div style={{ fontSize: 13.5, color: "var(--ink)", marginBottom: 12 }}>
+                      <b className="tnum">{money(confirmPayment.amount)}</b> · {payLabel(confirmPayment.method)} ile {confirmPayment.amount >= confirmPayment.remaining - 0.001 ? "hesabı kapatmak" : "bu ödemeyi kaydetmek"} istiyor musunuz?
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => { const cp = confirmPayment; setConfirmPayment(null); addPayment(cp.method, cp.remaining); }}
+                        disabled={busy}
+                        style={{ ...pillPrimary, flex: 1, padding: 10, fontSize: 13.5 }}
+                      >Onayla</button>
+                      <button onClick={() => setConfirmPayment(null)} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13.5 }}>Vazgeç</button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}

@@ -5,13 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import TableOrderPanel from "../components/TableOrderPanel";
+import StaffLoginGate from "../components/StaffLoginGate";
 
 // Garson mobil modülü — el terminali/telefon için tek işi var: masa seç, sipariş al, hesap kapat.
 // Salonlar ekranındaki AYNI salon/masa yapısını kullanır (dining_areas + restaurant_tables.area_id)
 // ki garson PC'deki kat planında ne görüyorsa telefonda da onu görsün. Yönetim ekranlarının
-// (Raporlar, Stok, Ayarlar vb.) hiçbiri burada yok (bkz. Shell.tsx yönlendirmesi); masa ekleme/
-// taşıma/birleştirme gibi düzenleme işleri Salonlar'da (PC) kalır, burada sadece sipariş alınır.
-// Bugün girişsiz (PIN yok); Faz 2'de garson kendi şifresiyle girip yetkili olduğu masaları görecek.
+// (Raporlar, Stok, Ayarlar vb.) hiçbiri burada yok (bkz. Shell.tsx yönlendirmesi); masa ekleme
+// işleri Salonlar'da (PC) kalır, burada sadece sipariş alınır.
+// PIN ile giriş (StaffLoginGate) — hangi garsonun ne yaptığı böyle etiketleniyor.
 
 type Area = { id: string; name: string; sort_order: number };
 type TableStatus = "empty" | "occupied" | "bill_requested" | "reserved";
@@ -81,6 +82,11 @@ function GarsonInner() {
   // null = henüz seçim yapılmadı → ilk salon varsayılan olur (Salonlar ekranıyla aynı davranış)
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  // Masa birleştirme — Kasa (PC) ile aynı akış: birleştir moduna gir, iki masaya sırayla dokun,
+  // hangisinde birleşeceğini seç (bkz. transfer_table_order RPC).
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeFirst, setMergeFirst] = useState<string | null>(null);
+  const [mergeChoice, setMergeChoice] = useState<{ a: TableRow; b: TableRow } | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   // Zaten bip çaldığımız "hazır" kalemleri hatırlar ki her 5sn'lik tazelemede aynı kalem için
@@ -180,13 +186,33 @@ function GarsonInner() {
     return cur;
   };
 
+  const mergeInto = async (sourceId: string, targetId: string) => {
+    setErr(null);
+    const { error } = await supabase.rpc("transfer_table_order", { p_source_table_id: sourceId, p_target_table_id: targetId });
+    if (error) { setErr(error.message); return; }
+    setMergeChoice(null);
+    await load();
+  };
+
+  const handleTableClick = (t: TableRow) => {
+    if (mergeMode) {
+      if (!mergeFirst) { setMergeFirst(t.id); return; }
+      if (mergeFirst === t.id) { setMergeFirst(null); return; }
+      const a = tables.find((x) => x.id === mergeFirst);
+      if (a) { setMergeChoice({ a, b: t }); setMergeMode(false); setMergeFirst(null); }
+      return;
+    }
+    setSelectedTableId(resolveTarget(t).id);
+  };
+
   const visibleTables = selectedAreaId === ALL ? tables : tables.filter((t) => t.area_id === selectedAreaId);
   const selectedTable = tables.find((t) => t.id === selectedTableId) ?? null;
   const doluSayisi = tables.filter((t) => t.status !== "empty" && !t.merged_into_table_id).length;
 
   return (
-    // Sayfanın kendisi kaymaz (PAGE_STANDARDS #1) — sadece masa ızgarası ekranı doldurunca kendi
-    // içinde kayar. Sabit height + overflow:hidden dışarıda, flex:1 + overflowY:auto içeride.
+    <StaffLoginGate restaurantId={restaurantId} roles={["garson"]}>
+    {/* Sayfanın kendisi kaymaz (PAGE_STANDARDS #1) — sadece masa ızgarası ekranı doldurunca kendi
+        içinde kayar. Sabit height + overflow:hidden dışarıda, flex:1 + overflowY:auto içeride. */}
     <div style={{ height: "100dvh", background: "var(--canvas)", display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
       <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 0", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -213,6 +239,15 @@ function GarsonInner() {
             ))}
           </div>
         )}
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+          <span />
+          <button
+            onClick={() => { setMergeMode((m) => !m); setMergeFirst(null); }}
+            style={{ border: "none", borderRadius: 980, padding: "7px 14px", fontSize: 12.5, fontWeight: 600, background: mergeMode ? "var(--ink-green)" : "var(--card)", color: mergeMode ? "#fff" : "var(--ink-green)" }}
+          >{mergeMode ? "Birleştirmeyi iptal et" : "Masa birleştir"}</button>
+        </div>
+        {mergeMode && <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 6 }}>İki masaya sırayla dokun, sonra hangisinde birleşeceğini seç.</div>}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "0 16px 24px", touchAction: "pan-y", overscrollBehavior: "contain" }}>
@@ -227,14 +262,15 @@ function GarsonInner() {
             const dotColor = merged ? "var(--muted-2)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
             const progress = !merged ? readyProgress(ord) : null;
             const ready = !!progress;
+            const mergeSelected = mergeMode && mergeFirst === t.id;
             return (
               <button
                 key={t.id}
-                onClick={() => setSelectedTableId(resolveTarget(t).id)}
+                onClick={() => handleTableClick(t)}
                 style={{
                   textAlign: "left", borderRadius: 16, padding: 14, height: 108, boxSizing: "border-box",
                   display: "flex", flexDirection: "column",
-                  border: ready ? "2px solid var(--brand-strong)" : "none",
+                  border: mergeSelected ? "2px solid var(--gold)" : ready ? "2px solid var(--brand-strong)" : "none",
                   background: merged ? "var(--recede)" : occupied ? "var(--card)" : reserved ? "var(--info-bg)" : "var(--recede)",
                   boxShadow: ready ? "0 0 0 3px var(--success-bg), 0 6px 16px rgba(30,57,50,.12)" : occupied && !merged ? "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" : "none",
                   opacity: merged ? 0.6 : 1,
@@ -281,6 +317,24 @@ function GarsonInner() {
           </div>
         </>
       )}
+
+      {mergeChoice && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(30,25,15,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 55 }} onClick={() => setMergeChoice(null)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 280, maxWidth: "88vw" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-green)" }}>Hangi masada birleşsin?</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>{mergeChoice.a.name} ve {mergeChoice.b.name} birleşecek.</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => mergeInto(mergeChoice.b.id, mergeChoice.a.id)} style={{ ...pillPrimary, flex: 1, padding: 12, fontSize: 14 }}>{mergeChoice.a.name}</button>
+              <button onClick={() => mergeInto(mergeChoice.a.id, mergeChoice.b.id)} style={{ ...pillPrimary, flex: 1, padding: 12, fontSize: 14 }}>{mergeChoice.b.name}</button>
+            </div>
+            <button onClick={() => setMergeChoice(null)} style={{ ...pillSecondary, width: "100%", marginTop: 12, padding: 12, fontSize: 14 }}>İptal</button>
+          </div>
+        </div>
+      )}
     </div>
+    </StaffLoginGate>
   );
 }
+
+const pillPrimary: React.CSSProperties = { border: "none", borderRadius: 980, background: "var(--brand-strong)", color: "#fff", fontWeight: 500 };
+const pillSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, background: "var(--card)", color: "var(--ink-green)" };

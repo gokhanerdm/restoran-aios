@@ -4,6 +4,8 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
+import StaffLoginGate from "../components/StaffLoginGate";
+import { getStaffSession } from "@/lib/supabase/staffSession";
 
 // Mutfak/Bar ekranı (KDS v1) — garson "Gönder"e basınca buraya düşer.
 // Girişsiz, tablet/ekran için (bkz. app/garson/page.tsx aynı desen). Gerçek zamanlı değil,
@@ -34,6 +36,7 @@ function MutfakInner() {
   const searchParams = useSearchParams();
   const rSlug = searchParams.get("r");
   const istasyonParam = searchParams.get("istasyon");
+  const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [tables, setTables] = useState<TableRow[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
@@ -51,6 +54,7 @@ function MutfakInner() {
       const rest = await resolveRestaurantIdBySlug(rSlug);
       if ("error" in rest) { setErr(rest.error); setLoading(false); return; }
       const restId = rest.id;
+      setRestaurantId(restId);
 
       const [{ data: t, error: tErr }, { data: st, error: stErr }, { data: cats, error: cErr }, { data: items, error: iErr }, { data: orders, error: oErr }] = await Promise.all([
         supabase.from("restaurant_tables").select("id, name").eq("restaurant_id", restId).is("deleted_at", null),
@@ -112,7 +116,13 @@ function MutfakInner() {
   }, [load]);
 
   const setStage = async (id: string, field: "preparing_at" | "ready_at" | "served_at") => {
-    await supabase.from("order_items").update({ [field]: new Date().toISOString() }).eq("id", id);
+    const patch: Record<string, string> = { [field]: new Date().toISOString() };
+    // Kim hazırlamaya başladıysa (ilk gerçek aksiyon) profil/özet sayfası için etiketlenir.
+    if (field === "preparing_at") {
+      const staff = getStaffSession();
+      if (staff) patch.prepared_by_staff_id = staff.id;
+    }
+    await supabase.from("order_items").update(patch).eq("id", id);
     await load();
   };
 
@@ -143,6 +153,7 @@ function MutfakInner() {
   };
 
   return (
+    <StaffLoginGate restaurantId={restaurantId} roles={["mutfak", "bar"]}>
     <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
       <div style={{ padding: "18px 16px 40px" }}>
         <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
@@ -190,6 +201,7 @@ function MutfakInner() {
         </div>
       </div>
     </div>
+    </StaffLoginGate>
   );
 }
 
