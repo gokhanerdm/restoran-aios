@@ -185,8 +185,10 @@ function GarsonInner() {
   const doluSayisi = tables.filter((t) => t.status !== "empty" && !t.merged_into_table_id).length;
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
-      <div style={{ padding: "18px 16px 90px" }}>
+    // Sayfanın kendisi kaymaz (PAGE_STANDARDS #1) — sadece masa ızgarası ekranı doldurunca kendi
+    // içinde kayar. Sabit height + overflow:hidden dışarıda, flex:1 + overflowY:auto içeride.
+    <div style={{ height: "100dvh", background: "var(--canvas)", display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+      <div style={{ padding: "calc(18px + env(safe-area-inset-top, 0px)) 16px 0", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>Siparişler</div>
@@ -211,7 +213,9 @@ function GarsonInner() {
             ))}
           </div>
         )}
+      </div>
 
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, padding: "0 16px 24px", touchAction: "pan-y", overscrollBehavior: "contain" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(128px, 1fr))", gap: 10, marginTop: 16 }}>
           {visibleTables.map((t) => {
             const ord = orderForTable(t.id);
