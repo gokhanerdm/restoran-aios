@@ -217,7 +217,7 @@ export default function AnaSayfa() {
               onClick={() => setExpensesOpen((o) => !o)}
               style={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "90px repeat(4, 1fr)", gap: 8, width: "100%", boxSizing: "border-box" }}
             >
-              <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start", gap: 6 }}>
+              <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start", textAlign: "left", gap: 6 }}>
                 {expensesOpen ? <ChevronDown size={14} color="var(--muted)" /> : <ChevronRight size={14} color="var(--muted)" />}
                 SABİT GİDER
               </div>
@@ -281,9 +281,9 @@ export default function AnaSayfa() {
           <PeriyotMiniTablo
             rows={[
               { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
-              { l: "Nakit", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-              { l: "Kredi K.", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
-              { l: "Yemek Kartı", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+              { l: "NAKİT", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+              { l: "KREDİ K.", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+              { l: "YEMEK KARTI", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
             ]}
           />
         </div>
