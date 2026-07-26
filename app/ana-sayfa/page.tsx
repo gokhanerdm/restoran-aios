@@ -226,42 +226,38 @@ export default function AnaSayfa() {
             </button>
             {expensesOpen && (
               <div style={{ padding: "14px 20px 18px", maxHeight: 260, overflowY: "auto", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, marginTop: 8, boxSizing: "border-box" }}>
+                {/* Sütunlar dar sütuna (Başabaş panelinin altı, ekranın yarısı) sığacak şekilde
+                    daraltıldı — "KDV hariç" kaldırıldı (türetilmiş değer, gerekirse başka yerde var). */}
                 <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
-                  <span style={{ flex: 1 }}>Gider kalemi</span>
-                  <span style={{ width: 110, textAlign: "right" }}>Tutar (KDV dahil)</span>
-                  <span style={{ width: 55, textAlign: "right" }}>KDV %</span>
-                  <span style={{ width: 90, textAlign: "right" }}>KDV hariç</span>
-                  <span style={{ width: 26 }} />
+                  <span style={{ flex: 1, minWidth: 0 }}>Gider kalemi</span>
+                  <span style={{ width: 80, textAlign: "right", flexShrink: 0 }}>Tutar ₺</span>
+                  <span style={{ width: 46, textAlign: "right", flexShrink: 0 }}>KDV %</span>
+                  <span style={{ width: 22, flexShrink: 0 }} />
                 </div>
-                {expenses.map((e) => {
-                  const net = e.monthly_amount / (1 + Number(e.vat_rate) / 100);
-                  return (
+                {expenses.map((e) => (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
-                    <span style={{ flex: 1 }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} /></span>
-                    <span style={{ width: 110, textAlign: "right" }}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} /></span>
+                    <span style={{ width: 80, textAlign: "right", flexShrink: 0 }}>
                       <EditableText value={String(e.monthly_amount)} onSave={(v) => updateExpenseAmount(e.id, v)} style={{ display: "inline-block" }} />
-                      <span className="tnum" style={{ color: "var(--muted)" }}> ₺</span>
                     </span>
-                    <span style={{ width: 55, textAlign: "right" }}>
+                    <span style={{ width: 46, textAlign: "right", flexShrink: 0 }}>
                       <EditableText value={String(e.vat_rate)} onSave={(v) => updateExpenseVat(e.id, v)} style={{ display: "inline-block" }} />
                       <span className="tnum" style={{ color: "var(--muted)" }}>%</span>
                     </span>
-                    <span className="tnum" style={{ width: 90, textAlign: "right", color: "var(--muted)" }}>{money(net)}</span>
-                    <span style={{ width: 26, textAlign: "right" }}>
+                    <span style={{ width: 22, textAlign: "right", flexShrink: 0 }}>
                       <button onClick={() => deleteExpense(e.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={13} /></button>
                     </span>
                   </div>
-                  );
-                })}
+                ))}
                 {expenses.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Henüz gider kalemi yok — kira, elektrik, su, aidat, personel gibi aylık giderlerini ekle.</div>}
 
                 {!addingExpense ? (
                   <button onClick={() => setAddingExpense(true)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--brand)", padding: "10px 0 4px" }}><Plus size={14} /> Gider ekle</button>
                 ) : (
-                  <div style={{ display: "flex", gap: 8, padding: "10px 0 4px" }}>
-                    <input value={neName} onChange={(e) => setNeName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="Ad (Kira, Elektrik...)" style={{ ...inp, flex: 1 }} autoFocus />
-                    <input value={neAmount} onChange={(e) => setNeAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="Tutar (KDV dahil) ₺" inputMode="decimal" style={{ ...inp, width: 150 }} />
-                    <input value={neVat} onChange={(e) => setNeVat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="KDV %" inputMode="decimal" style={{ ...inp, width: 70 }} />
+                  <div style={{ display: "flex", gap: 6, padding: "10px 0 4px" }}>
+                    <input value={neName} onChange={(e) => setNeName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="Ad" style={{ ...inp, flex: 1, minWidth: 0 }} autoFocus />
+                    <input value={neAmount} onChange={(e) => setNeAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="₺" inputMode="decimal" style={{ ...inp, width: 70 }} />
+                    <input value={neVat} onChange={(e) => setNeVat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="KDV%" inputMode="decimal" style={{ ...inp, width: 55 }} />
                     <button onClick={addExpense} style={btnSmall}>Ekle</button>
                   </div>
                 )}
@@ -278,6 +274,7 @@ export default function AnaSayfa() {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <PeriyotMiniTablo
+            labelWidth={105}
             rows={[
               { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
               { l: "NAKİT", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
