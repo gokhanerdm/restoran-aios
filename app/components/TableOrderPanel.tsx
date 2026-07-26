@@ -447,29 +447,27 @@ export default function TableOrderPanel({
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0, touchAction: "pan-y" }}>
-            {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").map((i) => (
-              <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", fontSize: 14 }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-                  <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, -1) : changeQuantity(i, -1))} disabled={busy} aria-label="azalt" style={stepBtnSm}>−</button>
-                  <span className="tnum" style={{ minWidth: 16, textAlign: "center" }}>{i.quantity}</span>
-                  <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, 1) : changeQuantity(i, 1))} disabled={busy} aria-label="artır" style={stepBtnSm}>+</button>
-                </span>
-                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {i.menu_items?.name ?? "?"}
-                  {i.status === "ikram" && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--gold-text)", marginLeft: 6 }}>İKRAM</span>}
-                  {i.ready_at && !i.served_at && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", marginLeft: 6 }}>HAZIR</span>}
-                </span>
-                <span className="tnum" style={{ flexShrink: 0, textDecoration: i.status === "ikram" ? "line-through" : "none", color: i.status === "ikram" ? "var(--muted-2)" : "var(--ink)" }}>{money(i.quantity * i.unit_price)}</span>
-                {i.status === "active" && (
-                  <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
-                    <button onClick={() => compItem(i)} disabled={busy} title="İkram et" style={miniAction}>İkram</button>
-                  </span>
-                )}
-              </div>
-            ))}
-            {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").length === 0 && (
-              <div style={{ color: "var(--muted)", fontSize: 14, padding: "9px 0" }}>Henüz ürün yok</div>
-            )}
+            {(() => {
+              const visible = order.order_items.filter((i) => i.status === "active" || i.status === "ikram");
+              // Zaten gönderilmiş (mutfak/bar biliyor) ile henüz gönderilmemiş yeni eklenenler ayrı
+              // gösterilir — "Gönder"e basınca sanki tüm adisyon gidiyormuş hissi vermesin diye.
+              const sent = visible.filter((i) => i.sent_at);
+              const unsent = visible.filter((i) => !i.sent_at);
+              return (
+                <>
+                  {sent.map((i) => <OrderItemRow key={i.id} i={i} busy={busy} changeQuantity={changeQuantity} changeCompQuantity={changeCompQuantity} compItem={compItem} />)}
+                  {sent.length > 0 && unsent.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0", color: "var(--muted-2)", fontSize: 11 }}>
+                      <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+                      Sipariş devamı
+                      <div style={{ flex: 1, height: 1, background: "var(--line)" }} />
+                    </div>
+                  )}
+                  {unsent.map((i) => <OrderItemRow key={i.id} i={i} busy={busy} changeQuantity={changeQuantity} changeCompQuantity={changeCompQuantity} compItem={compItem} />)}
+                  {visible.length === 0 && <div style={{ color: "var(--muted)", fontSize: 14, padding: "9px 0" }}>Henüz ürün yok</div>}
+                </>
+              );
+            })()}
           </div>
 
           <div style={{ height: 1, background: "var(--line)", marginTop: 10, flexShrink: 0 }} />
@@ -723,6 +721,36 @@ export default function TableOrderPanel({
       document.body
     )}
     </>
+  );
+}
+
+function OrderItemRow({
+  i, busy, changeQuantity, changeCompQuantity, compItem,
+}: {
+  i: OrderItem; busy: boolean;
+  changeQuantity: (item: OrderItem, delta: number) => void;
+  changeCompQuantity: (item: OrderItem, delta: number) => void;
+  compItem: (item: OrderItem) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", fontSize: 14 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+        <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, -1) : changeQuantity(i, -1))} disabled={busy} aria-label="azalt" style={stepBtnSm}>−</button>
+        <span className="tnum" style={{ minWidth: 16, textAlign: "center" }}>{i.quantity}</span>
+        <button onClick={() => (i.status === "ikram" ? changeCompQuantity(i, 1) : changeQuantity(i, 1))} disabled={busy} aria-label="artır" style={stepBtnSm}>+</button>
+      </span>
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {i.menu_items?.name ?? "?"}
+        {i.status === "ikram" && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--gold-text)", marginLeft: 6 }}>İKRAM</span>}
+        {i.ready_at && !i.served_at && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", marginLeft: 6 }}>HAZIR</span>}
+      </span>
+      <span className="tnum" style={{ flexShrink: 0, textDecoration: i.status === "ikram" ? "line-through" : "none", color: i.status === "ikram" ? "var(--muted-2)" : "var(--ink)" }}>{money(i.quantity * i.unit_price)}</span>
+      {i.status === "active" && (
+        <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+          <button onClick={() => compItem(i)} disabled={busy} title="İkram et" style={miniAction}>İkram</button>
+        </span>
+      )}
+    </div>
   );
 }
 
