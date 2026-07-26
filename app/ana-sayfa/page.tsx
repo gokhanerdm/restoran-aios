@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ChevronUp, ChevronDown } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toTitleTr } from "@/lib/text";
 
@@ -191,6 +191,14 @@ export default function AnaSayfa() {
     await load();
   };
   const deleteExpense = async (id: string) => { await supabase.from("business_expenses").update({ deleted_at: new Date().toISOString() }).eq("id", id); await load(); };
+  const moveExpense = async (index: number, dir: -1 | 1) => {
+    const next = index + dir;
+    if (next < 0 || next >= expenses.length) return;
+    const reordered = [...expenses];
+    [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
+    await Promise.all(reordered.map((r, i) => supabase.from("business_expenses").update({ sort_order: i }).eq("id", r.id)));
+    await load();
+  };
   const saveDays = async () => {
     if (!restaurantId) return;
     const n = parseInt(daysInput) || ayGunSayisi();
@@ -241,9 +249,10 @@ export default function AnaSayfa() {
                   <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>KDV'siz</span>
                   <span style={{ width: 34, textAlign: "right", flexShrink: 0 }}>KDV%</span>
                   <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>KDV dahil</span>
+                  <span style={{ width: 16, flexShrink: 0 }} />
                   <span style={{ width: 20, flexShrink: 0 }} />
                 </div>
-                {expenses.map((e) => (
+                {expenses.map((e, i) => (
                   <div key={e.id} style={{ display: "flex", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><EditableText value={e.name} onSave={(v) => renameExpense(e.id, v)} inputWidth="100%" /></span>
                     <span style={{ width: 60, textAlign: "right", flexShrink: 0 }}>
@@ -255,6 +264,10 @@ export default function AnaSayfa() {
                     </span>
                     <span style={{ width: 62, textAlign: "right", flexShrink: 0 }}>
                       <EditableText value={String(r2(e.monthly_amount * (1 + e.vat_rate / 100)))} onSave={(v) => updateExpenseGross(e.id, v, e.vat_rate)} style={{ display: "inline-block" }} inputWidth={48} />
+                    </span>
+                    <span style={{ width: 16, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                      <button onClick={() => moveExpense(i, -1)} disabled={i === 0} aria-label="yukarı taşı" style={{ all: "unset", cursor: i === 0 ? "default" : "pointer", color: "var(--muted-2)", opacity: i === 0 ? 0.3 : 1, display: "inline-flex" }}><ChevronUp size={13} /></button>
+                      <button onClick={() => moveExpense(i, 1)} disabled={i === expenses.length - 1} aria-label="aşağı taşı" style={{ all: "unset", cursor: i === expenses.length - 1 ? "default" : "pointer", color: "var(--muted-2)", opacity: i === expenses.length - 1 ? 0.3 : 1, display: "inline-flex" }}><ChevronDown size={13} /></button>
                     </span>
                     <span style={{ width: 20, textAlign: "right", flexShrink: 0 }}>
                       <button onClick={() => deleteExpense(e.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><Trash2 size={13} /></button>
