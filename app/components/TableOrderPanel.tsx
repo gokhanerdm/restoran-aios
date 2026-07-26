@@ -56,6 +56,10 @@ export default function TableOrderPanel({
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
   const [order, setOrder] = useState<Order | null>(null);
+  // Sipariş verisi gelene kadar order=null oluyor, bu da bir masaya tıklayınca doluysa bile
+  // bir anlığına "Sipariş başlat" ekranının yanlışlıkla görünmesine sebep oluyordu. İlk yükleme
+  // bitene kadar hiçbir şey (ne başlat ne adisyon) göstermiyoruz.
+  const [loadingOrder, setLoadingOrder] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
@@ -111,7 +115,7 @@ export default function TableOrderPanel({
   useEffect(() => { loadMenu(); }, [loadMenu]);
 
   const loadOrder = useCallback(async () => {
-    if (!table) { setOrder(null); return; }
+    if (!table) { setOrder(null); setLoadingOrder(false); return; }
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
@@ -134,9 +138,10 @@ export default function TableOrderPanel({
       setPayments([]);
       setDiscounts([]);
     }
+    setLoadingOrder(false);
   }, [table?.id]);
 
-  useEffect(() => { loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
+  useEffect(() => { setLoadingOrder(true); loadOrder(); setMenuOpen(false); setConfig(null); setPartySize(2); setPayStep(false); setPayAmount(""); }, [table?.id, loadOrder]);
   // Mutfak/bar bir kalemi "hazır" işaretlerse bu panel açık kalsa bile görsün diye periyodik tazelenir.
   useEffect(() => {
     if (!table) return;
@@ -392,8 +397,10 @@ export default function TableOrderPanel({
       {variant === "sheet" && <div style={{ width: 40, height: 4, borderRadius: 980, background: "var(--line-2)", margin: "0 auto 14px" }} />}
       {err && <div style={{ background: "var(--danger-bg)", color: "var(--danger)", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, marginBottom: 10, flexShrink: 0 }}>{err}</div>}
       {!table && <div style={{ color: "var(--muted)", fontSize: 14, margin: "auto" }}>Bir masa seç</div>}
+      {/* Yükleniyor durumunda bilinçli olarak hiçbir şey göstermiyoruz — bir yazı bile kısa bir
+          "önce bu, sonra o" kesintisi gibi hissettiriyordu. Veri gelince doğru ekran tek seferde çıkar. */}
 
-      {table && !order && (
+      {table && !loadingOrder && !order && (
         <div style={{ margin: "auto", textAlign: "center" }}>
           <div style={{ fontWeight: 600, fontSize: 19, color: "var(--ink-green)", marginBottom: 10 }}>{table.name}</div>
           <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>Açık sipariş yok</div>
@@ -409,7 +416,7 @@ export default function TableOrderPanel({
         </div>
       )}
 
-      {table && order && (
+      {table && !loadingOrder && order && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div style={{ fontSize: 21, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{table.name}</div>
