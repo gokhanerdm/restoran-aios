@@ -210,19 +210,23 @@ export default function AnaSayfa() {
             ]}
           />
 
-          {/* GİDERLER AKORDEONU — Başabaş'ın hemen altında (Gökhan kararı, 2026-07-26) */}
-          <div style={{ marginTop: 10, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, overflow: "hidden" }}>
-            <button onClick={() => setExpensesOpen((o) => !o)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", padding: "14px 20px", boxSizing: "border-box" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {expensesOpen ? <ChevronDown size={16} color="var(--muted)" /> : <ChevronRight size={16} color="var(--muted)" />}
-                <span style={{ fontWeight: 600, color: "var(--ink-green)" }}>Sabit giderler</span>
-              </span>
-              <span className="tnum" style={{ fontSize: 13, color: "var(--muted)" }}>
-                Aylık {money(aylikGiderToplam)} · günlük pay {money(gunlukSabitGider)} ({gunSayisi} güne bölünüyor)
-              </span>
+          {/* GİDERLER AKORDEONU — Başabaş'ın hemen altında, aynı dönem-tablosu stiliyle (satır +
+              Gün/Hafta/Ay/Yıl kutuları); başlığa tıklayınca detay listesi akordeon açılır (Gökhan kararı, 2026-07-26) */}
+          <div style={{ marginTop: 10 }}>
+            <button
+              onClick={() => setExpensesOpen((o) => !o)}
+              style={{ all: "unset", cursor: "pointer", display: "grid", gridTemplateColumns: "90px repeat(4, 1fr)", gap: 8, width: "100%", boxSizing: "border-box" }}
+            >
+              <div style={{ ...matrisKutu, background: "var(--recede)", fontWeight: 600, color: "var(--ink-green)", justifyContent: "flex-start", gap: 6 }}>
+                {expensesOpen ? <ChevronDown size={14} color="var(--muted)" /> : <ChevronRight size={14} color="var(--muted)" />}
+                SABİT GİDER
+              </div>
+              {[gunlukSabitGider, gunlukSabitGider * 7, aylikGiderToplam, aylikGiderToplam * 12].map((v, k) => (
+                <div key={k} className="tnum" style={{ ...matrisKutu, color: "var(--ink)" }}>{money(v)}</div>
+              ))}
             </button>
             {expensesOpen && (
-              <div style={{ padding: "0 20px 18px", maxHeight: 260, overflowY: "auto" }}>
+              <div style={{ padding: "14px 20px 18px", maxHeight: 260, overflowY: "auto", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, marginTop: 8, boxSizing: "border-box" }}>
                 <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
                   <span style={{ flex: 1 }}>Gider kalemi</span>
                   <span style={{ width: 110, textAlign: "right" }}>Tutar (KDV dahil)</span>
