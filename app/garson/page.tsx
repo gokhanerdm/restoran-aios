@@ -244,7 +244,7 @@ function GarsonInner() {
                 ) : occupied ? (
                   <>
                     <div className="tnum" style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.3px", color: "var(--ink-green)", marginTop: 14 }}>{money(total)}</div>
-                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{progress ? `${progress.ready}/${progress.total} ürün hazır` : bill ? "hesap istedi" : "açık"}</div>
+                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{progress ? (progress.ready === progress.total ? "Hazır — servis et" : `${progress.ready}/${progress.total} ürün hazır`) : bill ? "hesap istedi" : "açık"}</div>
                   </>
                 ) : reserved ? (
                   <div style={{ fontSize: 11.5, color: "var(--info)", marginTop: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.reservation_note || "Rezerve"}</div>
