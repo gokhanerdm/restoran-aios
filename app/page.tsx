@@ -178,9 +178,11 @@ export default function KasaPage() {
     if (error) { setErr(error.message); return; }
     await load();
   };
+  // Kaynağın açık siparişi varsa kalemleri/kişi sayısı hedefe taşınır, kaynak hemen boşalır
+  // (bkz. transfer_table_order RPC) — sadece iki boş masa birleşiyorsa eski yönlendirme yeterli.
   const mergeInto = async (sourceId: string, targetId: string) => {
     setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ merged_into_table_id: targetId }).eq("id", sourceId);
+    const { error } = await supabase.rpc("transfer_table_order", { p_source_table_id: sourceId, p_target_table_id: targetId });
     if (error) { setErr(error.message); return; }
     setMergeChoice(null);
     await load();
