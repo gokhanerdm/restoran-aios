@@ -10,6 +10,7 @@ type OrderItem = {
   id: string;
   quantity: number;
   unit_price: number;
+  vat_rate: number;
   status: string;
   menu_item_id: string;
   variant_id: string | null;
@@ -28,7 +29,7 @@ const PAY_METHODS = [
   { v: "yemek_karti", l: "Yemek Kartı" },
 ] as const;
 const payLabel = (m: string) => PAY_METHODS.find((x) => x.v === m)?.l ?? m;
-type MenuItem = { id: string; name: string; sale_price: number; category_id: string | null };
+type MenuItem = { id: string; name: string; sale_price: number; category_id: string | null; vat_rate: number };
 type Category = { id: string; name: string };
 type CfgVariant = { id: string; name: string; sale_price: number };
 type CfgMod = { id: string; name: string; price_delta: number };
@@ -109,7 +110,7 @@ export default function TableOrderPanel({
     if (!restaurantId) return;
     const [{ data: c }, { data: m }] = await Promise.all([
       supabase.from("menu_categories").select("id, name").eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
-      supabase.from("menu_items").select("id, name, sale_price, category_id").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("name"),
+      supabase.from("menu_items").select("id, name, sale_price, category_id, vat_rate").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("name"),
     ]);
     setCategories((c as Category[]) ?? []);
     setMenuItems((m as MenuItem[]) ?? []);
@@ -126,7 +127,7 @@ export default function TableOrderPanel({
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
-      .select("id, table_id, party_size, order_items(id, quantity, unit_price, status, menu_item_id, variant_id, created_at, sent_at, ready_at, served_at, menu_items(name))")
+      .select("id, table_id, party_size, order_items(id, quantity, unit_price, vat_rate, status, menu_item_id, variant_id, created_at, sent_at, ready_at, served_at, menu_items(name))")
       .eq("table_id", table.id).eq("status", "open")
       // Kalemler her zaman eklenme sırasına göre listelensin — adet değiştirince satır yerinden oynamasın.
       .order("created_at", { referencedTable: "order_items" })
@@ -210,7 +211,7 @@ export default function TableOrderPanel({
       await supabase.from("order_items").update({ quantity: item.quantity - 1 }).eq("id", item.id);
       await supabase.from("order_items").insert({
         restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
-        quantity: 1, unit_price: item.unit_price, status: "ikram",
+        quantity: 1, unit_price: item.unit_price, vat_rate: item.vat_rate, status: "ikram",
       });
     }
     await loadOrder(); onChanged();
@@ -235,7 +236,7 @@ export default function TableOrderPanel({
       if (sibling) await supabase.from("order_items").update({ quantity: sibling.quantity + 1 }).eq("id", sibling.id);
       else await supabase.from("order_items").insert({
         restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
-        quantity: 1, unit_price: item.unit_price, status: "active",
+        quantity: 1, unit_price: item.unit_price, vat_rate: item.vat_rate, status: "active",
       });
       if (item.quantity > 1) await supabase.from("order_items").update({ quantity: item.quantity - 1 }).eq("id", item.id);
       else await supabase.from("order_items").delete().eq("id", item.id);
@@ -255,7 +256,7 @@ export default function TableOrderPanel({
     } else {
       await supabase.from("order_items").insert({
         restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.id,
-        quantity: 1, unit_price: item.sale_price, status: "active",
+        quantity: 1, unit_price: item.sale_price, vat_rate: item.vat_rate, status: "active",
       });
     }
     await loadOrder(); onChanged();
@@ -294,7 +295,7 @@ export default function TableOrderPanel({
     setBusy(true);
     const { data } = await supabase.from("order_items").insert({
       restaurant_id: restaurantId, order_id: order.id, menu_item_id: config.id,
-      variant_id: chosenVariant, quantity: 1, unit_price: price, status: "active",
+      variant_id: chosenVariant, quantity: 1, unit_price: price, vat_rate: config.vat_rate, status: "active",
     }).select("id").single();
     if (data && mods.length) {
       await supabase.from("order_item_modifiers").insert(mods.map((m) => ({
