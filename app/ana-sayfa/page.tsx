@@ -43,6 +43,7 @@ export default function AnaSayfa() {
   const [foodCostRatio, setFoodCostRatio] = useState<number | null>(null);
   // Dönem kutuları: [gün, hafta, ay, yıl] — ciro/reçete maliyeti/müşteri sayısı
   const [periyot, setPeriyot] = useState<{ ciro: number[]; maliyet: number[]; musteri: number[] } | null>(null);
+  const [periyotOdeme, setPeriyotOdeme] = useState<{ nakit: number[]; kk: number[]; yemekKarti: number[] } | null>(null);
   const [topSellers, setTopSellers] = useState<{ name: string; qty: number; revenue: number }[]>([]);
   const [hourly, setHourly] = useState<number[]>([]);
   const [radar, setRadar] = useState<RadarRow[] | null>(null);
@@ -68,7 +69,7 @@ export default function AnaSayfa() {
     const ayBasiMs = Date.parse(gun.slice(0, 8) + "01T00:00:00+03:00");
     const yilBasiMs = Date.parse(gun.slice(0, 4) + "-01-01T00:00:00+03:00");
 
-    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }] = await Promise.all([
+    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }, { data: paymentRows }] = await Promise.all([
       supabase.rpc("daily_prep_report", { p_restaurant: restId }),
       supabase.from("restaurant_tables").select("status").eq("restaurant_id", restId).is("deleted_at", null),
       supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
@@ -78,6 +79,7 @@ export default function AnaSayfa() {
       supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", otuzGunOnce),
       supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", restId).gte("created_at", new Date(yilBasiMs).toISOString()),
       supabase.rpc("sarf_usage_radar", { p_restaurant: restId }),
+      supabase.from("order_payments").select("amount, method, paid_at").eq("restaurant_id", restId).gte("paid_at", new Date(yilBasiMs).toISOString()),
     ]);
 
     setPrep(rep as PrepReport);
@@ -128,6 +130,15 @@ export default function AnaSayfa() {
     });
     setPeriyot({ ciro: ciroP, maliyet: maliyetP, musteri: musteriP });
     setHourly(saat);
+
+    // Ödeme türüne göre ciro kırılımı — CİRO satırının altına Nakit/KK/Yemek Kartı satırları.
+    const nakitP = [0, 0, 0, 0], kkP = [0, 0, 0, 0], yemekKartiP = [0, 0, 0, 0];
+    ((paymentRows as { amount: number; method: string; paid_at: string }[]) ?? []).forEach((p) => {
+      const ts = Date.parse(p.paid_at);
+      const hedef = p.method === "nakit" ? nakitP : p.method === "kart" ? kkP : yemekKartiP;
+      sinirlar.forEach((b, k) => { if (ts >= b) hedef[k] += Number(p.amount); });
+    });
+    setPeriyotOdeme({ nakit: nakitP, kk: kkP, yemekKarti: yemekKartiP });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -185,6 +196,9 @@ export default function AnaSayfa() {
         ))}
         {([
           { l: "CİRO", vals: periyot?.ciro ?? null, fmt: (v: number) => money(v), renk: () => "var(--ink-green)" },
+          { l: "Nakit", vals: periyotOdeme?.nakit ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+          { l: "KK", vals: periyotOdeme?.kk ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
+          { l: "Yemek Kartı", vals: periyotOdeme?.yemekKarti ?? null, fmt: (v: number) => money(v), renk: () => "var(--muted)" },
           { l: "BAŞABAŞ", vals: basabasArr, fmt: (v: number) => money(v), renk: () => "var(--ink)" },
           { l: "KÂRLILIK", vals: karArr, fmt: (v: number) => money(v), renk: (v: number) => (v < 0 ? "var(--danger)" : "var(--brand)") },
           { l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" },
