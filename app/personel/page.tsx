@@ -7,8 +7,11 @@ import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { useConfirm } from "../components/useConfirm";
 import { toTitleTr } from "@/lib/text";
 import { Plus, Trash2, KeyRound } from "lucide-react";
+import EditableText from "../components/EditableText";
 
-type Staff = { id: string; full_name: string; role: string; active: boolean };
+type Staff = { id: string; full_name: string; role: string; active: boolean; gross_salary: number };
+const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
+const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const ROLES = [
   { v: "garson", l: "Garson" },
@@ -30,13 +33,18 @@ export default function Personel() {
   const [err, setErr] = useState<string | null>(null);
   const [pinFor, setPinFor] = useState<string | null>(null);
   const [newPin, setNewPin] = useState("");
+  const [sgkRate, setSgkRate] = useState("0");
 
   const load = useCallback(async () => {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const { data } = await supabase.from("staff_members").select("id, full_name, role, active").eq("restaurant_id", restId).is("deleted_at", null).order("created_at");
+    const [{ data }, { data: st }] = await Promise.all([
+      supabase.from("staff_members").select("id, full_name, role, active, gross_salary").eq("restaurant_id", restId).is("deleted_at", null).order("created_at"),
+      supabase.from("restaurant_settings").select("sgk_employer_rate").eq("restaurant_id", restId).maybeSingle(),
+    ]);
     setStaff((data as Staff[]) ?? []);
+    setSgkRate(String((st as { sgk_employer_rate: number } | null)?.sgk_employer_rate ?? 0));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -70,29 +78,49 @@ export default function Personel() {
     setPinFor(null); setNewPin("");
   };
 
+  const updateSalary = async (id: string, value: string) => {
+    await supabase.from("staff_members").update({ gross_salary: parseFloat(value.replace(",", ".")) || 0 }).eq("id", id);
+    await load();
+  };
+
+  const saveSgkRate = async () => {
+    if (!restaurantId) return;
+    const rate = parseFloat(sgkRate.replace(",", ".")) || 0;
+    await supabase.from("restaurant_settings").upsert({ restaurant_id: restaurantId, sgk_employer_rate: rate }, { onConflict: "restaurant_id" });
+    await load();
+  };
+
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
       <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 20, flexShrink: 0 }}>Personel</div>
 
-      <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 720 }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 880 }}>
         <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, flexShrink: 0 }}>
-          Garson/mutfak/bar cihazlarında giriş için isim + PIN yeterli — e-posta/hesap gerekmez. Her personelin kendi Profil sayfası vardır (satışı, kaç masaya hizmet ettiği).
+          Garson/mutfak/bar cihazlarında giriş için isim + PIN yeterli — e-posta/hesap gerekmez. Her personelin kendi Profil sayfası vardır (satışı, kaç masaya hizmet ettiği). Brüt maaş ve SGK toplamı Ana Sayfa'daki Sabit Gider'e buradan otomatik yansır.
         </div>
 
         <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
-          <span style={{ flex: 1.4 }}>İsim</span>
-          <span style={{ flex: 1 }}>Rol</span>
-          <span style={{ width: 70, textAlign: "center" }}>Aktif</span>
+          <span style={{ flex: 1.2 }}>İsim</span>
+          <span style={{ flex: 0.8 }}>Rol</span>
+          <span style={{ width: 90, textAlign: "right" }}>Brüt Maaş</span>
+          <span style={{ width: 80, textAlign: "right" }}>SGK</span>
+          <span style={{ width: 60, textAlign: "center" }}>Aktif</span>
           <span style={{ width: 90 }} />
         </div>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {staff.map((s) => (
             <div key={s.id} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
               <div style={{ display: "flex", alignItems: "center", fontSize: 13.5 }}>
-                <Link href={`/profil?staff=${s.id}`} style={{ flex: 1.4, color: "var(--ink)", textDecoration: "none", fontWeight: 500 }}>{s.full_name}</Link>
-                <span style={{ flex: 1, color: "var(--muted)" }}>{roleLabel(s.role)}</span>
-                <span style={{ width: 70, textAlign: "center" }}>
+                <Link href={`/profil?staff=${s.id}`} style={{ flex: 1.2, color: "var(--ink)", textDecoration: "none", fontWeight: 500 }}>{s.full_name}</Link>
+                <span style={{ flex: 0.8, color: "var(--muted)" }}>{roleLabel(s.role)}</span>
+                <span style={{ width: 90, textAlign: "right" }}>
+                  <EditableText value={String(r2(s.gross_salary))} onSave={(v) => updateSalary(s.id, v)} style={{ display: "inline-block" }} inputWidth={70} />
+                </span>
+                <span className="tnum" style={{ width: 80, textAlign: "right", color: "var(--muted)" }}>
+                  {money(s.gross_salary * (parseFloat(sgkRate.replace(",", ".")) || 0) / 100)}
+                </span>
+                <span style={{ width: 60, textAlign: "center" }}>
                   <input type="checkbox" checked={s.active} onChange={() => toggleActive(s)} />
                 </span>
                 <span style={{ width: 90, display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -109,6 +137,18 @@ export default function Personel() {
             </div>
           ))}
           {staff.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Henüz personel yok.</div>}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--line)", marginTop: 4, fontSize: 13, flexShrink: 0 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "var(--muted)" }}>SGK işveren oranı</span>
+            <input value={sgkRate} onChange={(e) => setSgkRate(e.target.value)} onBlur={saveSgkRate} onKeyDown={(e) => e.key === "Enter" && saveSgkRate()} inputMode="decimal" style={{ ...inp, width: 55, padding: "6px 8px" }} />
+            <span style={{ color: "var(--muted)" }}>%</span>
+          </span>
+          <span style={{ fontWeight: 600, color: "var(--ink-green)" }}>
+            Toplam maaş: <span className="tnum">{money(staff.filter((s) => s.active).reduce((s, x) => s + Number(x.gross_salary), 0))}</span>
+            {" · "}Toplam SGK: <span className="tnum">{money(staff.filter((s) => s.active).reduce((s, x) => s + Number(x.gross_salary), 0) * (parseFloat(sgkRate.replace(",", ".")) || 0) / 100)}</span>
+          </span>
         </div>
 
         <div style={{ flexShrink: 0, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>

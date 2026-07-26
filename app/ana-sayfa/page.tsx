@@ -23,7 +23,7 @@ type PrepReport = {
   kritik_stoklar: { malzeme: string; mevcut: number; par_seviye: number }[];
 };
 type Expense = { id: string; name: string; monthly_amount: number; vat_rate: number };
-type Settings = { fixed_cost_days_override: number | null };
+type Settings = { fixed_cost_days_override: number | null; sgk_employer_rate: number };
 // Fire/Kaçak radarı (ROADMAP L, Faz 1): sarf malzemesinde öğrenilen "müşteri başına oran"dan sapma
 type RadarRow = {
   ingredient_id: string; ingredient_name: string; unit: string;
@@ -45,6 +45,7 @@ export default function AnaSayfa() {
   const [openTables, setOpenTables] = useState(0);
   const [openTotal, setOpenTotal] = useState(0);
   const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [personelMaasToplam, setPersonelMaasToplam] = useState(0);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [foodCostRatio, setFoodCostRatio] = useState<number | null>(null);
   // Dönem kutuları: [gün, hafta, ay, yıl] — ciro/reçete maliyeti/müşteri sayısı
@@ -79,17 +80,18 @@ export default function AnaSayfa() {
     const ayBasiMs = Date.parse(gun.slice(0, 8) + "01T00:00:00+03:00");
     const yilBasiMs = Date.parse(gun.slice(0, 4) + "-01-01T00:00:00+03:00");
 
-    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }, { data: paymentRows }] = await Promise.all([
+    const [{ data: rep }, { data: tables }, { data: openOrders }, { data: exp }, { data: st }, { data: recipeRows }, { data: closedItems }, { data: yilRows }, { data: radarRows }, { data: paymentRows }, { data: staffRows }] = await Promise.all([
       supabase.rpc("daily_prep_report", { p_restaurant: restId }),
       supabase.from("restaurant_tables").select("status").eq("restaurant_id", restId).is("deleted_at", null),
       supabase.from("orders").select("id, order_items(quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
       supabase.from("business_expenses").select("id, name, monthly_amount, vat_rate").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("fixed_cost_days_override").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("fixed_cost_days_override, sgk_employer_rate").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
       supabase.from("orders").select("closed_at, order_items(quantity, unit_price, status, menu_item_id, menu_items(name))").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", otuzGunOnce),
       supabase.from("orders").select("created_at, closed_at, status, total_amount, party_size, order_items(quantity, status, menu_item_id)").eq("restaurant_id", restId).gte("created_at", new Date(yilBasiMs).toISOString()),
       supabase.rpc("sarf_usage_radar", { p_restaurant: restId }),
       supabase.from("order_payments").select("amount, method, paid_at").eq("restaurant_id", restId).gte("paid_at", new Date(yilBasiMs).toISOString()),
+      supabase.from("staff_members").select("gross_salary").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null),
     ]);
 
     setPrep(rep as PrepReport);
@@ -103,7 +105,7 @@ export default function AnaSayfa() {
     // gider başlıklarını hazır aç (Gökhan kararı, 2026-07-26) — işletmeci sıfırdan eklemek
     // yerine sadece rakamları doldurur.
     if (expRows.length === 0) {
-      const varsayilanlar = ["Kira", "Elektrik", "Su", "Doğalgaz", "İnternet/Telefon", "Aidat", "Personel Maaşı", "SGK Primi", "Vergi", "Muhasebe/Mali Müşavir", "Sigorta", "Temizlik"];
+      const varsayilanlar = ["Kira", "Elektrik", "Su", "Doğalgaz", "İnternet/Telefon", "Aidat", "Vergi", "Muhasebe/Mali Müşavir", "Sigorta", "Temizlik"];
       const kdvsizKalemler = ["Elektrik", "Su", "Doğalgaz"]; // bu kalemlerde KDV yok, varsayılan %0
       const { data: seeded } = await supabase.from("business_expenses").insert(
         varsayilanlar.map((name, i) => ({ restaurant_id: restId, name, monthly_amount: 0, vat_rate: kdvsizKalemler.includes(name) ? 0 : 20, sort_order: i }))
@@ -111,6 +113,7 @@ export default function AnaSayfa() {
       expRows = (seeded as Expense[]) ?? [];
     }
     setExpenses(expRows);
+    setPersonelMaasToplam(((staffRows as { gross_salary: number }[]) ?? []).reduce((s, r) => s + Number(r.gross_salary), 0));
     setSettings((st as Settings) ?? null);
     setDaysInput(String((st as Settings | null)?.fixed_cost_days_override ?? ayGunSayisi()));
 
@@ -167,7 +170,8 @@ export default function AnaSayfa() {
 
   const kritikSayisi = prep?.kritik_stoklar.length ?? 0;
 
-  const aylikGiderToplam = expenses.reduce((s, e) => s + Number(e.monthly_amount), 0);
+  const sgkToplam = personelMaasToplam * (settings?.sgk_employer_rate ?? 0) / 100;
+  const aylikGiderToplam = expenses.reduce((s, e) => s + Number(e.monthly_amount), 0) + personelMaasToplam + sgkToplam;
   const gunSayisi = settings?.fixed_cost_days_override ?? ayGunSayisi();
   const gunlukSabitGider = gunSayisi > 0 ? aylikGiderToplam / gunSayisi : 0;
   const oran = foodCostRatio ?? 0.30; // geçmiş veri yoksa sektör ortalaması varsayımıyla başlar
@@ -253,6 +257,18 @@ export default function AnaSayfa() {
             </button>
             {expensesOpen && (
               <div style={{ padding: "14px 20px 18px", maxHeight: 260, overflowY: "auto", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, marginTop: 8, boxSizing: "border-box" }}>
+                {/* Personel Maaşı/SGK artık Personel sayfasından otomatik hesaplanıyor —
+                    burada elle değiştirilemez, sadece bilgi amaçlı gösteriliyor (Gökhan
+                    kararı, 2026-07-26). KDV'siz/KDV/KDV dahil kolonları bunlar için anlamsız
+                    olduğundan (maaşa KDV uygulanmaz) ayrı, tek tutarlı bir satır olarak duruyor. */}
+                <Link href="/personel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, textDecoration: "none", color: "var(--ink)" }}>
+                  <span>Personel Maaşı <span style={{ fontSize: 11, color: "var(--muted-2)" }}>(Personel sayfasından)</span></span>
+                  <span className="tnum">{money(personelMaasToplam)}</span>
+                </Link>
+                <Link href="/personel" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5, textDecoration: "none", color: "var(--ink)" }}>
+                  <span>SGK Primi <span style={{ fontSize: 11, color: "var(--muted-2)" }}>(Personel sayfasından)</span></span>
+                  <span className="tnum">{money(sgkToplam)}</span>
+                </Link>
                 {/* Sütunlar dar sütuna (Başabaş panelinin altı, ekranın yarısı) sığacak şekilde
                     daraltıldı — "KDV hariç" kaldırıldı (türetilmiş değer, gerekirse başka yerde var). */}
                 <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
