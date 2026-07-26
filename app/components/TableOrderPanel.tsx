@@ -577,11 +577,19 @@ export default function TableOrderPanel({
           />
         )}
         <div className={variant === "sheet" ? "sheet-slide-up" : undefined} style={menuOverlayStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0, marginBottom: 10 }}>
-          <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600 }}>
-            <ChevronLeft size={17} /> Geri
-          </button>
-          <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)" }}>{config ? config.name : `Menü · ${table.name}`}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0, marginBottom: 10 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <button onClick={() => { setMenuOpen(false); setConfig(null); }} aria-label="geri" style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--brand)", fontSize: 13.5, fontWeight: 600, flexShrink: 0 }}>
+              <ChevronLeft size={17} /> Geri
+            </button>
+            <span style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{config ? config.name : `Menü · ${table.name}`}</span>
+          </span>
+          {/* Menüde gezerken adisyonda şu an ne olduğu (kaç ürün, toplam) görünsün diye özet şerit. */}
+          {!config && (
+            <span className="tnum" style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 600, color: "var(--muted)", background: "var(--recede)", borderRadius: 980, padding: "5px 12px" }}>
+              {order.order_items.filter((i) => i.status === "active" || i.status === "ikram").reduce((s, i) => s + i.quantity, 0)} ürün · {money(orderTotal(order))}
+            </span>
+          )}
         </div>
 
         {!config && (
