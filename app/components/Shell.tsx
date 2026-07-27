@@ -71,7 +71,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <nav
         style={{
-          width: 82,
+          width: 107,
           background: "var(--rail)",
           display: "flex",
           flexDirection: "column",
@@ -89,8 +89,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       >
         <div
           style={{
-            width: 41,
-            height: 41,
+            width: 53,
+            height: 53,
             borderRadius: "50%",
             background: "var(--brand)",
             color: "#fff",
@@ -98,7 +98,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             alignItems: "center",
             justifyContent: "center",
             fontWeight: 600,
-            fontSize: 17,
+            fontSize: 22,
             marginBottom: 6,
           }}
         >
@@ -115,10 +115,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               aria-label={item.label}
               title={item.label}
               style={{
-                width: 72,
+                width: 94,
                 height: 44,
                 flexShrink: 0, // ray kayabilir hale geldi; sekmeler sıkışıp ezilmesin
-                borderRadius: 14,
+                borderRadius: 18,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
@@ -129,9 +129,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 color: active ? "#fff" : "rgba(255,255,255,0.45)",
               }}
             >
-              <Icon size={20} strokeWidth={1.75} />
-              {/* "Rezervasyon" gibi uzun etiketler iki satıra kırılıp kutuyu taşırmasın */}
-              <span style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>{item.label}</span>
+              <Icon size={26} strokeWidth={1.75} />
+              {/* "Rezervasyon" gibi uzun etiketler iki satıra kırılıp kutuyu taşırmasın.
+                  Yazı 11px: kutu yüksekliği (44) değişmediği için üstü budanmadan
+                  sığabilen en büyük değer — 12'de simgeyle birlikte taşıyor. */}
+              <span style={{ fontSize: 11, whiteSpace: "nowrap" }}>{item.label}</span>
             </Link>
           );
         })}
@@ -145,8 +147,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             cursor: "pointer",
             marginTop: "auto",
             flexShrink: 0,
-            width: 38,
-            height: 38,
+            width: 49,
+            height: 49,
             borderRadius: "50%",
             background: "rgba(255,255,255,0.14)",
             color: "rgba(255,255,255,0.7)",
@@ -155,7 +157,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             justifyContent: "center",
           }}
         >
-          <LogOut size={19} strokeWidth={1.75} />
+          <LogOut size={25} strokeWidth={1.75} />
         </button>
       </nav>
 
