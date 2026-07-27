@@ -73,7 +73,6 @@ type Ctx = {
   renameCategory: (id: string, name: string) => void;
   renameProduct: (id: string, name: string) => void;
   defaultVatFor: (catId: string | null) => number;
-  setCategoryStation: (catId: string, stationId: string | null) => void;
 };
 const MenuCtx = createContext<Ctx | null>(null);
 const useMenu = () => useContext(MenuCtx)!;
@@ -245,10 +244,6 @@ export default function MenuPage() {
     }
     await supabase.from("menu_categories").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();
   };
-  const setCategoryStation = async (catId: string, stationId: string | null) => {
-    await supabase.from("menu_categories").update({ default_station_id: stationId }).eq("id", catId);
-    await loadBase();
-  };
   const addStation = async (name: string) => {
     if (!restaurantId || !name.trim()) return;
     await supabase.from("stations").insert({ restaurant_id: restaurantId, name: toTitleTr(name), sort_order: stations.length });
@@ -416,7 +411,7 @@ export default function MenuPage() {
   const ctx: Ctx = {
     categories, products, stations, expanded, selectedId: selectedProduct?.id ?? null, menuItemsWithRecipe,
     toggle, selectProduct, deleteCategory, addCategory, addProduct,
-    renameCategory, renameProduct, defaultVatFor, setCategoryStation,
+    renameCategory, renameProduct, defaultVatFor,
   };
 
   return (
@@ -804,18 +799,11 @@ function CatItem({ cat, depth }: { cat: Category; depth: number }) {
             style={{ fontWeight: open ? 600 : 500, fontSize: 14, color: "var(--ink-green)" }}
           />
         </div>
-        {m.stations.length > 0 && (
-          <select
-            value={cat.default_station_id ?? ""}
-            onChange={(e) => m.setCategoryStation(cat.id, e.target.value || null)}
-            onClick={(e) => e.stopPropagation()}
-            title="Bu kategorideki ürünler varsayılan olarak hangi istasyona gitsin"
-            style={{ fontSize: 11, border: "1px solid var(--line-2)", borderRadius: 8, padding: "3px 5px", background: "var(--card)", color: "var(--muted)", maxWidth: 90 }}
-          >
-            <option value="">İstasyon yok</option>
-            {m.stations.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        )}
+        {/* İstasyon seçici buradan kaldırıldı (Gökhan, 2026-07-27): aynı ayar hem kategori
+            başlığında hem ürün panelinde duruyordu, karışıklık yaratıyordu. Tek yer: ürün paneli.
+            menu_categories.default_station_id kolonu ve mutfak ekranının
+            "ürün override → yoksa kategori varsayılanı" çözümlemesi DURUYOR — daha önce
+            kategoriye atanmış varsayılanlar çalışmaya devam eder. */}
         <button onClick={() => m.deleteCategory(cat.id)} aria-label="sil" style={{ all: "unset", cursor: "pointer", padding: "0 10px", color: "var(--muted-2)" }}><Trash2 size={13} /></button>
       </div>
 
