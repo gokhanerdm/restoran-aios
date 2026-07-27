@@ -76,13 +76,14 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
-          padding: "18px 0",
-          gap: 8,
+          padding: "10px 0",
+          gap: 3,
           position: "sticky",
           top: 0,
           height: "100vh",
-          // 11 sayfaya çıkınca kısa ekranlarda (768px yükseklik) son sekmeler taşıyordu.
-          // Uzun ekranda görünüm aynı; sadece sığmadığında ray kendi içinde kayar.
+          // 11 sekme tek ekrana sığsın diye kutular ve aralıklar daraltıldı
+          // (~860px → ~650px). overflowY yine de duruyor: çok kısa ekranlarda
+          // veya ileride sekme eklenirse son sekmeler kaybolmasın.
           overflowY: "auto",
         }}
       >
@@ -98,7 +99,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             justifyContent: "center",
             fontWeight: 600,
             fontSize: 17,
-            marginBottom: 12,
+            marginBottom: 6,
           }}
         >
           R
@@ -114,22 +115,23 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               aria-label={item.label}
               title={item.label}
               style={{
-                width: 59,
-                height: 59,
+                width: 72,
+                height: 44,
                 flexShrink: 0, // ray kayabilir hale geldi; sekmeler sıkışıp ezilmesin
-                borderRadius: 16,
+                borderRadius: 14,
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 2,
+                gap: 1,
                 textDecoration: "none",
                 background: active ? "rgba(255,255,255,0.14)" : "transparent",
                 color: active ? "#fff" : "rgba(255,255,255,0.45)",
               }}
             >
-              <Icon size={26} strokeWidth={1.75} />
-              <span style={{ fontSize: 11 }}>{item.label}</span>
+              <Icon size={20} strokeWidth={1.75} />
+              {/* "Rezervasyon" gibi uzun etiketler iki satıra kırılıp kutuyu taşırmasın */}
+              <span style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>{item.label}</span>
             </Link>
           );
         })}
@@ -142,8 +144,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             all: "unset",
             cursor: "pointer",
             marginTop: "auto",
-            width: 41,
-            height: 41,
+            flexShrink: 0,
+            width: 38,
+            height: 38,
             borderRadius: "50%",
             background: "rgba(255,255,255,0.14)",
             color: "rgba(255,255,255,0.7)",
