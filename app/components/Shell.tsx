@@ -77,7 +77,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           flexDirection: "column",
           alignItems: "center",
           padding: "10px 0",
-          gap: 3,
+          // Sekme araları: eski 3px + Gökhan'ın istediği 2mm (CSS'te 1mm = 96/25.4px)
+          gap: "calc(3px + 2mm)",
           position: "sticky",
           top: 0,
           height: "100vh",
