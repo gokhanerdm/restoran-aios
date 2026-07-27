@@ -117,7 +117,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               title={item.label}
               style={{
                 width: 94,
-                height: 44,
+                // Seçili sekmenin kutusu 2mm uzun ve bu boy AŞAĞIDAN YUKARI eklenir:
+                // alt kenar yerinde kalır, üst kenar 2mm yukarı çıkar. marginTop:-2mm
+                // eklenen boyu akıştan geri alıyor, böylece alttaki sekmeler yerinden
+                // oynamaz — yoksa sayfa değiştikçe menü zıplardı.
+                height: active ? "calc(44px + 2mm)" : 44,
+                marginTop: active ? "-2mm" : 0,
                 flexShrink: 0, // ray kayabilir hale geldi; sekmeler sıkışıp ezilmesin
                 borderRadius: 18,
                 display: "flex",
