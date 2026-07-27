@@ -187,6 +187,19 @@ export default function AnaSayfa() {
   // Kârlılık: ciro − reçete maliyeti − o dönemde geçen günlerin sabit gider payı
   const karArr = periyot ? periyot.ciro.map((c, k) => c - periyot.maliyet[k] - gunlukSabitGider * gecenGun[k]) : null;
 
+  // PRIME COST — sektörün en önemli yönetim metriği: (malzeme + işçilik) / ciro.
+  // DİKKAT: işçilik gerçek vardiya/mesai kaydından değil, aylık brüt maaş + SGK toplamının
+  // güne bölünmesinden türetiliyor → rakam YAKLAŞIKTIR (dipnotta da belirtiliyor).
+  // Ciro 0 olan dönemde oran anlamsız; NaN bırakılıp fmt/renk içinde "…" olarak gösteriliyor.
+  const gunlukIscilik = gunSayisi > 0 ? (personelMaasToplam + sgkToplam) / gunSayisi : 0;
+  const primeCostArr = periyot
+    ? periyot.ciro.map((c, k) => (c > 0 ? ((periyot.maliyet[k] + gunlukIscilik * gecenGun[k]) / c) * 100 : Number.NaN))
+    : null;
+  // Sektör hedefleri: fast food %55-60, normal restoran %60-65, fine dining %68'e kadar.
+  const primeCostRenk = (v: number) =>
+    !Number.isFinite(v) ? "var(--muted-2)" : v <= 60 ? "var(--brand)" : v > 65 ? "var(--danger)" : "var(--ink)";
+  const primeCostFmt = (v: number) => (Number.isFinite(v) ? `%${Math.round(v)}` : "…");
+
   const addExpense = async () => {
     if (!restaurantId || !neName.trim()) return;
     const count = expenses.length;
@@ -316,6 +329,16 @@ export default function AnaSayfa() {
           <div style={{ marginTop: 10 }}>
             <PeriyotMiniTablo rows={[{ l: "MÜŞTERİ", vals: periyot?.musteri ?? null, fmt: (v: number) => String(v), renk: () => "var(--ink)" }]} labelWidth={90} showHeader={false} />
           </div>
+
+          {/* PRIME COST — (malzeme + işçilik) / ciro. Üstteki tablolarda başlık zaten var,
+              burada showHeader={false}. Renk eşiği: ≤%60 iyi, %60-65 normal, >%65 riskli. */}
+          <div style={{ marginTop: 10 }}>
+            <PeriyotMiniTablo
+              rows={[{ l: "PRIME COST", vals: primeCostArr, fmt: primeCostFmt, renk: primeCostRenk }]}
+              labelWidth={90}
+              showHeader={false}
+            />
+          </div>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <PeriyotMiniTablo
@@ -330,7 +353,7 @@ export default function AnaSayfa() {
         </div>
       </div>
       <div style={{ flexShrink: 0, fontSize: 11.5, color: "var(--muted-2)", margin: "4px 0 12px" }}>
-        {`Başabaş ve kârlılık tahmindir (son 30 günün malzeme oranı + sabit gider payı) · her 1.000₺ ciro ~${money(marjinalKar1000)} kâr bırakır`}
+        {`Başabaş ve kârlılık tahmindir (son 30 günün malzeme oranı + sabit gider payı) · her 1.000₺ ciro ~${money(marjinalKar1000)} kâr bırakır · Prime Cost'taki işçilik, gerçek vardiya/mesai kaydından değil aylık brüt maaş + SGK'nın güne bölünmesinden türetilir — yaklaşık bir orandır`}
       </div>
 
       {/* alt bölge — gerekirse kendi içinde kayar, sayfa kaymaz */}
