@@ -357,9 +357,15 @@ export default function TableOrderPanel({
   const addItem = async (item: MenuItem) => {
     if (!restaurantId || !order) return;
     setBusy(true);
-    // Aynı ürün (varyantsız/modifiersiz) adisyonda zaten aktif olarak duruyorsa yeni satır açmak yerine
-    // adedini artır — üst üste tıklayınca listede ikinci bir satır belirmesin, sıradaki yeri korusun.
-    const existing = order.order_items.find((i) => i.status === "active" && i.menu_item_id === item.id && !i.variant_id);
+    // Aynı ürün (varyantsız/modifiersiz) adisyonda HENÜZ GÖNDERİLMEMİŞ olarak duruyorsa yeni
+    // satır açmak yerine adedini artır. ÖNEMLİ: sadece gönderilmemiş (sent_at boş) satırla
+    // birleşir — zaten gönderilmiş bir satırla birleşseydi (eski davranış) yeni eklenen adet
+    // "sipariş devamı"na hiç düşmeden doğrudan gönderilmiş sayıya eklenmiş olurdu; mutfak bunu
+    // hazırlanması gereken yeni bir iş olarak hiç görmezdi. Gönderilmiş bir satıra eklenen adet,
+    // gönderilene kadar ayrı kalır; "Gönder"den sonra da teslim edilene kadar ayrı kalmaya devam
+    // eder — mutfağın yeni eklenen kısmı bağımsız takip edebilmesi için (bkz. mark_item_served,
+    // ikisi de teslim edildiğinde otomatik birleşiyor).
+    const existing = order.order_items.find((i) => i.status === "active" && i.menu_item_id === item.id && !i.variant_id && !i.sent_at);
     if (existing) {
       await supabase.from("order_items").update({ quantity: existing.quantity + 1 }).eq("id", existing.id);
     } else {
