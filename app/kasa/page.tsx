@@ -5,9 +5,13 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 
-// Gün Sonu — işletmecinin gece kasadan kalkmadan baktığı kapanış kontrol paneli (ROADMAP H).
-// Üç soru: 1) Gerçek kâr ne? 2) Kârı hangi ürünler oluşturdu/düşürdü? 3) Kasada/stokta/operasyonda açık var mı?
+// Kasa — adisyon kapandıktan SONRAKİ her şey: günün parası, nakit giriş/çıkış,
+// sayım, gün kapatma (ROADMAP H; Gökhan kararı 2026-07-27 ile "Gün Sonu"ndan dönüştü).
+// İki soru: 1) Bugün gerçekte ne kazandık? 2) Kasada/operasyonda/stokta açık var mı?
 // Sonunda tek hüküm: "Gün güvenle kapatılabilir" ya da eksiklerin listesi.
+//
+// Ürün kârlılığı analizi bilerek burada DEĞİL — dönemsel raporların tamamı Raporlar'da
+// toplandı, aynı şeyin iki yerde durmaması için.
 
 type ClosedOrder = { id: string; total_amount: number; party_size: number; channel: string };
 type Item = { id: string; quantity: number; unit_price: number; status: string; menu_item_id: string; menu_items: { name: string; vat_rate: number } | null };
@@ -28,7 +32,7 @@ const gunSiniri = (gun: string) => {
   return { start, end };
 };
 
-export default function GunSonu() {
+export default function Kasa() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [tarih, setTarih] = useState("");
   const [closedOrders, setClosedOrders] = useState<ClosedOrder[]>([]);
@@ -154,13 +158,9 @@ export default function GunSonu() {
       foodCost: u.receteVar && netExIndirimli > 0 ? (u.maliyet / netExIndirimli) * 100 : null,
     };
   });
-  const cokSatan = [...urunler].sort((a, b) => b.adet - a.adet).slice(0, 5);
-  const cokKazandiran = [...urunler].filter((u) => u.receteVar).sort((a, b) => b.kar - a.kar).slice(0, 5);
-  const medyanAdet = [...urunler].sort((a, b) => a.adet - b.adet)[Math.floor(urunler.length / 2)]?.adet ?? 0;
-  const medyanKar = [...urunler].filter((u) => u.receteVar).sort((a, b) => a.kar - b.kar)[Math.floor(urunler.filter((u) => u.receteVar).length / 2)]?.kar ?? 0;
-  const cokSatipAzKazanan = urunler.filter((u) => u.receteVar && u.adet >= medyanAdet && u.kar < medyanKar && urunler.length > 2).slice(0, 4);
-  const zararEttiren = urunler.filter((u) => u.receteVar && u.kar < 0);
-  const yuksekFoodCost = urunler.filter((u) => u.foodCost != null && u.foodCost > 40);
+  // Ürün listesi burada yalnızca "reçetesiz satıldı" uyarısı için duruyor — o uyarı kâr
+  // hesabının güvenilirliğini etkilediği için gün kapatma hükmüne giriyor. Sıralı analiz
+  // (en çok kazandıran, zarar ettiren, food cost) Raporlar sayfasında.
   const recetesizSatilan = urunler.filter((u) => !u.receteVar);
 
   // ---- SORU 3: Kasa & operasyon ----
@@ -211,7 +211,7 @@ export default function GunSonu() {
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 14, flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Gün Sonu</div>
+          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Kasa</div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{closedOrders.length} adisyon · {toplamKisi} müşteri</div>
         </div>
         <input type="date" value={tarih} onChange={(e) => setTarih(e.target.value)} style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 12px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
@@ -278,35 +278,9 @@ export default function GunSonu() {
           </div>
         </div>
 
-        {/* SORU 2 — Ürünler */}
-        <div style={{ flex: 1.2, minWidth: 280, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <SectionLabel>2 · Parayı kim kazandırdı?</SectionLabel>
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <MiniBaslik>En çok kâr bırakan</MiniBaslik>
-            {cokKazandiran.map((u) => <UrunRow key={u.name} u={u} deger={money(u.kar)} renk="var(--brand)" />)}
-            {cokKazandiran.length === 0 && <Bos>Bugün reçeteli ürün satışı yok</Bos>}
-
-            <MiniBaslik>En çok satan</MiniBaslik>
-            {cokSatan.map((u) => <UrunRow key={u.name} u={u} deger={`${u.adet} adet`} renk="var(--ink)" />)}
-            {cokSatan.length === 0 && <Bos>Satış yok</Bos>}
-
-            {cokSatipAzKazanan.length > 0 && (<><MiniBaslik uyari>Çok satıyor, az kazandırıyor</MiniBaslik>
-              {cokSatipAzKazanan.map((u) => <UrunRow key={u.name} u={u} deger={`${u.adet} adet · ${money(u.kar)}`} renk="var(--gold-text)" />)}</>)}
-
-            {zararEttiren.length > 0 && (<><MiniBaslik uyari>Zarar ettiriyor</MiniBaslik>
-              {zararEttiren.map((u) => <UrunRow key={u.name} u={u} deger={money(u.kar)} renk="var(--danger)" />)}</>)}
-
-            {yuksekFoodCost.length > 0 && (<><MiniBaslik uyari>Food cost %40 üstü</MiniBaslik>
-              {yuksekFoodCost.map((u) => <UrunRow key={u.name} u={u} deger={`%${u.foodCost!.toFixed(0)}`} renk="var(--gold-text)" />)}</>)}
-
-            {recetesizSatilan.length > 0 && (<><MiniBaslik uyari>Reçetesiz satıldı — kâr hesabı güvenilmez</MiniBaslik>
-              {recetesizSatilan.map((u) => <UrunRow key={u.name} u={u} deger={`${u.adet} adet`} renk="var(--muted)" />)}</>)}
-          </div>
-        </div>
-
-        {/* SORU 3 — Açıklar */}
+        {/* SORU 2 — Açıklar */}
         <div style={{ flex: 1.1, minWidth: 270, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <SectionLabel>3 · Açık / risk var mı?</SectionLabel>
+          <SectionLabel>2 · Açık / risk var mı?</SectionLabel>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             <MiniBaslik>Kasa</MiniBaslik>
             <Satir l="Devir (önceki kapanış)" v={money(devir)} />
@@ -377,18 +351,6 @@ function Satir({ l, v, strong, muted, renk }: { l: string; v: string; strong?: b
     </div>
   );
 }
-function UrunRow({ u, deger, renk }: { u: { name: string }; deger: string; renk: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 13, borderBottom: "1px solid var(--line)" }}>
-      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.name}</span>
-      <span className="tnum" style={{ color: renk, fontWeight: 600, flexShrink: 0 }}>{deger}</span>
-    </div>
-  );
-}
-function Bos({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--muted-2)", padding: "4px 0" }}>{children}</div>;
-}
-
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none" };
 const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500, flexShrink: 0 };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13 };

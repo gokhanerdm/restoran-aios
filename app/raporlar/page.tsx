@@ -41,6 +41,10 @@ type VoidRow = {
 };
 type PrevOrder = { total_amount: number; party_size: number | null };
 type Payment = { amount: number; method: string };
+// Kasa raporu: nakit hareketleri + gün kapanışları. Kasa sayfası tek günü gösterir,
+// burası seçilen dönemin tamamını — hangi gün tutmadı, dönemde toplam açık ne kadar.
+type CashMove = { movement_type: string; amount: number; note: string | null; occurred_at: string };
+type Closure = { closure_date: string; expected_cash: number; counted_cash: number; difference: number };
 type Staff = { id: string; full_name: string; role: string };
 type Profile = { id: string; full_name: string | null };
 type RecipeRow = { menu_item_id: string; quantity: number; ingredients: { current_unit_cost: number } | null };
@@ -103,6 +107,8 @@ export default function Raporlar() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [recipeCost, setRecipeCost] = useState<Record<string, number>>({});
   const [karsilastirmaAcik, setKarsilastirmaAcik] = useState(false);
+  const [cashMoves, setCashMoves] = useState<CashMove[]>([]);
+  const [closures, setClosures] = useState<Closure[]>([]);
 
   // Tarih state'i ilk render'da değil mount sonrası set edilir — sunucu/istemci
   // arasında hydration uyuşmazlığı olmasın diye (Gün Sonu ile aynı desen).
@@ -128,7 +134,12 @@ export default function Raporlar() {
     const uzunlukMs = aralik.endMs - aralik.startMs;
     const oncekiStartISO = new Date(aralik.startMs - uzunlukMs).toISOString();
 
-    const [kap, onc, voids, pays, stf, ayar, rec, prof] = await Promise.all([
+    // day_closures.closure_date bir DATE kolonu — zaman damgası değil gün dizisi ister.
+    // endMs bir sonraki günün başlangıcı (dışlayıcı), o yüzden 1ms geri alıp son günü buluyoruz.
+    const basGun = istanbulGun(new Date(aralik.startMs));
+    const bitGun = istanbulGun(new Date(aralik.endMs - 1));
+
+    const [kap, onc, voids, pays, stf, ayar, rec, prof, cms, cls] = await Promise.all([
       supabase
         .from("orders")
         .select("id, total_amount, party_size, closed_at, closed_by_staff_id, order_items(quantity, unit_price, status, vat_rate, menu_item_id, sent_by_staff_id, menu_items(name))")
@@ -164,6 +175,21 @@ export default function Raporlar() {
       supabase.from("restaurant_settings").select("staff_comparison_enabled").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
       supabase.from("profiles").select("id, full_name").eq("restaurant_id", restId).is("deleted_at", null),
+      supabase
+        .from("cash_movements")
+        .select("movement_type, amount, note, occurred_at")
+        .eq("restaurant_id", restId)
+        .gte("occurred_at", startISO)
+        .lt("occurred_at", endISO)
+        .order("occurred_at")
+        .limit(2000),
+      supabase
+        .from("day_closures")
+        .select("closure_date, expected_cash, counted_cash, difference")
+        .eq("restaurant_id", restId)
+        .gte("closure_date", basGun)
+        .lte("closure_date", bitGun)
+        .order("closure_date"),
     ]);
 
     const ilkHata = kap.error ?? onc.error ?? voids.error ?? pays.error;
@@ -175,6 +201,8 @@ export default function Raporlar() {
     setPayments((pays.data as Payment[]) ?? []);
     setStaff((stf.data as Staff[]) ?? []);
     setProfiles((prof.data as Profile[]) ?? []);
+    setCashMoves((cms.data as CashMove[]) ?? []);
+    setClosures((cls.data as Closure[]) ?? []);
     setKarsilastirmaAcik(Boolean((ayar.data as { staff_comparison_enabled: boolean } | null)?.staff_comparison_enabled));
 
     const costMap: Record<string, number> = {};
@@ -232,6 +260,35 @@ export default function Raporlar() {
         return b.kar - a.kar;
       });
   }, [kapanan, recipeCost]);
+
+  // ---------- 1b) Ürün uyarıları (Kasa'dan taşındı) ----------
+  // Sıralı tablo "ne kadar" der; bu blok "neye bakmalısın" der. Zarar ettiren ve food cost'u
+  // yüksek ürünler menü fiyatı/porsiyon gözden geçirme sinyalidir.
+  const uyariZarar = useMemo(() => urunler.filter((u) => u.receteVar && u.kar < 0), [urunler]);
+  const uyariYuksekFC = useMemo(() => urunler.filter((u) => u.foodCost != null && u.foodCost > 40), [urunler]);
+  const uyariRecetesiz = useMemo(() => urunler.filter((u) => !u.receteVar && u.adet > 0), [urunler]);
+  // "Çok satıyor ama az kazandırıyor": adedi medyanın üstünde, kârı medyanın altında olanlar.
+  // Medyan kullanılıyor çünkü ortalama, tek bir çok satan ürün yüzünden kayabiliyor.
+  const uyariCokSatipAzKazanan = useMemo(() => {
+    const receteli = urunler.filter((u) => u.receteVar);
+    if (receteli.length < 3) return [];
+    const adetSirali = [...receteli].map((u) => u.adet).sort((a, b) => a - b);
+    const karSirali = [...receteli].map((u) => u.kar).sort((a, b) => a - b);
+    const medyanAdet = adetSirali[Math.floor(adetSirali.length / 2)];
+    const medyanKar = karSirali[Math.floor(karSirali.length / 2)];
+    return receteli.filter((u) => u.adet >= medyanAdet && u.kar < medyanKar).slice(0, 5);
+  }, [urunler]);
+  const uyariVar = uyariZarar.length + uyariYuksekFC.length + uyariRecetesiz.length + uyariCokSatipAzKazanan.length > 0;
+
+  // ---------- 7) Kasa raporu ----------
+  const nakitSatis = payments.filter((p) => p.method === "nakit").reduce((s, p) => s + Number(p.amount), 0);
+  const kasaGiris = cashMoves.filter((m) => m.movement_type === "giris").reduce((s, m) => s + Number(m.amount), 0);
+  const kasaCikis = cashMoves.filter((m) => m.movement_type === "cikis").reduce((s, m) => s + Number(m.amount), 0);
+  const toplamFark = closures.reduce((s, c) => s + Number(c.difference), 0);
+  const tutmayanGunler = closures.filter((c) => Number(c.difference) !== 0);
+  // Dönemdeki gün sayısı — sayımı girilmemiş günleri bulmak için (kasa disiplini göstergesi).
+  const donemGunSayisi = aralik ? Math.max(1, Math.round((aralik.endMs - aralik.startMs) / 86400000)) : 0;
+  const sayimGirilmeyen = Math.max(0, donemGunSayisi - closures.length);
 
   const receteliUrunler = urunler.filter((u) => u.receteVar);
   const enKarli = receteliUrunler[0]?.id ?? null;
@@ -385,14 +442,37 @@ export default function Raporlar() {
         <Kiyas etiket="Adisyon sayısı" simdi={adisyon.toLocaleString("tr-TR")} onceki={oncekiAdisyon.toLocaleString("tr-TR")} cur={adisyon} prev={oncekiAdisyon} />
       </div>
 
-      {/* RAPOR BLOKLARI — sayfa değil, her kolon kendi içinde kayar */}
-      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
+      {/* RAPOR BLOKLARI — sayfa değil, her kolon kendi içinde kayar.
+          Kasa kolonu eklenince 4 kolon oldu; dar ekranda kolonlar ezilmesin diye
+          şerit yatayda kayabiliyor (overflowX). */}
+      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0, overflowX: "auto" }}>
         {/* 1 — ÜRÜN KÂRLILIĞI */}
         <Kolon flex={1.5} minWidth={340} baslik="1 · Ürün kârlılığı" alt={genelFoodCost != null ? `Genel food cost ${yuzde(genelFoodCost)} · reçete maliyeti ${money(toplamMaliyet)}` : "Kâra göre sıralı"}>
           {bosDonem || urunler.length === 0 ? (
             <Bos>Bu dönemde ürün satışı yok.</Bos>
           ) : (
             <>
+              {/* Uyarılar tablonun ÜSTÜNDE — aksiyon gerektiren ürünler listede kaybolmasın */}
+              {uyariVar && (
+                <div style={{ border: "1px solid var(--gold)", background: "var(--danger-bg)", borderRadius: 12, padding: "10px 12px", marginBottom: 12 }}>
+                  {uyariZarar.length > 0 && (
+                    <UyariSatiri renk="var(--danger)" baslik="Zarar ettiriyor"
+                      metin={uyariZarar.map((u) => `${u.ad} (${money(u.kar)})`).join(", ")} />
+                  )}
+                  {uyariYuksekFC.length > 0 && (
+                    <UyariSatiri renk="var(--gold-text)" baslik="Food cost %40 üstü"
+                      metin={uyariYuksekFC.map((u) => `${u.ad} (${yuzde(u.foodCost!)})`).join(", ")} />
+                  )}
+                  {uyariCokSatipAzKazanan.length > 0 && (
+                    <UyariSatiri renk="var(--gold-text)" baslik="Çok satıyor, az kazandırıyor"
+                      metin={uyariCokSatipAzKazanan.map((u) => `${u.ad} (${u.adet} adet · ${money(u.kar)})`).join(", ")} />
+                  )}
+                  {uyariRecetesiz.length > 0 && (
+                    <UyariSatiri renk="var(--muted)" baslik="Reçetesiz satıldı — kâr hesabı güvenilmez"
+                      metin={uyariRecetesiz.map((u) => `${u.ad} (${u.adet} adet)`).join(", ")} />
+                  )}
+                </div>
+              )}
               <BaslikSatiri>
                 <span style={{ flex: 1, minWidth: 0 }}>Ürün</span>
                 <span style={{ width: 40, textAlign: "right" }}>Adet</span>
@@ -566,6 +646,82 @@ export default function Raporlar() {
             </>
           )}
         </Kolon>
+
+        {/* 4 — KASA (Gün Sonu tek günü gösterir; burası dönemin tamamı) */}
+        <Kolon
+          flex={1.1}
+          minWidth={270}
+          baslik="4 · Kasa"
+          vurgu={tutmayanGunler.length > 0}
+          alt={
+            closures.length === 0
+              ? "Bu dönemde kasa sayımı girilmemiş"
+              : tutmayanGunler.length > 0
+                ? `${tutmayanGunler.length} gün tutmadı · dönem farkı ${money(toplamFark)}`
+                : `${closures.length} gün sayıldı · hepsi tuttu`
+          }
+        >
+          <Sat l="Nakit satış" v={money(nakitSatis)} />
+          <Sat l="Nakit giriş" v={kasaGiris > 0 ? money(kasaGiris) : "—"} muted={kasaGiris === 0} />
+          <Sat l="Nakit çıkış" v={kasaCikis > 0 ? `−${money(kasaCikis)}` : "—"} muted={kasaCikis === 0} />
+          <Sat
+            l="Dönem kasa farkı"
+            v={closures.length === 0 ? "—" : toplamFark === 0 ? "0 ₺ — tutuyor" : money(toplamFark)}
+            strong
+            renk={closures.length === 0 ? "var(--muted-2)" : toplamFark === 0 ? "var(--brand)" : "var(--danger)"}
+          />
+          {sayimGirilmeyen > 0 && (
+            <Not>
+              Dönemdeki {donemGunSayisi} günün {sayimGirilmeyen} tanesinde kasa sayımı girilmemiş — o günlerin farkı
+              bilinmiyor, yukarıdaki dönem farkı yalnızca sayılan günleri kapsıyor.
+            </Not>
+          )}
+
+          {closures.length > 0 && (
+            <>
+              <BaslikSatiri>
+                <span style={{ flex: 1, minWidth: 0 }}>Gün</span>
+                <span style={{ width: 76, textAlign: "right" }}>Beklenen</span>
+                <span style={{ width: 72, textAlign: "right" }}>Sayılan</span>
+                <span style={{ width: 68, textAlign: "right" }}>Fark</span>
+              </BaslikSatiri>
+              {closures.map((c) => {
+                const fark = Number(c.difference);
+                return (
+                  <div key={c.closure_date} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 12.5 }}>
+                    <span style={{ flex: 1, minWidth: 0, color: "var(--ink)" }}>{trTarih(c.closure_date)}</span>
+                    <span className="tnum" style={{ width: 76, textAlign: "right", color: "var(--muted)" }}>{money(Number(c.expected_cash))}</span>
+                    <span className="tnum" style={{ width: 72, textAlign: "right" }}>{money(Number(c.counted_cash))}</span>
+                    <span className="tnum" style={{ width: 68, textAlign: "right", fontWeight: 600, color: fark === 0 ? "var(--brand)" : "var(--danger)" }}>
+                      {fark === 0 ? "0 ₺" : money(fark)}
+                    </span>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {cashMoves.length > 0 && (
+            <>
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-green)", margin: "12px 0 4px" }}>Nakit hareketleri</div>
+              {cashMoves.map((m, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, color: "var(--muted)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {trTarih(istanbulGun(new Date(m.occurred_at)))} · {m.movement_type === "cikis" ? "Çıkış" : "Giriş"}
+                    {m.note ? ` — ${m.note}` : ""}
+                  </span>
+                  <span className="tnum" style={{ flexShrink: 0, color: m.movement_type === "cikis" ? "var(--danger)" : "var(--ink)" }}>
+                    {m.movement_type === "cikis" ? "−" : "+"}{money(Number(m.amount))}
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {closures.length === 0 && cashMoves.length === 0 && (
+            <Not>Kasa sayımı ve nakit hareketleri Kasa sayfasından girilir; girildikçe bu dönem raporu dolar.</Not>
+          )}
+        </Kolon>
       </div>
 
       {yukleniyor && (
@@ -611,6 +767,26 @@ function Bos({ children }: { children: React.ReactNode }) {
 
 function Not({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 10, lineHeight: 1.5 }}>{children}</div>;
+}
+
+// Kasa kolonundaki etiket/değer satırı (Kasa sayfasındaki Satir bileşeninin karşılığı).
+function Sat({ l, v, strong, muted, renk }: { l: string; v: string; strong?: boolean; muted?: boolean; renk?: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 13 }}>
+      <span style={{ color: "var(--muted)", minWidth: 0 }}>{l}</span>
+      <span className="tnum" style={{ fontWeight: strong ? 700 : 500, color: renk ?? (muted ? "var(--muted-2)" : "var(--ink)"), flexShrink: 0 }}>{v}</span>
+    </div>
+  );
+}
+
+// Ürün kârlılığı kolonunun üstündeki uyarı kutusunun tek satırı.
+function UyariSatiri({ baslik, metin, renk }: { baslik: string; metin: string; renk: string }) {
+  return (
+    <div style={{ fontSize: 11.5, lineHeight: 1.5, marginBottom: 4 }}>
+      <span style={{ fontWeight: 700, color: renk }}>{baslik}:</span>{" "}
+      <span style={{ color: "var(--ink)" }}>{metin}</span>
+    </div>
+  );
 }
 
 function Etiket({ children, renk, solda }: { children: React.ReactNode; renk: string; solda?: boolean }) {

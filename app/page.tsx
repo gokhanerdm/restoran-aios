@@ -52,12 +52,8 @@ export default function KasaPage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Kasa hareketi (nakit giriş/çıkış) — eski Kasa ekranının kendine has özelliği
-  const [addingCm, setAddingCm] = useState(false);
-  const [cmType, setCmType] = useState<"cikis" | "giris">("cikis");
-  const [cmAmount, setCmAmount] = useState("");
-  const [cmNote, setCmNote] = useState("");
-  const [cmMsg, setCmMsg] = useState<string | null>(null);
+  // Nakit giriş/çıkış artık burada değil, Kasa sayfasında (/kasa) — bu ekran
+  // yalnızca servis tarafı: salon, masa, açık adisyon, hesap alma (Gökhan kararı, 2026-07-27).
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 860px)");
@@ -200,16 +196,6 @@ export default function KasaPage() {
     setSelectedTableId(target.id);
   };
 
-  const addCashMove = async () => {
-    if (!restaurantId) return;
-    const amount = parseFloat(cmAmount.replace(",", ".")) || 0;
-    if (amount <= 0) return;
-    const { error } = await supabase.from("cash_movements").insert({ restaurant_id: restaurantId, movement_type: cmType, amount, note: cmNote || null });
-    if (error) { setCmMsg(error.message); return; }
-    setCmMsg(`${cmType === "cikis" ? "Çıkış" : "Giriş"} kaydedildi: ${money(amount)}`);
-    setCmAmount(""); setCmNote(""); setAddingCm(false);
-  };
-
   const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId).sort((x, y) => x.sort_order - y.sort_order);
   const defaultPos = (i: number) => ({ x: (i % COLS) * (BOX_W + GAP) + GAP, y: Math.floor(i / COLS) * (BOX_H + GAP) + GAP });
   // Konumu elle sürüklenmiş masalar (position_x/y dolu) sabit kalır. Konumu olmayanlar (yeni eklenenler)
@@ -240,25 +226,9 @@ export default function KasaPage() {
       {confirmDialog}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 20, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Kasa</div>
+          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Adisyon</div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{doluSayisi} masa dolu · {money(acikToplam)} açık hesap</div>
         </div>
-        {!addingCm ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {cmMsg && <span style={{ fontSize: 12.5, color: "var(--brand)" }}>{cmMsg}</span>}
-            <button onClick={() => { setAddingCm(true); setCmMsg(null); }} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, fontWeight: 600 }}>Kasa hareketi</button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {([["cikis", "Çıkış"], ["giris", "Giriş"]] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setCmType(v)} style={{ border: "none", borderRadius: 980, padding: "6px 12px", fontSize: 12, background: cmType === v ? "var(--ink-green)" : "var(--recede)", color: cmType === v ? "#fff" : "var(--muted)" }}>{l}</button>
-            ))}
-            <input value={cmAmount} onChange={(e) => setCmAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Tutar ₺" inputMode="decimal" autoFocus style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "7px 10px", fontSize: 13, width: 85, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
-            <input value={cmNote} onChange={(e) => setCmNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Açıklama (manav ödemesi)" style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "7px 10px", fontSize: 13, width: 170, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
-            <button onClick={addCashMove} style={{ border: "none", borderRadius: 10, padding: "7px 13px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5 }}>Kaydet</button>
-            <button onClick={() => { setAddingCm(false); setCmAmount(""); setCmNote(""); }} style={{ border: "none", borderRadius: 10, padding: "7px 10px", background: "transparent", color: "var(--muted)", fontSize: 12.5 }}>Vazgeç</button>
-          </div>
-        )}
       </div>
 
       <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: isMobile ? 12 : 22, flex: 1, minHeight: 0 }}>

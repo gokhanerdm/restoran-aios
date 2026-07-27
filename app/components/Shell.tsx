@@ -7,8 +7,8 @@ import { supabase } from "@/lib/supabase/client";
 import {
   Home,
   LayoutGrid,
+  Wallet,
   CalendarDays,
-  LineChart,
   BarChart3,
   Package,
   ClipboardList,
@@ -19,11 +19,14 @@ import {
   LogOut,
 } from "lucide-react";
 
+// Adisyon = servis (salon/masa/açık hesap, hesap alma).
+// Kasa = adisyon kapandıktan sonrası (nakit giriş/çıkış, sayım, gün kapatma).
+// Dönemsel raporların tamamı — satış da kasa da — Raporlar'da (Gökhan kararı, 2026-07-27).
 const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
-  { href: "/", icon: LayoutGrid, label: "Kasa" },
+  { href: "/", icon: LayoutGrid, label: "Adisyon" },
+  { href: "/kasa", icon: Wallet, label: "Kasa" },
   { href: "/rezervasyon", icon: CalendarDays, label: "Rezervasyon" },
-  { href: "/gun-sonu", icon: LineChart, label: "Gün sonu" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
   { href: "/stok", icon: Package, label: "Stok" },
   { href: "/sayim", icon: ClipboardList, label: "Sayım" },
