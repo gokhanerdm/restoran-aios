@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X, ClipboardList } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X, ClipboardList, ShoppingCart } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { useConfirm } from "../components/useConfirm";
 import { toUpperTr, toTitleTr } from "@/lib/text";
@@ -38,10 +38,28 @@ type Supplier = { id: string; name: string; delivery_frequency: string };
 type Group = { id: string; name: string; sort_order: number };
 type Section = { id: string; name: string; items: Item[] };
 
+// Onerilen Sipariş Listesi — canlı öneriler (suggested_purchase_list RPC) + bekleyen talepler
+type SuggestionRow = {
+  ingredient_id: string; ingredient_name: string; unit: string;
+  current_stock: number; par_level: number; avg_daily_usage: number;
+  days_until_delivery: number; suggested_qty: number;
+  supplier_id: string; supplier_name: string;
+  current_unit_cost: number; estimated_cost: number;
+};
+type PendingRequest = {
+  id: string; ingredient_id: string; ingredient_name: string; unit: string;
+  supplier_id: string | null; supplier_name: string | null;
+  suggested_qty: number; status: string;
+};
+
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const num = (n: number) => Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 2 });
 const freqLabel: Record<string, string> = { daily: "Günlük", weekly: "Haftalık", custom: "Özel" };
 const UNGROUPED = "__ungrouped";
+const DAY_LABELS: { iso: number; label: string }[] = [
+  { iso: 1, label: "Pzt" }, { iso: 2, label: "Sal" }, { iso: 3, label: "Çar" }, { iso: 4, label: "Per" },
+  { iso: 5, label: "Cum" }, { iso: 6, label: "Cmt" }, { iso: 7, label: "Paz" },
+];
 
 type Ctx = {
   expanded: Set<string>;
@@ -77,6 +95,7 @@ export default function StokPage() {
   const [showNewSup, setShowNewSup] = useState(false);
   const [nsName, setNsName] = useState("");
   const [nsFreq, setNsFreq] = useState("weekly");
+  const [nsDays, setNsDays] = useState<Set<number>>(new Set());
 
   // Çok kalemli fatura girişi (Fire/Kaçak Radarı Faz 1) — bir faturadaki tüm kalemler tek seferde
   type InvRow = { ingredientId: string; qty: string; price: string };
@@ -87,6 +106,13 @@ export default function StokPage() {
   const [invRows, setInvRows] = useState<InvRow[]>([{ ingredientId: "", qty: "", price: "" }]);
   const [invErr, setInvErr] = useState<string | null>(null);
   const [invBusy, setInvBusy] = useState(false);
+  const [invPurchaseRequestId, setInvPurchaseRequestId] = useState<string | null>(null);
+
+  // Onerilen Sipariş Listesi — canlı öneriler + bekleyen siparişler
+  const [showOrders, setShowOrders] = useState(false);
+  const [suggestions, setSuggestions] = useState<SuggestionRow[] | null>(null);
+  const [suggestionsBusy, setSuggestionsBusy] = useState(false);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
 
   // İhtiyaç listesi (günlük tahmini sipariş) — "hangi ürün satacak bilmiyoruz" sorununu
   // menüdeki tahmini satış payı + reçeteler üzerinden ağırlıklı ortalama ile çözer.
@@ -164,7 +190,7 @@ export default function StokPage() {
   const openInvoice = () => {
     setInvSupplier(""); setInvRef(""); setInvDate(bugunTarih());
     setInvRows([{ ingredientId: "", qty: "", price: "" }]);
-    setInvErr(null); setShowInvoice(true);
+    setInvErr(null); setInvPurchaseRequestId(null); setShowInvoice(true);
   };
 
   const openNeeds = () => {
@@ -216,11 +242,15 @@ export default function StokPage() {
       p_invoice_ref: invRef || null,
       p_purchased_at: invDate ? new Date(invDate + "T12:00:00+03:00").toISOString() : null,
       p_items: kalemler,
+      p_purchase_request_id: invPurchaseRequestId,
     });
     setInvBusy(false);
     if (error) { setInvErr(`Fatura kaydedilemedi: ${error.message}`); return; }
     setShowInvoice(false);
+    const hadRequest = invPurchaseRequestId !== null;
+    setInvPurchaseRequestId(null);
     await load();
+    if (hadRequest) await loadPendingRequests();
   };
 
   const addIngredient = async (groupId: string | null, name: string, unit: string, cat: "gida" | "sarf", par: string, qty: string, price: string) => {
@@ -251,12 +281,21 @@ export default function StokPage() {
     if (data) setExpanded((prev) => new Set(prev).add(data.id));
   };
 
+  const toggleNsDay = (iso: number) => {
+    setNsDays((prev) => { const n = new Set(prev); n.has(iso) ? n.delete(iso) : n.add(iso); return n; });
+  };
+
+  const openNewSupplierForm = () => {
+    setNsName(""); setNsFreq("weekly"); setNsDays(new Set()); setShowNewSup(true);
+  };
+
   const addSupplier = async () => {
     if (!restaurantId || !nsName.trim()) return;
     const { data } = await supabase.from("suppliers").insert({
       restaurant_id: restaurantId, name: toTitleTr(nsName), delivery_frequency: nsFreq,
+      delivery_days: nsFreq === "custom" ? Array.from(nsDays).sort((a, b) => a - b) : null,
     }).select("id").single();
-    setNsName(""); setShowNewSup(false);
+    setNsName(""); setNsFreq("weekly"); setNsDays(new Set()); setShowNewSup(false);
     await load();
     if (data) { setInSupplier(data.id); if (selected) await supabase.from("ingredients").update({ supplier_id: data.id }).eq("id", selected.ingredient_id); await load(); }
   };
@@ -267,6 +306,11 @@ export default function StokPage() {
   };
   const renameIngredient = async (id: string, name: string) => {
     await supabase.from("ingredients").update({ name: toTitleTr(name) }).eq("id", id);
+    await load();
+  };
+  const updateParLevel = async (v: string) => {
+    if (!selected) return;
+    await supabase.from("ingredients").update({ par_level: parseFloat(v.replace(",", ".")) || 0 }).eq("id", selected.ingredient_id);
     await load();
   };
 
@@ -305,6 +349,77 @@ export default function StokPage() {
     setInSupplier(supplierId);
     await supabase.from("ingredients").update({ supplier_id: supplierId || null }).eq("id", selected.ingredient_id);
     await load();
+  };
+
+  // Onerilen Sipariş Listesi — canlı öneriler (hiçbir şey kaydetmez, her çağrıda taze hesaplanır)
+  const loadSuggestions = useCallback(async () => {
+    if (!restaurantId) return;
+    setSuggestionsBusy(true);
+    const { data, error } = await supabase.rpc("suggested_purchase_list", { p_restaurant: restaurantId });
+    setSuggestionsBusy(false);
+    if (error) return;
+    setSuggestions((data as SuggestionRow[]) ?? []);
+  }, [restaurantId]);
+
+  const loadPendingRequests = useCallback(async () => {
+    if (!restaurantId) return;
+    const { data } = await supabase.from("purchase_requests")
+      .select("id, ingredient_id, supplier_id, suggested_qty, status, ingredients(name, unit), suppliers(name)")
+      .eq("restaurant_id", restaurantId)
+      .in("status", ["onaylandi", "siparis_verildi"])
+      .order("created_at", { ascending: false });
+    type Row = {
+      id: string; ingredient_id: string; supplier_id: string | null; suggested_qty: number; status: string;
+      ingredients: { name: string; unit: string } | null; suppliers: { name: string } | null;
+    };
+    const rows = ((data as Row[] | null) ?? []).map((r) => ({
+      id: r.id, ingredient_id: r.ingredient_id,
+      ingredient_name: r.ingredients?.name ?? "—", unit: r.ingredients?.unit ?? "",
+      supplier_id: r.supplier_id, supplier_name: r.suppliers?.name ?? "—",
+      suggested_qty: r.suggested_qty, status: r.status,
+    }));
+    setPendingRequests(rows);
+  }, [restaurantId]);
+
+  const openOrders = () => {
+    setShowOrders(true);
+    loadSuggestions();
+    loadPendingRequests();
+  };
+
+  const approveSuggestion = async (row: SuggestionRow) => {
+    if (!restaurantId) return;
+    await supabase.rpc("approve_purchase_request", {
+      p_restaurant: restaurantId, p_ingredient_id: row.ingredient_id, p_supplier_id: row.supplier_id,
+      p_quantity: row.suggested_qty, p_days: row.days_until_delivery, p_staff_id: null,
+    });
+    await Promise.all([loadSuggestions(), loadPendingRequests()]);
+  };
+
+  const rejectSuggestion = async (row: SuggestionRow) => {
+    if (!restaurantId) return;
+    await supabase.from("purchase_requests").insert({
+      restaurant_id: restaurantId, ingredient_id: row.ingredient_id, supplier_id: row.supplier_id,
+      suggested_qty: row.suggested_qty, target_days: row.days_until_delivery,
+      reason: "elle reddedildi", status: "reddedildi",
+    });
+    await loadSuggestions();
+  };
+
+  const markOrdered = async (id: string) => {
+    await supabase.from("purchase_requests").update({ status: "siparis_verildi" }).eq("id", id);
+    await loadPendingRequests();
+  };
+
+  const openInvoiceForRequest = (row: PendingRequest) => {
+    setInvPurchaseRequestId(row.id);
+    setInvSupplier(row.supplier_id ?? "");
+    setInvRef("");
+    setInvDate(bugunTarih());
+    setInvRows([{ ingredientId: row.ingredient_id, qty: String(row.suggested_qty), price: "" }]);
+    setInvErr(null);
+    setShowOrders(false);
+    setShowInvoice(true);
   };
 
   const ungrouped = filtered.filter((i) => !i.stock_group_id).sort((a, b) => a.sort_order - b.sort_order);
@@ -355,6 +470,9 @@ export default function StokPage() {
         </div>
         <button onClick={openNeeds} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 18px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, fontWeight: 500 }}>
           <ClipboardList size={15} /> İhtiyaç listesi
+        </button>
+        <button onClick={openOrders} style={{ marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 18px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, fontWeight: 500 }}>
+          <ShoppingCart size={15} /> Sipariş Listesi
         </button>
         <button onClick={openInvoice} style={{ marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 980, padding: "9px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500 }}>
           <ReceiptText size={15} /> Fatura gir
@@ -435,9 +553,11 @@ export default function StokPage() {
                   <span style={{ color: "var(--muted)" }}>Mevcut stok</span>
                   <span className="tnum" style={{ fontWeight: 600 }}>{num(selected.current_stock)} {selected.unit}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
                   <span style={{ color: "var(--muted)" }}>Kritik seviye</span>
-                  <span className="tnum" style={{ fontWeight: 600 }}>{num(selected.par_level)} {selected.unit}</span>
+                  <span className="tnum" style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                    <EditableText value={String(selected.par_level)} onSave={updateParLevel} inputWidth={60} style={{ fontWeight: 600, textAlign: "right" }} /> {selected.unit}
+                  </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
                   <span style={{ color: "var(--muted)" }}>Günlük ort. tüketim</span>
@@ -452,7 +572,7 @@ export default function StokPage() {
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Tedarikçi</div>
                 {!showNewSup ? (
-                  <select value={inSupplier} onChange={(e) => e.target.value === "__new" ? setShowNewSup(true) : saveSupplierLink(e.target.value)} style={{ ...inp, width: "100%" }}>
+                  <select value={inSupplier} onChange={(e) => e.target.value === "__new" ? openNewSupplierForm() : saveSupplierLink(e.target.value)} style={{ ...inp, width: "100%" }}>
                     <option value="">Tedarikçi seç</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} ({freqLabel[s.delivery_frequency]})</option>)}
                     <option value="__new">+ Yeni tedarikçi</option>
@@ -464,6 +584,21 @@ export default function StokPage() {
                       <option value="daily">Günlük</option><option value="weekly">Haftalık</option><option value="custom">Özel</option>
                     </select>
                     <button onClick={addSupplier} style={btnSmall}>Ekle</button>
+                    {nsFreq === "custom" && (
+                      <div style={{ display: "flex", gap: 4, width: "100%" }}>
+                        {DAY_LABELS.map((d) => {
+                          const active = nsDays.has(d.iso);
+                          return (
+                            <button key={d.iso} onClick={() => toggleNsDay(d.iso)} style={{
+                              flex: 1, border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 0", fontSize: 11.5,
+                              background: active ? "var(--ink-green)" : "var(--card)", color: active ? "#fff" : "var(--muted)",
+                            }}>
+                              {d.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -588,6 +723,93 @@ export default function StokPage() {
                   <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10, fontSize: 13.5 }}>
                     Toplam tahmini maliyet: <b className="tnum" style={{ marginLeft: 6, color: "var(--ink-green)" }}>{money(needsResults.reduce((s, r) => s + r.estimated_cost, 0))}</b>
                   </div>
+                </>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ONERİLEN SİPARİŞ LİSTESİ — canlı öneriler (suggested_purchase_list) + bekleyen siparişler */}
+      {showOrders && (
+        <>
+          <div onClick={() => setShowOrders(false)} style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", zIndex: 40 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 50, width: "min(920px, 96vw)", maxHeight: "88vh", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, boxShadow: "0 18px 50px rgba(30,57,50,.18)", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
+              <div style={{ fontSize: 17, fontWeight: 600, color: "var(--ink-green)" }}>Sipariş listesi</div>
+              <button onClick={() => setShowOrders(false)} aria-label="kapat" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "inline-flex" }}><X size={18} /></button>
+            </div>
+
+            <div style={{ padding: "14px 20px", overflowY: "auto", minHeight: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>Canlı öneriler</div>
+                <button onClick={loadSuggestions} disabled={suggestionsBusy} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)" }}>
+                  {suggestionsBusy ? "Yükleniyor…" : "Yenile"}
+                </button>
+              </div>
+
+              {suggestions === null && <div style={{ fontSize: 13, color: "var(--muted-2)", padding: "8px 0 16px" }}>Yükleniyor…</div>}
+              {suggestions && suggestions.length === 0 && (
+                <div style={{ fontSize: 13, color: "var(--muted-2)", padding: "8px 0 16px" }}>Şu an kritik seviyenin altında, tedarikçisi olan malzeme yok.</div>
+              )}
+              {suggestions && suggestions.length > 0 && (
+                <>
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--muted-2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                    <span style={{ flex: 1.4 }}>Malzeme</span>
+                    <span style={{ width: 70, textAlign: "right" }}>Stok</span>
+                    <span style={{ width: 70, textAlign: "right" }}>Kritik</span>
+                    <span style={{ width: 90, textAlign: "right" }}>Öner. miktar</span>
+                    <span style={{ width: 90 }}>Teslimat</span>
+                    <span style={{ flex: 1 }}>Tedarikçi</span>
+                    <span style={{ width: 80, textAlign: "right" }}>Tutar</span>
+                    <span style={{ width: 150 }} />
+                  </div>
+                  {suggestions.map((r) => (
+                    <div key={r.ingredient_id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                      <span style={{ flex: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.ingredient_name}</span>
+                      <span className="tnum" style={{ width: 70, textAlign: "right", color: "var(--muted)" }}>{num(r.current_stock)}</span>
+                      <span className="tnum" style={{ width: 70, textAlign: "right", color: "var(--muted)" }}>{num(r.par_level)}</span>
+                      <span className="tnum" style={{ width: 90, textAlign: "right", fontWeight: 600 }}>{num(r.suggested_qty)} {r.unit}</span>
+                      <span style={{ width: 90, fontSize: 12, color: "var(--muted)" }}>{r.days_until_delivery} gün sonra</span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }}>{r.supplier_name}</span>
+                      <span className="tnum" style={{ width: 80, textAlign: "right" }}>{money(r.estimated_cost)}</span>
+                      <span style={{ width: 150, display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button onClick={() => approveSuggestion(r)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Onayla</button>
+                        <button onClick={() => rejectSuggestion(r)} style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "6px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12 }}>Reddet</button>
+                      </span>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", margin: "22px 0 8px" }}>Bekleyen siparişler</div>
+              {pendingRequests.length === 0 && (
+                <div style={{ fontSize: 13, color: "var(--muted-2)", padding: "8px 0" }}>Bekleyen sipariş yok.</div>
+              )}
+              {pendingRequests.length > 0 && (
+                <>
+                  <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--muted-2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
+                    <span style={{ flex: 1.4 }}>Malzeme</span>
+                    <span style={{ flex: 1 }}>Tedarikçi</span>
+                    <span style={{ width: 90, textAlign: "right" }}>Miktar</span>
+                    <span style={{ width: 110 }}>Durum</span>
+                    <span style={{ width: 110 }} />
+                  </div>
+                  {pendingRequests.map((r) => (
+                    <div key={r.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                      <span style={{ flex: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.ingredient_name}</span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }}>{r.supplier_name}</span>
+                      <span className="tnum" style={{ width: 90, textAlign: "right" }}>{num(r.suggested_qty)} {r.unit}</span>
+                      <span style={{ width: 110, fontSize: 12, color: "var(--muted)" }}>{r.status === "onaylandi" ? "Onaylandı" : "Sipariş verildi"}</span>
+                      <span style={{ width: 110, display: "flex", justifyContent: "flex-end" }}>
+                        {r.status === "onaylandi" ? (
+                          <button onClick={() => markOrdered(r.id)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Sipariş Ver</button>
+                        ) : (
+                          <button onClick={() => openInvoiceForRequest(r)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Fatura Gir</button>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </>
               )}
             </div>

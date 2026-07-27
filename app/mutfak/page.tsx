@@ -87,7 +87,7 @@ function MutfakInner() {
       const list: Card[] = [];
       ((orders as unknown as OrderRow[]) ?? []).forEach((o) => {
         o.order_items.forEach((oi) => {
-          if (oi.status !== "active" || !oi.sent_at || oi.served_at) return;
+          if (!(oi.status === "active" || oi.status === "ikram") || !oi.sent_at || oi.served_at) return;
           const info = itemInfo.get(oi.menu_item_id);
           list.push({
             id: oi.id, tableId: o.table_id, name: info?.name ?? "?", quantity: oi.quantity,
@@ -116,6 +116,13 @@ function MutfakInner() {
   }, [load]);
 
   const setStage = async (id: string, field: "preparing_at" | "ready_at" | "served_at") => {
+    // "Hazır" artık dogrudan update degil — stok dusumunu de atomik yapan RPC'ye baglandi.
+    if (field === "ready_at") {
+      const staff = getStaffSession();
+      await supabase.rpc("mark_item_ready", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      await load();
+      return;
+    }
     const patch: Record<string, string> = { [field]: new Date().toISOString() };
     // Kim hazırlamaya başladıysa (ilk gerçek aksiyon) profil/özet sayfası için etiketlenir.
     if (field === "preparing_at") {

@@ -13,6 +13,7 @@ type Settings = {
   default_fixed_cost_share_percent: number;
   role_visibility: RoleVisibility;
   staff_comparison_enabled: boolean;
+  purchase_approval_roles: string[];
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -22,7 +23,18 @@ const DEFAULT_SETTINGS: Settings = {
   default_fixed_cost_share_percent: 0,
   role_visibility: {},
   staff_comparison_enabled: false,
+  purchase_approval_roles: ["yonetici"],
 };
+
+// app/personel/page.tsx'teki ROLES ile aynı liste/etiketler — satın alma onay rolü seçimi için.
+const PURCHASE_ROLES: { v: string; l: string }[] = [
+  { v: "garson", l: "Garson" },
+  { v: "mutfak", l: "Mutfak" },
+  { v: "bar", l: "Bar" },
+  { v: "kasa", l: "Kasa" },
+  { v: "sef", l: "Şef" },
+  { v: "yonetici", l: "Yönetici" },
+];
 
 // --- İşletme bilgileri / çalışma saatleri / arka plan (20260727100300_restaurant_info.sql) ---
 type RestaurantInfo = { name: string; address: string; phone: string; tax_office: string; tax_number: string };
@@ -100,7 +112,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
     if (s) setSettings(s as Settings);
@@ -200,6 +212,15 @@ export default function Ayarlar() {
     }));
   };
 
+  const togglePurchaseApprovalRole = (role: string) => {
+    setSettings((s) => ({
+      ...s,
+      purchase_approval_roles: s.purchase_approval_roles.includes(role)
+        ? s.purchase_approval_roles.filter((r) => r !== role)
+        : [...s.purchase_approval_roles, role],
+    }));
+  };
+
   const flatCats = flatten(categories);
 
   return (
@@ -240,6 +261,15 @@ export default function Ayarlar() {
               <input type="checkbox" checked={settings.staff_comparison_enabled} onChange={() => setSettings((s) => ({ ...s, staff_comparison_enabled: !s.staff_comparison_enabled }))} /> Garsonlar birbirinin satış yüzdesini görsün
             </label>
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8 }}>Kapalıyken herkes sadece kendi profilindeki rakamları görür, kimse başkasıyla kıyaslanmaz.</div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Satın Alma Onayı</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 8 }}>Hangi roller Stok sayfasındaki sipariş önerisini onaylayabilir.</div>
+            {PURCHASE_ROLES.map((r) => (
+              <label key={r.v} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={settings.purchase_approval_roles.includes(r.v)} onChange={() => togglePurchaseApprovalRole(r.v)} /> {r.l}
+              </label>
+            ))}
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>Şu an bu, Stok sayfasına erişebilen herkes için geçerli — personel PIN girişine bağlı değil, ileride oraya taşınabilir.</div>
 
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 14, lineHeight: 1.6 }}>
               Restoran bilgisi, masa &amp; salon düzeni (Salonlar sayfasında) ve sabit giderlerin tam dökümü ileride buraya eklenecek.
