@@ -7,11 +7,14 @@ import { supabase } from "@/lib/supabase/client";
 import {
   Home,
   LayoutGrid,
+  CalendarDays,
   LineChart,
   BarChart3,
   Package,
+  ClipboardList,
   BookOpen,
   Users,
+  Clock,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -19,11 +22,14 @@ import {
 const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
   { href: "/", icon: LayoutGrid, label: "Kasa" },
+  { href: "/rezervasyon", icon: CalendarDays, label: "Rezervasyon" },
   { href: "/gun-sonu", icon: LineChart, label: "Gün sonu" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
   { href: "/stok", icon: Package, label: "Stok" },
+  { href: "/sayim", icon: ClipboardList, label: "Sayım" },
   { href: "/menu", icon: BookOpen, label: "Menü" },
   { href: "/personel", icon: Users, label: "Personel" },
+  { href: "/vardiya", icon: Clock, label: "Vardiya" },
   { href: "/ayarlar", icon: Settings, label: "Ayarlar" },
 ];
 
@@ -75,6 +81,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           position: "sticky",
           top: 0,
           height: "100vh",
+          // 11 sayfaya çıkınca kısa ekranlarda (768px yükseklik) son sekmeler taşıyordu.
+          // Uzun ekranda görünüm aynı; sadece sığmadığında ray kendi içinde kayar.
+          overflowY: "auto",
         }}
       >
         <div
@@ -107,6 +116,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               style={{
                 width: 59,
                 height: 59,
+                flexShrink: 0, // ray kayabilir hale geldi; sekmeler sıkışıp ezilmesin
                 borderRadius: 16,
                 display: "flex",
                 flexDirection: "column",
