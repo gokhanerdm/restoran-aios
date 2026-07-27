@@ -578,7 +578,10 @@ export default function TableOrderPanel({
       // overflowY burada "auto" değil "hidden" — sayfanın tamamı değil, sadece ürün listesi
       // (aşağıda flex:1+overflowY:auto+minHeight:0 üçlüsüyle) kendi içinde kayar (bkz. PAGE_STANDARDS #1).
       ? { width: "100%", boxSizing: "border-box", background: "var(--card)", borderRadius: "20px 20px 0 0", padding: "10px 20px 22px", display: "flex", flexDirection: "column", maxHeight: "min(88vh, 720px)", overflowY: "hidden", overflowX: "hidden", touchAction: "pan-y", overscrollBehavior: "contain" }
-      : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 460 };
+      // minHeight:0 — eskiden 460'tı; sabit bir taban yükseklik, satırdan uzun olduğunda
+      // paneli taşırıp sayfayı kaydırıyordu. Panel zaten flex:1 ile satır yüksekliğine
+      // oturuyor, tabana ihtiyaç yok.
+      : { flex: 1, minWidth: 280, maxWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 22, display: "flex", flexDirection: "column", minHeight: 0 };
 
   // Menü, tam ekran/yan panel ayrı bir katman — sipariş listesi ne kadar uzarsa uzasın menü hep
   // temiz açılsın diye. Mobilde ("sheet") her şeyin üstüne tam sayfa açılır; masaüstünde ("sidebar")

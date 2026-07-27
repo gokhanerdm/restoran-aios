@@ -221,8 +221,10 @@ export default function KasaPage() {
   const doluSayisi = tables.filter((t) => t.status !== "empty" && !t.merged_into_table_id).length;
   const acikToplam = tables.reduce((s, t) => s + orderTotal(orderForTable(t.id)), 0);
 
+  // overflow:hidden — sayfanın kendisi asla kaymaz; kat planı ve adisyon paneli
+  // kendi içlerinde kayar (PAGE_STANDARDS #1, Ana Sayfa'daki desenin aynısı).
   return (
-    <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden" }}>
       {confirmDialog}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 20, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
@@ -347,9 +349,13 @@ export default function KasaPage() {
           {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginTop: 8, flexShrink: 0 }}>{err}</div>}
         </div>
 
-        {/* sipariş paneli — masaüstünde sabit sütun */}
+        {/* sipariş paneli — masaüstünde sabit sütun.
+            display:flex + minHeight:0 şart: bu sarmalayıcı flex kabı olmazsa panelin
+            kendi flex:1'i işlemez, panel içerik kadar uzar ve sayfayı taşırır (adisyona
+            ürün eklendikçe tüm ekran kayıyordu). Böyle olunca panel satır yüksekliğine
+            oturur, taşan kısmı kendi iç listesi kaydırır. */}
         {!isMobile && (
-          <div style={{ flexShrink: 0 }}>
+          <div style={{ flexShrink: 0, display: "flex", minHeight: 0 }}>
             <TableOrderPanel
               restaurantId={restaurantId}
               table={selectedTable ? { id: selectedTable.id, name: selectedTable.name, status: selectedTable.status } : null}
