@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useStaffSession } from "./StaffLoginGate";
+import { useConfirm } from "./useConfirm";
 
 type OrderItem = {
   id: string;
@@ -20,8 +21,12 @@ type OrderItem = {
   served_at: string | null;
 };
 type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
-type Payment = { id: string; amount: number; method: string };
+type Payment = { id: string; amount: number; method: string; tip_amount: number };
 type Discount = { id: string; order_item_id: string | null; amount: number; percent: number | null; reason: string | null };
+// "Ayrık hesap": hesabı bölünce aynı masada açılan ikinci adisyon. table_id'si NULL'dur
+// (bir masada tek açık sipariş kuralını bozmamak için), masaya bağı split_from_table_id'dir.
+type SplitBillItem = { id: string; quantity: number; unit_price: number; status: string; menu_items: { name: string } | null };
+type SplitBill = { id: string; order_items: SplitBillItem[]; order_payments: Payment[] };
 
 const PAY_METHODS = [
   { v: "nakit", l: "Nakit" },
@@ -85,7 +90,21 @@ export default function TableOrderPanel({
   // Ödeme türüne basınca direkt kapatmak yerine kısa bir onay adımı — yanlış dokunuşla
   // hesabın geri dönüşsüz kapanmasını engellemek için.
   const [confirmPayment, setConfirmPayment] = useState<{ method: string; amount: number; remaining: number } | null>(null);
+  // Bahşiş ödemeyle birlikte alınır ama CİROYA GİRMEZ — order_payments.tip_amount'a ayrı yazılır,
+  // orders.total_amount'a hiç dokunmaz (close_order onu kalemlerden hesaplıyor).
+  const [tipAmount, setTipAmount] = useState("");
   const [discounts, setDiscounts] = useState<Discount[]>([]);
+  // --- Hesap bölme (split bill) ---
+  const [splitMode, setSplitMode] = useState(false);
+  const [splitSel, setSplitSel] = useState<Set<string>>(new Set());
+  // "same" = aynı masada ikinci hesap, aksi halde hedef masanın id'si
+  const [splitTarget, setSplitTarget] = useState<string>("same");
+  const [emptyTables, setEmptyTables] = useState<TableForOrder[]>([]);
+  const [splitBills, setSplitBills] = useState<SplitBill[]>([]);
+  const [splitPayFor, setSplitPayFor] = useState<string | null>(null);
+  const [splitPayAmount, setSplitPayAmount] = useState("");
+  const [splitPayTip, setSplitPayTip] = useState("");
+  const { confirm, dialog } = useConfirm();
   // İndirim formu: hangi kaleme (null = adisyon geneli), girilen değer, tür (TL/%), sebep
   const [discountFor, setDiscountFor] = useState<{ itemId: string | null; itemName: string } | null>(null);
   const [dcValue, setDcValue] = useState("");
@@ -137,7 +156,7 @@ export default function TableOrderPanel({
     setOrder(o);
     if (o) {
       const [{ data: p }, { data: d }] = await Promise.all([
-        supabase.from("order_payments").select("id, amount, method").eq("order_id", o.id).order("paid_at"),
+        supabase.from("order_payments").select("id, amount, method, tip_amount").eq("order_id", o.id).order("paid_at"),
         supabase.from("order_discounts").select("id, order_item_id, amount, percent, reason").eq("order_id", o.id).order("created_at"),
       ]);
       setPayments((p as Payment[]) ?? []);
@@ -156,6 +175,34 @@ export default function TableOrderPanel({
     const id = setInterval(loadOrder, 5000);
     return () => clearInterval(id);
   }, [table, loadOrder]);
+
+  // Bu masaya ait "ayrık hesaplar" (hesabı bölünce açılan, table_id'si NULL olan ikinci
+  // adisyonlar). Masanın kendi siparişini çeken loadOrder bunları göremez (görmemeli de —
+  // .maybeSingle() ile tek satır bekliyor), o yüzden ayrı bir sorgu.
+  const loadSplitBills = useCallback(async () => {
+    if (!table) { setSplitBills([]); return; }
+    const { data } = await supabase
+      .from("orders")
+      .select("id, order_items(id, quantity, unit_price, status, menu_items(name)), order_payments(id, amount, method, tip_amount)")
+      .eq("split_from_table_id", table.id)
+      .is("table_id", null)
+      .eq("status", "open")
+      .order("opened_at");
+    setSplitBills((data as unknown as SplitBill[]) ?? []);
+  }, [table?.id]);
+
+  useEffect(() => {
+    loadSplitBills();
+    if (!table) return;
+    const id = setInterval(loadSplitBills, 5000);
+    return () => clearInterval(id);
+  }, [table, loadSplitBills]);
+
+  // Masa değişince bölme ekranı kapalı başlasın — önceki masanın seçimi taşınmasın.
+  useEffect(() => {
+    setSplitMode(false); setSplitSel(new Set()); setSplitTarget("same");
+    setSplitPayFor(null); setSplitPayAmount(""); setSplitPayTip(""); setTipAmount("");
+  }, [table?.id]);
 
   const grossTotal = (o: Order | null) =>
     o ? o.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0) : 0;
@@ -366,15 +413,96 @@ export default function TableOrderPanel({
     const typed = parseFloat(payAmount.replace(",", ".")) || remaining;
     const amount = Math.min(typed, remaining);
     if (amount <= 0) return;
+    // Bahşiş kalanı azaltmaz — ayrı kolonda durur, hesabın kapanıp kapanmayacağını etkilemez.
+    const tip = Math.max(0, parseFloat(tipAmount.replace(",", ".")) || 0);
     setBusy(true);
-    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: order.id, amount, method });
-    const { data: p } = await supabase.from("order_payments").select("id, amount, method").eq("order_id", order.id).order("paid_at");
+    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: order.id, amount, method, tip_amount: tip });
+    const { data: p } = await supabase.from("order_payments").select("id, amount, method, tip_amount").eq("order_id", order.id).order("paid_at");
     const list = (p as Payment[]) ?? [];
     setPayments(list);
     setPayAmount("");
+    setTipAmount("");
     setBusy(false);
     const paidNow = list.reduce((s, x) => s + Number(x.amount), 0);
     if (paidNow >= orderTotal(order) - 0.001) await closeBill();
+  };
+
+  // --- Hesap bölme ---
+  const splitBillTotal = (b: SplitBill) =>
+    b.order_items.filter((i) => i.status === "active").reduce((s, i) => s + i.quantity * i.unit_price, 0);
+  const splitBillPaid = (b: SplitBill) => b.order_payments.reduce((s, p) => s + Number(p.amount), 0);
+
+  const openSplit = async () => {
+    if (!restaurantId || !table) return;
+    setSplitSel(new Set()); setSplitTarget("same"); setSplitMode(true);
+    // Ayırma hedefi olarak sadece boş masalar teklif edilir — dolu masaya ayırmak,
+    // bir masada tek açık sipariş kuralına takılır (RPC de zaten reddeder).
+    const { data } = await supabase
+      .from("restaurant_tables")
+      .select("id, name, status")
+      .eq("restaurant_id", restaurantId).is("deleted_at", null)
+      .eq("status", "empty").neq("id", table.id)
+      .order("sort_order");
+    setEmptyTables((data as TableForOrder[]) ?? []);
+  };
+
+  const toggleSplitSel = (id: string) => {
+    setSplitSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+
+  const doSplit = async () => {
+    if (!order || splitSel.size === 0) return;
+    const targetName = emptyTables.find((t) => t.id === splitTarget)?.name ?? "";
+    const where = splitTarget === "same" ? "aynı masada ikinci bir hesaba" : `"${targetName}" masasına`;
+    const ok = await confirm(`Seçilen ${splitSel.size} kalem ${where} ayrılsın mı?`);
+    if (!ok) return;
+    setBusy(true); setErr(null);
+    const { error } = await supabase.rpc("split_order", {
+      p_order_id: order.id,
+      p_item_ids: Array.from(splitSel),
+      p_new_table_id: splitTarget === "same" ? null : splitTarget,
+    });
+    if (error) { setErr(error.message); setBusy(false); return; }
+    setSplitMode(false); setSplitSel(new Set()); setSplitTarget("same");
+    await loadOrder(); await loadSplitBills(); onChanged();
+    setBusy(false);
+  };
+
+  // Yanlışlıkla ayrılan hesabı geri al — kalemler kaynak adisyona döner. Ödeme alınmışsa
+  // geri alınamaz (para hareketi olmuş bir hesabı sessizce dağıtmak doğru olmaz).
+  const undoSplit = async (b: SplitBill) => {
+    if (!order || b.order_payments.length > 0) return;
+    const ok = await confirm("Ayrılan hesap geri alınsın mı? Kalemler tekrar bu adisyona döner.");
+    if (!ok) return;
+    setBusy(true); setErr(null);
+    await supabase.from("order_items").update({ order_id: order.id }).eq("order_id", b.id);
+    await supabase.from("order_discounts").update({ order_id: order.id }).eq("order_id", b.id);
+    // 'transferred' = ne iptal ne kayıp, kalemleri başka siparişe taşınmış (masa taşımadaki desen).
+    await supabase.from("orders").update({ status: "transferred", closed_at: new Date().toISOString() }).eq("id", b.id);
+    await loadOrder(); await loadSplitBills(); onChanged();
+    setBusy(false);
+  };
+
+  const paySplitBill = async (b: SplitBill, method: string) => {
+    if (!restaurantId) return;
+    const remaining = Math.max(0, splitBillTotal(b) - splitBillPaid(b));
+    const typed = parseFloat(splitPayAmount.replace(",", ".")) || remaining;
+    const amount = Math.min(typed, remaining);
+    const tip = Math.max(0, parseFloat(splitPayTip.replace(",", ".")) || 0);
+    if (amount <= 0) return;
+    const closes = amount >= remaining - 0.001;
+    const ok = await confirm(
+      `${money(amount)}${tip > 0 ? ` + ${money(tip)} bahşiş` : ""} · ${payLabel(method)} ile ayrılan hesabı ${closes ? "kapatmak" : "kısmi ödemek"} istiyor musunuz?`
+    );
+    if (!ok) return;
+    setBusy(true); setErr(null);
+    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: b.id, amount, method, tip_amount: tip });
+    // Ayrık hesabın table_id'si NULL olduğu için close_order masa durumuna dokunmaz —
+    // masa, asıl adisyonu kapanana kadar dolu kalır. İstediğimiz de bu.
+    if (closes) await supabase.rpc("close_order", { p_order_id: b.id, p_staff_id: staffSession?.id ?? null });
+    setSplitPayFor(null); setSplitPayAmount(""); setSplitPayTip("");
+    await loadSplitBills(); onChanged();
+    setBusy(false);
   };
 
   const cfgBase = config ? (chosenVariant ? (cfgVariants.find((v) => v.id === chosenVariant)?.sale_price ?? config.sale_price) : config.sale_price) : 0;
@@ -448,7 +576,35 @@ export default function TableOrderPanel({
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0, touchAction: "pan-y" }}>
-            {(() => {
+            {/* Hesap bölme açıkken aynı liste seçim kutularıyla gösterilir — normal adisyon
+                satırları (adet/ikram butonlarıyla) olduğu gibi kalır, sadece gizlenir. */}
+            {splitMode ? (() => {
+              const selectable = order.order_items.filter((i) => i.status === "active");
+              return (
+                <>
+                  {selectable.map((i) => {
+                    const on = splitSel.has(i.id);
+                    return (
+                      <button key={i.id} onClick={() => toggleSplitSel(i.id)} style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%", boxSizing: "border-box",
+                        padding: "9px 2px", border: "none", borderBottom: "1px solid var(--line)", background: "transparent",
+                        font: "inherit", color: "inherit", fontSize: 14, textAlign: "left", cursor: "pointer",
+                      }}>
+                        <span style={{
+                          width: 19, height: 19, flexShrink: 0, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 12, lineHeight: 1, color: "#fff",
+                          border: on ? "none" : "1.5px solid var(--line-2)", background: on ? "var(--brand-strong)" : "transparent",
+                        }}>{on ? "✓" : ""}</span>
+                        <span className="tnum" style={{ flexShrink: 0, minWidth: 20, color: "var(--muted)" }}>{i.quantity}×</span>
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.menu_items?.name ?? "?"}</span>
+                        <span className="tnum" style={{ flexShrink: 0 }}>{money(i.quantity * i.unit_price)}</span>
+                      </button>
+                    );
+                  })}
+                  {selectable.length === 0 && <div style={{ color: "var(--muted)", fontSize: 14, padding: "9px 0" }}>Ayrılacak ürün yok</div>}
+                </>
+              );
+            })() : (() => {
               const visible = order.order_items.filter((i) => i.status === "active" || i.status === "ikram");
               // Zaten gönderilmiş (mutfak/bar biliyor) ile henüz gönderilmemiş yeni eklenenler ayrı
               // gösterilir — "Gönder"e basınca sanki tüm adisyon gidiyormuş hissi vermesin diye.
@@ -506,6 +662,84 @@ export default function TableOrderPanel({
               onClick={() => { setDiscountFor({ itemId: null, itemName: "adisyon" }); setDcValue(""); setDcIsPercent(false); setDcReason(""); }}
               style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)", marginBottom: 8, flexShrink: 0 }}
             >+ Adisyona indirim</button>
+          )}
+
+          {!payStep && !discountFor && !splitMode && order.order_items.some((i) => i.status === "active") && (
+            <button
+              onClick={openSplit}
+              style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)", marginBottom: 8, flexShrink: 0 }}
+            >⇄ Hesabı böl</button>
+          )}
+
+          {splitMode && (
+            <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 12, marginBottom: 10, flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 2 }}>Hesabı böl</div>
+              <div className="tnum" style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10 }}>
+                {splitSel.size} kalem seçili · {money(order.order_items.filter((i) => splitSel.has(i.id)).reduce((s, i) => s + i.quantity * i.unit_price, 0))}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Nereye ayrılsın?</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                <button onClick={() => setSplitTarget("same")} style={chip(splitTarget === "same")}>Aynı masada 2. hesap</button>
+                {emptyTables.map((t) => (
+                  <button key={t.id} onClick={() => setSplitTarget(t.id)} style={chip(splitTarget === t.id)}>{t.name}</button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={doSplit} disabled={busy || splitSel.size === 0}
+                  style={{ ...pillPrimary, flex: 1, padding: 10, fontSize: 13.5, opacity: splitSel.size === 0 ? 0.45 : 1 }}>Seçilenleri ayır</button>
+                <button onClick={() => { setSplitMode(false); setSplitSel(new Set()); }}
+                  style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13.5 }}>Vazgeç</button>
+              </div>
+            </div>
+          )}
+
+          {/* Aynı masada ayrılmış hesaplar — kendi toplamı, kendi ödemesiyle burada durur.
+              Masa gridinde görünmezler (table_id NULL), tek yerden yönetilsinler diye. */}
+          {splitBills.length > 0 && (
+            <div style={{ flexShrink: 0, marginBottom: 8, paddingTop: 8, borderTop: "1px solid var(--line)" }}>
+              {splitBills.map((b, idx) => {
+                const total = splitBillTotal(b);
+                const paid = splitBillPaid(b);
+                const remaining = Math.max(0, total - paid);
+                const items = b.order_items.filter((i) => i.status === "active");
+                const open = splitPayFor === b.id;
+                return (
+                  <div key={b.id} style={{ borderBottom: "1px solid var(--line)", padding: "6px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink-green)", fontWeight: 600 }}>
+                        Ayrılan hesap {idx + 1}
+                      </span>
+                      <span className="tnum" style={{ flexShrink: 0, fontWeight: 600 }}>{money(remaining)}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11.5, color: "var(--muted-2)" }}>
+                        {items.map((i) => `${i.quantity}× ${i.menu_items?.name ?? "?"}`).join(", ") || "ürün yok"}
+                      </span>
+                      {b.order_payments.length === 0 && (
+                        <button onClick={() => undoSplit(b)} disabled={busy} title="Geri al" style={miniAction}>Geri al</button>
+                      )}
+                      <button
+                        onClick={() => { setSplitPayFor(open ? null : b.id); setSplitPayAmount(String(Math.round(remaining * 100) / 100)); setSplitPayTip(""); }}
+                        disabled={busy || remaining <= 0}
+                        style={{ ...miniAction, background: open ? "var(--line-2)" : "var(--recede)" }}
+                      >{open ? "Kapat" : "Öde"}</button>
+                    </div>
+                    {open && (
+                      <div style={{ marginTop: 8 }}>
+                        <input value={splitPayAmount} onChange={(e) => setSplitPayAmount(e.target.value)} placeholder={`Tutar (kalan: ${money(remaining)})`} inputMode="decimal" style={splitInput} />
+                        <input value={splitPayTip} onChange={(e) => setSplitPayTip(e.target.value)} placeholder="Bahşiş (opsiyonel)" inputMode="decimal" style={{ ...splitInput, marginTop: 6 }} />
+                        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                          {PAY_METHODS.map((m) => (
+                            <button key={m.v} onClick={() => paySplitBill(b, m.v)} disabled={busy}
+                              style={{ ...pillSecondary, flex: 1, padding: 9, fontSize: 12.5 }}>{m.l}</button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {discountFor && (
@@ -759,5 +993,7 @@ const pillPrimary: React.CSSProperties = { border: "none", borderRadius: 980, pa
 const stepBtn: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 36, height: 36, background: "var(--card)", color: "var(--ink-green)", fontSize: 18, lineHeight: 1 };
 const stepBtnSm: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 22, height: 22, background: "var(--card)", color: "var(--ink-green)", fontSize: 13, lineHeight: 1, padding: 0 };
 const miniAction: React.CSSProperties = { border: "none", borderRadius: 8, padding: "3px 7px", background: "var(--recede)", color: "var(--muted)", fontSize: 10.5, cursor: "pointer" };
+// Ayrılan hesabın kendi ödeme/bahşiş kutuları — dar blok içinde durduğu için tam genişlik.
+const splitInput: React.CSSProperties = { width: "100%", boxSizing: "border-box", border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 11px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };
 const pillSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: 12, background: "var(--card)", color: "var(--ink-green)", fontSize: 14 };
 const chip = (on: boolean): React.CSSProperties => ({ border: on ? "none" : "1px solid var(--line-2)", borderRadius: 980, padding: "8px 14px", fontSize: 13, background: on ? "var(--brand-strong)" : "var(--card)", color: on ? "#fff" : "var(--ink-green)" });
