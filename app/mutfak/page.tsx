@@ -123,6 +123,17 @@ function MutfakInner() {
       await load();
       return;
     }
+    // "Teslim edildi" de RPC'ye bağlandı: "sipariş devamı"yla eklenen kalem bilerek ayrı
+    // satır olarak gönderiliyordu (mutfağın kendi hazırlama takibi için); ama ikisi de teslim
+    // edilince ayrı kalmalarının anlamı yok — aynı üründen adisyonda "4x Kola" ve "1x Kola"
+    // diye iki satır görünüyordu. RPC, teslim ederken zaten teslim edilmiş aynı üründen bir
+    // satır varsa ikisini birleştiriyor.
+    if (field === "served_at") {
+      const staff = getStaffSession();
+      await supabase.rpc("mark_item_served", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      await load();
+      return;
+    }
     const patch: Record<string, string> = { [field]: new Date().toISOString() };
     // Kim hazırlamaya başladıysa (ilk gerçek aksiyon) profil/özet sayfası için etiketlenir.
     if (field === "preparing_at") {
