@@ -194,13 +194,24 @@ function MutfakInner() {
                   const stage = c.readyAt ? "hazir" : c.preparingAt ? "hazirlaniyor" : "yeni";
                   const mins = elapsedMin(c.sentAt);
                   const hint = stage === "yeni" ? startHint(c, g.maxPrep) : null;
+                  // Süresi olan üründe (pizza, kahve gibi) kırmızıya dönme eşiği kendi süresi;
+                  // hazır üründe (prepMinutes yok — kutu kola gibi) genel "çok bekledi" eşiği (10dk),
+                  // çünkü onun için gösterilecek bir hedef süre yok.
+                  const overdue = c.prepMinutes != null ? mins >= c.prepMinutes : mins >= 10;
                   return (
                     <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 14 }}><span className="tnum">{c.quantity}×</span> {c.name}</div>
-                        <div className="tnum" style={{ fontSize: 11, color: mins >= 10 ? "var(--danger)" : "var(--muted-2)" }}>{mins} dk{hint && <span style={{ color: hint === "Şimdi başlat" ? "var(--brand)" : "var(--muted-2)", fontWeight: hint === "Şimdi başlat" ? 700 : 400 }}> · {hint}</span>}</div>
+                        <div className="tnum" style={{ fontSize: 11, color: overdue ? "var(--danger)" : "var(--muted-2)" }}>
+                          {mins} dk{c.prepMinutes != null && ` / ${c.prepMinutes} dk`}
+                          {hint && <span style={{ color: hint === "Şimdi başlat" ? "var(--brand)" : "var(--muted-2)", fontWeight: hint === "Şimdi başlat" ? 700 : 400 }}> · {hint}</span>}
+                        </div>
                       </div>
-                      {stage === "yeni" && <button onClick={() => setStage(c.id, "preparing_at")} style={stageBtnSm}>Hazırlanıyor</button>}
+                      {/* Hazır ürün (kutu kola vb.): "Hazırlanıyor" aşaması hiç yaşanmaz — koyan kişi
+                          tek tıkla direkt Hazır der, stok o an düşer (mark_item_ready). */}
+                      {stage === "yeni" && (c.prepMinutes == null
+                        ? <button onClick={() => setStage(c.id, "ready_at")} style={stageBtnSm}>Hazır</button>
+                        : <button onClick={() => setStage(c.id, "preparing_at")} style={stageBtnSm}>Hazırlanıyor</button>)}
                       {stage === "hazirlaniyor" && <button onClick={() => setStage(c.id, "ready_at")} style={stageBtnSm}>Hazır</button>}
                       {stage === "hazir" && <button onClick={() => setStage(c.id, "served_at")} style={{ ...stageBtnSm, background: "var(--brand-strong)" }}>Teslim edildi</button>}
                     </div>
