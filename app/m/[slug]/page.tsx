@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import QrOrderCart, { QrAddButton } from "./QrSiparis";
 
 type Category = { id: string; name: string; parent_id: string | null };
 type RecipeItem = { quantity: number; ingredients: { name: string; kcal_per_unit: number; diet_class: string; allergens: string[] } | null };
@@ -6,6 +7,7 @@ type Product = {
   id: string;
   name: string;
   sale_price: number;
+  vat_rate: number;
   category_id: string | null;
   calorie_override: number | null;
   description: string | null;
@@ -16,6 +18,10 @@ type Product = {
 };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
+
+// ?masa=<uuid> — QR sipariş için masa kimliği. Geçersiz bir metin doğrudan Postgres'e
+// gönderilirse uuid cast hatası üretir; onun yerine formatı burada eliyoruz.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,10 +46,10 @@ export default async function PublicMenu({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ embed?: string }>;
+  searchParams: Promise<{ embed?: string; masa?: string }>;
 }) {
   const { slug } = await params;
-  const { embed: embedParam } = await searchParams;
+  const { embed: embedParam, masa: masaParam } = await searchParams;
   const embed = embedParam === "1";
 
   const { data: rest } = await db
@@ -60,7 +66,7 @@ export default async function PublicMenu({
   const [{ data: c }, { data: p }, { data: settingsRow }] = await Promise.all([
     db.from("menu_categories").select("id, name, parent_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
     db.from("menu_items")
-      .select("id, name, sale_price, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
+      .select("id, name, sale_price, vat_rate, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
       .eq("restaurant_id", rest.id).eq("is_active", true).eq("available_dine_in", true).is("deleted_at", null).order("sort_order"),
     db.from("restaurant_settings").select("default_menu_design").eq("restaurant_id", rest.id).maybeSingle(),
   ]);
@@ -68,6 +74,16 @@ export default async function PublicMenu({
   const categories = (c as Category[]) ?? [];
   const products = (p as unknown as Product[]) ?? [];
   const photoStyle = settingsRow?.default_menu_design === "fotografli";
+
+  // QR sipariş — SADECE /m/<slug>?masa=<table_id> ile açıldığında. Masa parametresi yoksa,
+  // geçersizse ya da başka bir restorana aitse sipariş özelliği HİÇ gösterilmez; sayfa
+  // eskisi gibi salt görüntülenen bir menü olarak kalır.
+  const { data: tableRow } =
+    masaParam && UUID_RE.test(masaParam)
+      ? await db.from("restaurant_tables").select("id, name")
+          .eq("id", masaParam).eq("restaurant_id", rest.id).is("deleted_at", null).maybeSingle()
+      : { data: null };
+  const orderTable = (tableRow as { id: string; name: string } | null) ?? null;
 
   const renderCategory = (cat: Category, depth: number): React.ReactNode => {
     const subs = categories.filter((x) => x.parent_id === cat.id);
@@ -108,6 +124,10 @@ export default async function PublicMenu({
                   <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 4 }}>Alerjen: {allergens.join(", ")}</div>
                 )}
               </div>
+              {/* Sipariş verilebilir mod (QR + masa) — masa yoksa hiç render edilmez. */}
+              {orderTable && (
+                <QrAddButton product={{ id: prod.id, name: prod.name, sale_price: prod.sale_price, vat_rate: prod.vat_rate }} />
+              )}
             </div>
           );
         })}
@@ -117,6 +137,9 @@ export default async function PublicMenu({
   };
 
   const roots = categories.filter((x) => x.parent_id === null);
+  // Menü ağacı tek yerde üretilir; sipariş modunda aynı ağaç sepet katmanının children'ı
+  // olarak geçer (server'da render edilir, sadece "Ekle" butonları client'tır).
+  const menuTree = <>{roots.map((cat) => renderCategory(cat, 0))}</>;
 
   return (
     <div style={{ background: "var(--canvas)", minHeight: "100vh" }}>
@@ -128,7 +151,11 @@ export default async function PublicMenu({
           </div>
         )}
         {roots.length === 0 && <div style={{ color: "var(--muted)", padding: 24, textAlign: "center" }}>Menü henüz boş.</div>}
-        {roots.map((cat) => renderCategory(cat, 0))}
+        {orderTable ? (
+          <QrOrderCart restaurantId={rest.id} tableId={orderTable.id} tableName={orderTable.name}>
+            {menuTree}
+          </QrOrderCart>
+        ) : menuTree}
         {!embed && (
           <div style={{ textAlign: "center", marginTop: 40, fontSize: 11, color: "var(--muted-2)" }}>Restoran AIOS</div>
         )}
