@@ -232,14 +232,32 @@ export default function TableOrderPanel({
   };
 
   const changeQuantity = async (item: OrderItem, delta: number) => {
+    if (!restaurantId || !order) return;
     const next = item.quantity + delta;
     setBusy(true);
     if (next <= 0) {
       // Adet sıfıra inince kalem iptal sayılır
       await supabase.from("order_items").update({ status: "void", void_reason: "adet sıfırlandı", voided_at: new Date().toISOString() }).eq("id", item.id);
     } else if (delta > 0 && item.sent_at) {
-      // Zaten gönderilmiş bir kaleme adet eklendi — mutfak/bar yeni miktarı görsün diye tekrar "gönderilmedi" sayılır.
-      await supabase.from("order_items").update({ quantity: next, sent_at: null, preparing_at: null, ready_at: null, served_at: null }).eq("id", item.id);
+      // Gönderilmiş bir kaleme adet ekleniyor. Satırın tamamını "gönderilmedi"ye çevirmek
+      // YANLIŞ olur: mutfak zaten yaptığı 2 tabağı yeniden yapmaya kalkar ve satır komple
+      // adisyondan sipariş devamına atlar. Onun yerine SADECE eklenen adet yeni bir satır
+      // olarak sipariş devamına düşer; gönderilmiş satır adisyonda olduğu gibi kalır.
+      const bekleyen = order.order_items.find(
+        (x) => x.status === item.status && !x.sent_at &&
+          x.menu_item_id === item.menu_item_id &&
+          x.variant_id === item.variant_id &&
+          Number(x.unit_price) === Number(item.unit_price)
+      );
+      if (bekleyen) {
+        await supabase.from("order_items").update({ quantity: bekleyen.quantity + 1 }).eq("id", bekleyen.id);
+      } else {
+        await supabase.from("order_items").insert({
+          restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id,
+          variant_id: item.variant_id, quantity: 1, unit_price: item.unit_price,
+          vat_rate: item.vat_rate, status: item.status,
+        });
+      }
     } else {
       await supabase.from("order_items").update({ quantity: next }).eq("id", item.id);
     }
@@ -253,12 +271,15 @@ export default function TableOrderPanel({
   // Birleştirme koşulları bilerek dar: aynı ürün + aynı varyant + aynı birim fiyat.
   // Fiyat da eşleşmeli, çünkü modifier'lar (ekstra peynir vb.) birim fiyata yansıyor —
   // farklı modifier'lı iki satır farklı fiyatta olur ve birleşmez.
+  // Gönderilmiş bir kalemden gelen ikram ile henüz gönderilmemiş bir kalemden gelen ikram
+  // birleşmemeli — biri mutfakta yapıldı, diğeri yapılmadı; adetleri toplarsak bu ayrım kaybolur.
   const ayniIkramSatiri = (item: OrderItem) =>
     order?.order_items.find(
       (x) => x.status === "ikram" && x.id !== item.id &&
         x.menu_item_id === item.menu_item_id &&
         x.variant_id === item.variant_id &&
-        Number(x.unit_price) === Number(item.unit_price)
+        Number(x.unit_price) === Number(item.unit_price) &&
+        Boolean(x.sent_at) === Boolean(item.sent_at)
     ) ?? null;
 
   // İki satır birleşirken biri siliniyor; order_item_modifiers'ta ON DELETE CASCADE var,
@@ -295,6 +316,10 @@ export default function TableOrderPanel({
         await supabase.from("order_items").insert({
           restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
           quantity: 1, unit_price: item.unit_price, vat_rate: item.vat_rate, status: "ikram",
+          // Gönderim damgaları kaynaktan devralınır: zaten yapılmış/servis edilmiş bir
+          // kalemin bir adedini ikram etmek mutfağa yeni iş çıkarmaz. Devralmasaydık
+          // mutfak ekranı bunu bekleyen yeni bir sipariş sanırdı.
+          sent_at: item.sent_at, ready_at: item.ready_at, served_at: item.served_at,
         });
       }
     }
@@ -645,8 +670,12 @@ export default function TableOrderPanel({
               const visible = order.order_items.filter((i) => i.status === "active" || i.status === "ikram");
               // Zaten gönderilmiş (mutfak/bar biliyor) ile henüz gönderilmemiş yeni eklenenler ayrı
               // gösterilir — "Gönder"e basınca sanki tüm adisyon gidiyormuş hissi vermesin diye.
-              const sent = visible.filter((i) => i.sent_at);
-              const unsent = visible.filter((i) => !i.sent_at);
+              // İkram hiçbir zaman "sipariş devamı"na düşmez (Gökhan, 2026-07-27): ikram
+              // mutfağa gönderilecek yeni bir iş değil, zaten var olan bir kalemin
+              // ücretlendirmesinin değişmesidir. Zaten "Gönder" de yalnızca aktif kalemleri
+              // gönderiyor, ikram orada dursa hiç gitmezdi.
+              const sent = visible.filter((i) => i.status === "ikram" || i.sent_at);
+              const unsent = visible.filter((i) => i.status !== "ikram" && !i.sent_at);
               return (
                 <>
                   {sent.map((i) => <OrderItemRow key={i.id} i={i} busy={busy} changeQuantity={changeQuantity} changeCompQuantity={changeCompQuantity} compItem={compItem} />)}
