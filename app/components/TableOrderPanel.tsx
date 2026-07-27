@@ -249,17 +249,54 @@ export default function TableOrderPanel({
 
   // İkram: gelire sayılmaz ama mutfaktan çıktığı için stok/maliyete işler (close_order RPC'si böyle kurulu).
   // Her tıklama sormadan 1 adedi ikrama düşürür; adedin tamamını ikram etmek için buton tekrar tıklanır.
+  // Aynı üründen zaten bir ikram satırı varsa ona eklenir; yoksa yeni satır açılır.
+  // Birleştirme koşulları bilerek dar: aynı ürün + aynı varyant + aynı birim fiyat.
+  // Fiyat da eşleşmeli, çünkü modifier'lar (ekstra peynir vb.) birim fiyata yansıyor —
+  // farklı modifier'lı iki satır farklı fiyatta olur ve birleşmez.
+  const ayniIkramSatiri = (item: OrderItem) =>
+    order?.order_items.find(
+      (x) => x.status === "ikram" && x.id !== item.id &&
+        x.menu_item_id === item.menu_item_id &&
+        x.variant_id === item.variant_id &&
+        Number(x.unit_price) === Number(item.unit_price)
+    ) ?? null;
+
+  // İki satır birleşirken biri siliniyor; order_item_modifiers'ta ON DELETE CASCADE var,
+  // yani silinen satırın modifier kayıtları da gider. Bu yüzden modifier'ı olan satırları
+  // hiç birleştirmiyoruz — adet birleşsin diye ekstra malzeme bilgisi kaybolmasın.
+  const modifierVarMi = async (ids: string[]) => {
+    const { count } = await supabase
+      .from("order_item_modifiers")
+      .select("id", { count: "exact", head: true })
+      .in("order_item_id", ids);
+    return (count ?? 0) > 0;
+  };
+
   const compItem = async (item: OrderItem) => {
     if (!restaurantId || !order) return;
     setBusy(true);
+    const hedef = ayniIkramSatiri(item);
+    const birlestirilebilir = hedef ? !(await modifierVarMi([item.id, hedef.id])) : false;
+
     if (item.quantity <= 1) {
-      await supabase.from("order_items").update({ status: "ikram" }).eq("id", item.id);
+      if (hedef && birlestirilebilir) {
+        // Kalemin tamamı ikrama geçiyor ve zaten bir ikram satırı var: adedi ona ekle,
+        // bu satırı kaldır — aksi halde listede aynı üründen iki ayrı 1'lik satır kalırdı.
+        await supabase.from("order_items").update({ quantity: hedef.quantity + item.quantity }).eq("id", hedef.id);
+        await supabase.from("order_items").delete().eq("id", item.id);
+      } else {
+        await supabase.from("order_items").update({ status: "ikram" }).eq("id", item.id);
+      }
     } else {
       await supabase.from("order_items").update({ quantity: item.quantity - 1 }).eq("id", item.id);
-      await supabase.from("order_items").insert({
-        restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
-        quantity: 1, unit_price: item.unit_price, vat_rate: item.vat_rate, status: "ikram",
-      });
+      if (hedef && birlestirilebilir) {
+        await supabase.from("order_items").update({ quantity: hedef.quantity + 1 }).eq("id", hedef.id);
+      } else {
+        await supabase.from("order_items").insert({
+          restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.menu_item_id, variant_id: item.variant_id,
+          quantity: 1, unit_price: item.unit_price, vat_rate: item.vat_rate, status: "ikram",
+        });
+      }
     }
     await loadOrder(); onChanged();
     setBusy(false);
