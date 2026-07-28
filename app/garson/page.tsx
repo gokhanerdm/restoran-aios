@@ -268,7 +268,9 @@ function GarsonInner() {
             const kasaBekliyor = t.status === "kasa_bekliyor";
             const toplanacak = t.status === "toplanacak";
             const reserved = t.status === "reserved";
-            const dotColor = merged ? "var(--muted-2)" : kasaBekliyor ? "var(--danger)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : toplanacak ? "var(--gold-text)" : reserved ? "var(--info)" : "var(--muted-2)";
+            // Sipariş alınmamış dolu masa (ROADMAP §O3) — masa dolu ama hiç kalem gönderilmemiş.
+            const siparisYok = t.status === "occupied" && !!ord && !ord.order_items.some((i) => i.sent_at);
+            const dotColor = merged ? "var(--muted-2)" : kasaBekliyor ? "var(--danger)" : bill ? "var(--gold)" : siparisYok ? "var(--gold)" : occupied ? "var(--brand)" : toplanacak ? "var(--gold-text)" : reserved ? "var(--info)" : "var(--muted-2)";
             const progress = !merged ? readyProgress(ord) : null;
             const ready = !!progress;
             const mergeSelected = mergeMode && mergeFirst === t.id;
@@ -294,7 +296,7 @@ function GarsonInner() {
                 ) : occupied ? (
                   <>
                     <div className="tnum" style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.3px", color: "var(--ink-green)", marginTop: 14 }}>{money(total)}</div>
-                    <div style={{ fontSize: 11.5, color: kasaBekliyor ? "var(--danger)" : ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready || kasaBekliyor ? 700 : 400 }}>{kasaBekliyor ? "kasa onayı bekliyor" : progress ? (progress.ready === progress.total ? "Hazır — servis et" : `${progress.ready}/${progress.total} ürün hazır`) : bill ? "hesap istedi" : "açık"}</div>
+                    <div style={{ fontSize: 11.5, color: kasaBekliyor ? "var(--danger)" : ready ? "var(--success)" : bill ? "var(--gold-text)" : siparisYok ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready || kasaBekliyor ? 700 : 400 }}>{kasaBekliyor ? "kasa onayı bekliyor" : siparisYok ? "sipariş alınmadı" : progress ? (progress.ready === progress.total ? "Hazır — servis et" : `${progress.ready}/${progress.total} ürün hazır`) : bill ? "hesap istedi" : "açık"}</div>
                   </>
                 ) : reserved ? (
                   <div style={{ fontSize: 11.5, color: "var(--info)", marginTop: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.reservation_note || "Rezerve"}</div>

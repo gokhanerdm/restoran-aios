@@ -25,9 +25,12 @@ type TableRow = {
   reservation_note: string | null; merged_into_table_id: string | null;
   // Koltuk sayısı — Raporlar'daki RevPASH (koltuk-saat başına ciro) bu alandan hesaplanır.
   seat_count: number;
+  // Garson ataması (ROADMAP §O3) — opsiyonel, bilgilendirme amaçlı.
+  assigned_staff_id: string | null;
 };
-type OrderItem = { id: string; quantity: number; unit_price: number; status: string };
+type OrderItem = { id: string; quantity: number; unit_price: number; status: string; sent_at: string | null };
 type OrderRow = { id: string; table_id: string | null; opened_at: string; party_size: number; order_items: OrderItem[] };
+type StaffOpt = { id: string; full_name: string; on_break: boolean };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const BOX_W = 148;
@@ -57,6 +60,7 @@ export default function KasaPage() {
   // Sağ tık menüsü: boş alanda "Masa ekle" (table: null), bir masa üzerinde "Masa sil" (table dolu)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
   const [koltukInput, setKoltukInput] = useState("");
+  const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([]);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Nakit giriş/çıkış artık burada değil, Kasa sayfasında (/kasa) — bu ekran
@@ -74,17 +78,19 @@ export default function KasaPage() {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: a }, { data: t }, { data: o }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: o }, { data: staffRows }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id, seat_count").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id, seat_count, assigned_staff_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       // pending_cashier da dahil: kasa onayı bekleyen masada tutar/süre hâlâ görünsün diye
       // (ROADMAP §O11) — sipariş artık 'open' değil ama masa üzerindeki hesap hâlâ canlı.
-      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", restId).in("status", ["open", "pending_cashier"]),
+      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status, sent_at)").eq("restaurant_id", restId).in("status", ["open", "pending_cashier"]),
+      supabase.from("staff_members").select("id, full_name, on_break").eq("restaurant_id", restId).eq("role", "garson").eq("active", true).is("deleted_at", null).order("full_name"),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
     setTables((t as TableRow[]) ?? []);
     setOrders((o as unknown as OrderRow[]) ?? []);
+    setStaffOpts((staffRows as StaffOpt[]) ?? []);
     setSelectedAreaId((prev) => prev ?? (areaRows.length ? areaRows[0].id : null));
   }, []);
 
@@ -157,6 +163,14 @@ export default function KasaPage() {
     const { error } = await supabase.from("restaurant_tables").update({ seat_count: n }).eq("id", id);
     if (error) { setErr(error.message); return; }
     setCtxMenu(null);
+    await load();
+  };
+
+  // Garson ataması (ROADMAP §O3) — tamamen bilgilendirme amaçlı, hiçbir işlemi engellemez.
+  const assignStaff = async (tableId: string, staffId: string | null) => {
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ assigned_staff_id: staffId }).eq("id", tableId);
+    if (error) { setErr(error.message); return; }
     await load();
   };
 
@@ -320,6 +334,7 @@ export default function KasaPage() {
                   mergeMode={mergeMode}
                   durationLabel={durationLabel(orderForTable(t.id))}
                   total={orderTotal(orderForTable(t.id))}
+                  assignedStaff={staffOpts.find((s) => s.id === t.assigned_staff_id) ?? null}
                   onClick={() => handleTableClick(t)}
                   onMove={moveTable}
                   onDelete={() => deleteTable(t)}
@@ -439,6 +454,22 @@ export default function KasaPage() {
                     >Kaydet</button>
                   </div>
                 </div>
+
+                {/* Garson ataması — bilgilendirme amaçlı, hiçbir işlemi engellemez. */}
+                {staffOpts.length > 0 && (
+                  <div style={{ padding: "0 12px 9px", borderTop: "1px solid var(--line)", paddingTop: 9 }}>
+                    <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Garson</div>
+                    <select
+                      value={ctxMenu.table.assigned_staff_id ?? ""}
+                      onChange={(e) => assignStaff(ctxMenu.table!.id, e.target.value || null)}
+                      style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: 13, width: "100%", background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                    >
+                      <option value="">Atanmadı</option>
+                      {staffOpts.map((s) => <option key={s.id} value={s.id}>{s.full_name}{s.on_break ? " (molada)" : ""}</option>)}
+                    </select>
+                  </div>
+                )}
+
                 {ctxMenu.table.status === "occupied" || ctxMenu.table.status === "bill_requested" ? (
                   <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>Bu masa dolu — silmeden önce hesabı kapatın.</div>
                 ) : ctxMenu.table.status === "kasa_bekliyor" ? (
@@ -477,11 +508,12 @@ export default function KasaPage() {
 }
 
 function TableBox({
-  table, x, y, order, targetName, selected, mergeSelected, mergeMode, durationLabel, total,
+  table, x, y, order, targetName, selected, mergeSelected, mergeMode, durationLabel, total, assignedStaff,
   onClick, onMove, onDelete, onRename, onReserve, onUnreserve, onUnmerge, onContextMenu,
 }: {
   table: TableRow; x: number; y: number; order: OrderRow | null; targetName: string | null;
   selected: boolean; mergeSelected: boolean; mergeMode: boolean; durationLabel: string | null; total: number;
+  assignedStaff: StaffOpt | null;
   onClick: () => void; onMove: (id: string, x: number, y: number) => void; onDelete: () => void; onRename: (v: string) => void;
   onReserve: () => void; onUnreserve: () => void; onUnmerge: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
@@ -495,10 +527,14 @@ function TableBox({
   const occupied = table.status === "occupied" || table.status === "bill_requested" || table.status === "kasa_bekliyor";
   const reserved = table.status === "reserved";
   const toplanacak = table.status === "toplanacak";
+  // Sipariş alınmamış dolu masa (ROADMAP §O3) — masa dolu ama hiçbir kalem mutfağa
+  // gönderilmemiş: garson henüz sipariş girmedi. Ayrı renkte görünür ki garson bilir.
+  const siparisYok = table.status === "occupied" && order != null && !order.order_items.some((i) => i.sent_at);
 
   const dotColor = merged ? "var(--muted-2)"
     : table.status === "kasa_bekliyor" ? "var(--danger)"
     : table.status === "bill_requested" ? "var(--gold)"
+    : siparisYok ? "var(--gold)"
     : table.status === "occupied" ? "var(--brand)"
     : toplanacak ? "var(--gold-text)"
     : reserved ? "var(--info)" : "var(--muted-2)";
@@ -557,8 +593,8 @@ function TableBox({
       ) : occupied ? (
         <>
           <div className="tnum" style={{ fontSize: 17, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>{money(total)}</div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: table.status === "kasa_bekliyor" ? "var(--danger)" : "var(--muted)", marginTop: 4 }}>
-            <span>{table.status === "kasa_bekliyor" ? "Kasa bekliyor" : `${order?.party_size ?? 1} kişi`}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: table.status === "kasa_bekliyor" ? "var(--danger)" : siparisYok ? "var(--gold-text)" : "var(--muted)", marginTop: 4 }}>
+            <span>{table.status === "kasa_bekliyor" ? "Kasa bekliyor" : siparisYok ? "Sipariş alınmadı" : `${order?.party_size ?? 1} kişi`}</span>
             <span className="tnum">{durationLabel}</span>
           </div>
         </>
@@ -568,6 +604,12 @@ function TableBox({
         <div style={{ fontSize: 12.5, color: "var(--gold-text)", marginTop: 14 }}>Toplanacak</div>
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--muted-2)", marginTop: 14 }}>Boş</div>
+      )}
+
+      {assignedStaff && (
+        <div style={{ position: "absolute", bottom: 6, left: 12, fontSize: 10, color: assignedStaff.on_break ? "var(--gold-text)" : "var(--muted-2)", maxWidth: BOX_W - 24, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {assignedStaff.full_name}{assignedStaff.on_break ? " · molada" : ""}
+        </div>
       )}
 
       {hover && !mergeMode && (

@@ -101,6 +101,16 @@ export function StaffProfileBadge({ restaurantId }: { restaurantId: string | nul
   const logout = useStaffLogout();
   const [showProfile, setShowProfile] = useState(false);
   const [summary, setSummary] = useState<Summary | null>(null);
+  // Mola (ROADMAP §O3, Gökhan'ın fikri): garson mola seçer, masaları "sahipsiz" (herkese
+  // açık) sayılır. Oturum localStorage'da sabit olduğu için mola durumu ayrıca çekilir.
+  const [onBreak, setOnBreak] = useState(false);
+  const [breakBusy, setBreakBusy] = useState(false);
+
+  useEffect(() => {
+    if (!session) return;
+    supabase.from("staff_members").select("on_break").eq("id", session.id).maybeSingle()
+      .then(({ data }) => setOnBreak(Boolean((data as { on_break: boolean } | null)?.on_break)));
+  }, [session]);
 
   if (!session) return null;
 
@@ -111,10 +121,27 @@ export function StaffProfileBadge({ restaurantId }: { restaurantId: string | nul
     setSummary((data as Summary[])?.[0] ?? null);
   };
 
+  const toggleBreak = async () => {
+    setBreakBusy(true);
+    const { data, error } = await supabase.rpc("toggle_staff_break", { p_staff_id: session.id });
+    if (!error) setOnBreak(Boolean(data));
+    setBreakBusy(false);
+  };
+
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
         <button onClick={openProfile} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12, fontWeight: 600 }}>{session.full_name}</button>
+        <button
+          onClick={toggleBreak}
+          disabled={breakBusy}
+          title={onBreak ? "Moladan dön" : "Molaya çık"}
+          style={{
+            border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", fontSize: 12, fontWeight: 600,
+            background: onBreak ? "var(--gold)" : "var(--card)", color: onBreak ? "#3a2e10" : "var(--ink-green)",
+            opacity: breakBusy ? 0.6 : 1,
+          }}
+        >{onBreak ? "Moladasın — dön" : "Mola"}</button>
         <button onClick={() => logout?.()} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "5px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12, fontWeight: 600 }}>Çıkış yap</button>
       </div>
 
