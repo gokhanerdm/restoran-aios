@@ -69,10 +69,24 @@ Bizim silahımız: **reçete bazlı kâr + fire/kaçak radarı**.
 
 Tam modül haritası, kalite ilkeleri, Türkiye zorunlulukları ve faz sıralaması: [ROADMAP.md](ROADMAP.md) (2026-07-10 pazar araştırmasına dayanır).
 
-## Durum
+## Durum (2026-07-28)
 
-- [x] Katman 1 çekirdek şema (0001)
-- [ ] Sipariş kapanış + stok düşüm RPC'si
-- [ ] Fire/kaçak hesap RPC'si (sayım bazlı)
-- [ ] Next.js iskelet
-- [ ] Kâr paneli + gün sonu raporu
+**Katman 1 (Restoran OS) büyük ölçüde tamam.** Ayrıntılı modül tablosu: [ROADMAP.md §A](ROADMAP.md).
+
+- [x] Çekirdek şema (0001)
+- [x] Next.js iskelet + tüm ana ekranlar
+- [x] Sipariş kapanış + stok düşüm RPC'si (`close_order`, atomik)
+- [x] Kâr paneli + gün sonu (Kasa ekranı — tek ekranda kapanış hükmü)
+- [x] Sayım ekranı → fire/kaçak radarı (teorik tüketim vs sayım)
+- [x] KDS (mutfak/bar), personel + PIN + vardiya + puantaj
+- [x] Raporlar (ürün kârlılığı, menü mühendisliği, kapasite/RevPASH, kaçak, kasa)
+- [x] Ödeme türleri, hesap bölme, bahşiş, hakediş mutabakatı
+- [x] Mevzuat: alerjen, kalori, KVKK, İş Kanunu puantaj
+- [x] Satış tahmini + personel planı (takvim farkındalıklı)
+- [ ] **e-Adisyon / e-Fatura / ÖKC entegrasyonu** — ticari giriş bileti, bkz. [ROADMAP §N1](ROADMAP.md)
+- [ ] Fiş/ESC-POS yazıcı
+- [ ] Çevrimdışı çalışma
+- [ ] Paket servis entegrasyonu (Katman 3'e köprü)
+
+**Sıradaki katmanlar:** Katman 2 (AI modül) kısmen başladı — tahmin ve radar çalışıyor.
+Katman 3 (tedarikçi marketplace) ve Katman 4 (müşteri) henüz açılmadı.

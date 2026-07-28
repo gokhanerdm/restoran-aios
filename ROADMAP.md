@@ -6,28 +6,37 @@ Kaynak: 2026-07-10 deep-research taraması (Toast/Square/Lightspeed/TouchBistro/
 
 Pazarda "tam paket" sayılmak için beklenen modüller ([upmenu](https://www.upmenu.com/blog/best-restaurant-pos-systems/), [restaurantvelocity](https://restaurantvelocity.com/blog/best-restaurant-pos-systems/), [expertmarket](https://www.expertmarket.com/pos/square-vs-toast-vs-lightspeed)):
 
+> Durum sütunu **2026-07-28'de güncellendi.** Önceki hâli 2026-07-10 tarihliydi ve aradan
+> geçen sürede yapılanları göstermiyordu (KDS, sayım, raporlar, personel vb. "❌ Yok" olarak
+> duruyordu).
+
 | Modül | Pazar durumu | Bizde |
 |---|---|---|
 | POS / adisyon (masa, sipariş, hesap) | Zorunlu çekirdek | ✅ Var (Kasa+Salonlar, tek panel) |
-| Görsel kat planı / masa yönetimi | Standart | ✅ Var (sürükle-bırak, birleştirme, rezerve, süre) |
+| Görsel kat planı / masa yönetimi | Standart | ✅ Var (sürükle-bırak, birleştirme, rezerve, süre, koltuk sayısı) |
 | Menü + reçete maliyetleme | Toast'ta var, Square'de zayıf — **fark alanımız** | ✅ Var (kâr/food cost dahil) |
 | Stok + tedarikçi + kritik seviye | Standart | ✅ Var (beklenen tüketim tahmini dahil) |
-| **Ödeme türleri** (nakit/kart ayrımı, kısmi ödeme) | Zorunlu çekirdek | ❌ Yok — hesap tek tuşla kapanıyor |
-| **Kişi sayısı zorunlu girişi** | Bizim iş kuralımız (BUSINESS_LOGIC #1) | ❌ UI'da yok (kolon var) |
-| **İptal / ikram akışı** | Zorunlu çekirdek (kaçak kontrolü) | ❌ UI'da yok (şema hazır: void/ikram) |
-| **KDS (mutfak ekranı)** | Standart (Toast 2. adımda ekledi) | ❌ Yok |
+| **Ödeme türleri** (nakit/kart ayrımı, kısmi ödeme) | Zorunlu çekirdek | ✅ Var (nakit/kart/yemek kartı, kısmi, hesap bölme, bahşiş) |
+| **Kişi sayısı zorunlu girişi** | Bizim iş kuralımız (BUSINESS_LOGIC #1) | ✅ Var |
+| **İptal / ikram akışı** | Zorunlu çekirdek (kaçak kontrolü) | ✅ Var (sebepli iptal + ikram) |
+| **KDS (mutfak ekranı)** | Standart (Toast 2. adımda ekledi) | ✅ Var (istasyon bazlı, yatay şerit, hazırlama süreleri) |
 | **Fiş/mutfak yazıcısı çıktısı** | Zorunlu çekirdek (TR'de adisyon kültürü) | ❌ Yok |
-| **Gün sonu raporu** | Zorunlu çekirdek | ⚠️ RPC var (daily_summary), ekran iskelet |
-| **Sayım ekranı** | Fire/kaçak radarımızın önkoşulu | ❌ Yok (tablolar hazır: inventory_counts) |
-| **Personel / PIN / rol / vardiya** | Standart | ❌ İskelet |
-| **Raporlar (kâr paneli, fire/kaçak radarı)** | Ciro raporu standart; **kâr raporu fark alanımız** | ❌ İskelet |
+| **Gün sonu raporu** | Zorunlu çekirdek | ✅ Var (Kasa ekranı — tek ekranda kapanış hükmü) |
+| **Sayım ekranı** | Fire/kaçak radarımızın önkoşulu | ✅ Var (`/sayim` — teorik vs sayılan, onaylı işleme) |
+| **Personel / PIN / rol / vardiya** | Standart | ✅ Var (PIN, roller, maaş/SGK, vardiya, puantaj, izin) |
+| **Raporlar (kâr paneli, fire/kaçak radarı)** | Ciro raporu standart; **kâr raporu fark alanımız** | ✅ Var (6 sütun: kârlılık, menü mühendisliği, kapasite, iptal/ikram, personel, kasa) |
+| **Hakediş mutabakatı** (kart/yemek kartı → bankaya yatan) | Şikayet listesinin 1 numarası (§B/2) | ✅ Var (Kasa "Yoldaki para" — komisyon, valör, gecikme) |
+| **Mevzuat: alerjen / kalori** | 31.12.2026 ve 31.12.2027'de zorunlu | ✅ Var (14 alerjen, reçeteden kalori, QR menüde beyan) |
+| **Mevzuat: KVKK** | Aydınlatma ihlali 100.000–1.000.000 TL | ✅ Var (aydınlatma metni, saklama süresi, anonimleştirme) |
+| **Mevzuat: İş Kanunu puantaj** | md.67 kayıt zorunlu | ✅ Var (haftalık cetvel, 45 saat, fazla mesai onayı, yıllık izin) |
+| **Satış tahmini + personel planı** | Nory/7shifts'in ana silahı | ✅ Var (14 gün, takvim farkındalıklı, işçilik oranı hedefi) |
 | Paket servis entegrasyonu (YS/Getir/Trendyol) | TR'de standart sayılıyor ([adisyo](https://adisyo.com/trendyol-yemek-sepeti-getir-entegrasyon)) | ❌ Yok (orders.channel hazır) |
-| e-Fatura / e-Arşiv / ÖKC | TR'de yasal zorunluluk | ❌ Yok (efatura_connections iskeleti var) |
+| e-Fatura / e-Arşiv / ÖKC / **e-Adisyon** | TR'de yasal zorunluluk | ❌ Yok (efatura_connections iskeleti var) — **ticari giriş bileti, bkz. §N** |
 | Çevrimdışı çalışma | En kritik şikayet konusu; Menulux/SambaPOS bununla satıyor | ❌ Yok |
-| Rezervasyon (takvim) | Standart ama v1'de not yeterli | ⚠️ Basit not var |
+| Rezervasyon (takvim) | Standart ama v1'de not yeterli | ✅ Var (gün bazlı takvim, çakışma uyarısı, KVKK onayı) |
+| Muhasebe entegrasyonu (Paraşüt/Logo/Mikro) | Olgunluk fazı; şikayet listesinin 3. sırası | ❌ Yok |
 | CRM / sadakat | Olgunluk fazı (Toast 4-5. adımda ekledi) | ❌ Yok (Katman 4) |
 | Çoklu şube | Orta-büyük segment | ❌ Yok (şema multi-tenant hazır) |
-| Muhasebe entegrasyonu | Olgunluk fazı | ❌ Yok |
 
 ## B) Kullanıcı memnuniyeti kalite ilkeleri (şikayet analizinden)
 
@@ -342,10 +351,70 @@ Neden önemli: kira/fatura kontrol edilemez, ama bu ikisi **edilir** — dünyad
 - **Konsept şablonları** — sadece "Pizzacı" var, tek örnekle yarım kaldı; ya çoğaltılmalı ya beklemeye alınmalı.
 - **Personel karşılaştırma/gamification** — "fazla" diye değerlendirilmişti, ama Karekodgarson tam da bunu satış argümanı yapıyor; **doğru bir bahis çıkmış.**
 
-### M5) Önerilen sıradaki 3 iş
+### M5) Önerilen sıradaki 3 iş — ✅ üçü de tamamlandı (2026-07-28 itibarıyla)
 
-1. **Prime cost satırı** — küçük iş, büyük değer; parçalar zaten elimizde (§M3).
-2. **Sayım ekranı** — fire/kaçak radarının kilidini açar, §L'deki asıl hedef.
-3. **Raporlar sayfası** — tamamen boş duran en büyük delik.
+1. ~~**Prime cost satırı**~~ — Ana Sayfa'da var (malzeme + işçilik / ciro).
+2. ~~**Sayım ekranı**~~ — `/sayim` var: teorik stok vs sayılan, fark tutarı, onaylı işleme.
+3. ~~**Raporlar sayfası**~~ — 6 sütunlu tam rapor ekranı.
 
 **Kaynaklar:** [Nory 2026 rehberi](https://www.nory.ai/blog/restaurant-tech-stack-2026) · [Nory ABD açılımı](https://restauranttechnologynews.com/2026/03/nory-expands-into-u-s-as-restaurants-seek-ai-tools-to-manage-rising-costs/) · [Restaurant365 prime cost](https://www.restaurant365.com/blog/how-to-calculate-prime-cost-in-a-restaurant/) · [Lightspeed KPI listesi](https://www.lightspeedhq.com/blog/restaurant-kpis/) · [Almanya POS liderleri](https://www.zendikt.com/top-10-restaurant-pos-software/germany/) · [Türkiye karşılaştırma](https://karekodgarson.com/blog/en-iyi-restoran-yazilimlari-2026-kapsamli-karsilastirma) · [Restoran tech büyüme](https://www.landbase.com/blog/fastest-growing-restaurant-tech) · [POS eksik özellik şikayetleri](https://getquantic.com/restaurant-pos-system-features/)
+
+## N) Mevzuat uyumu + kapasite/personel analizi — 8 boşluk kapatıldı (2026-07-28)
+
+§M'de yarım kalan pazar kıyas araştırması tamamlandı; envanterle karşılaştırılıp gerçekten
+eksik olan 8 madde bulundu ve kapatıldı. Aşağıdakiler **yapıldı**, §A tablosuna da işlendi.
+
+### N1) Ticari bulgu — e-Adisyon giriş biletidir
+
+Ürünü satılabilir kılan asıl kaldıraç mevzuat zorunluluğu:
+
+- **e-Adisyon**, masa servisli lokanta/kafe/bar için **1 Temmuz 2022'den beri zorunlu**;
+  e-Fatura veya e-Arşiv mükellefi olan her yeme-içme işletmesi otomatik kapsama giriyor.
+  2026 e-Fatura eşiği 3 milyon TL ciro (e-ticaret yapanlarda 500 bin TL). Uyumsuzluk cezası
+  **belge başına 17.000 TL**.
+- 7524 sayılı Kanun gereği adisyon yazılımının yeni nesil ÖKC ile entegre çalışması şart.
+- **Kritik teknik detay:** GİB özel entegratörü olmaya gerek yok — mevcut bir entegratörün
+  API'sine bağlanmak yeterli. BİS raporu, bağımsız denetim ve GİB başvurusu yükü entegratörde.
+- Pazar: ~113.540 yeme-içme işletmesi. Rakip fiyatları: Menulux 250–1.250 TL/ay,
+  robotPOS 3.000–5.000 TL/ay/şube.
+
+**Konumlandırma uyarısı:** Pazar kalabalık (robotPOS, Menulux, Adisyo, vRest, OxyMenu,
+Tabpad, EnoMenu). "Bir adisyon programı daha" olarak girilirse kaybedilir. Satış cümlesi
+*"kaçağını bulan sistem, e-Adisyon zaten içinde"* olmalı — §L'deki fire/kaçak radarı
+farklılaştırıcı, e-Adisyon giriş bileti.
+
+### N2) Yapılanlar
+
+| # | İş | Nerede |
+|---|---|---|
+| 1 | **Hakediş mutabakatı** — sağlayıcı bazlı komisyon/valör, beklenen vs yatan, gecikme alarmı | Kasa "Yoldaki para", Ayarlar sağlayıcı tablosu, ödeme anında sağlayıcı seçimi |
+| 2 | **Alerjen** — eksik 4 grup (Kereviz, Sülfit, Acı bakla, Yumuşakça) eklendi, 14 tamamlandı | `lib/allergens.ts`, Menü uyum bandı, QR menü |
+| 3 | **Kalori** — eksik ürünleri gösteren uyum paneli | Menü |
+| 4 | **KVKK** — aydınlatma metni, saklama süresi, anonimleştirme | Ayarlar, Rezervasyon, QR menü |
+| 5 | **Puantaj** — haftalık cetvel, 45 saat aşımı, fazla mesai onayı, 270 saat tavanı, yıllık izin | Vardiya > Puantaj & izin |
+| 6 | **Menü mühendisliği** — Kasavana-Smith 4 kadran + kadran başına aksiyon | Raporlar sütun 2 |
+| 7 | **RevPASH** — koltuk-saat başına ciro, devir hızı, ortalama masa süresi | Raporlar sütun 3, masaya `seat_count` |
+| 8 | **Satış tahmini + personel planı** — 14 gün, takvim farkındalıklı, hedef işçilik oranı | Vardiya > Plan |
+
+Ayrıca: mutfak/bar ekranında adisyonlar yatay şeride alındı (alta düşmüyor), üstte
+kapanmamış/kapanmış sayacı eklendi.
+
+### N3) Alerjen beyanında güvenlik kuralı
+
+QR menüde **"Alerjen içermez" yalnızca işletmeci listeyi bilerek onayladıysa** (ya da reçetede
+etiketli malzeme varsa) yazılır. Sadece reçetesi olmak yetmez: malzemeler etiketlenmemişse
+reçeteden boş liste çıkar, bu "yok" değil **"bilinmiyor"**dur. İlk sürümde bu ayrım yoktu ve
+ununda gluten, peynirinde süt olan pizzaya "Alerjen içermez" yazdı — çölyak hastası için
+hiçbir şey yazmamaktan tehlikeli. Emin olunmayan durumda ekran susar, eksik Menü'deki uyum
+panelinde işletmeciye söylenir. **Bu kural bozulmamalı.**
+
+### N4) Bilinen eksikler (bu turda kapatılmadı)
+
+- **Dini bayram tarihleri hesaplanmış değerlerdir**, Diyanet takvimiyle bir gün oynayabilir;
+  yas günü ve Ramazan ayı için `public_holidays`'e kayıt girecek ekran yok.
+- **Personel yemeği/içeceği** hâlâ satıştan ayrışmıyor (§L(E)) — fire/kaçak oranını ve satış
+  tahminini bozmaya devam ediyor.
+- Fiş/ESC-POS yazıcı, paket servis entegrasyonu, çevrimdışı çalışma, muhasebe entegrasyonu:
+  değişmedi.
+- Proje genelinde ~40 lint hatası var (`react-hooks/set-state-in-effect`); bugünkü işten
+  değil, mevcut desenin sonucu — toplu düzeltme ayrı bir iş.
