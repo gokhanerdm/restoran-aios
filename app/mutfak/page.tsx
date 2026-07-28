@@ -176,6 +176,11 @@ function MutfakInner() {
     // (hesap gerçekten kapanana kadar) yeri değişmez, listenin sonuna atlamaz — mutfak "az önce
     // baktığım masa nerede" diye aramasın. Yeni masa her zaman en sona eklenir.
     .sort((a, b) => a.firstSentAt - b.firstSentAt);
+  // Mutfak açısından "kapanmış" = tüm kalemleri teslim edilmiş adisyon. Hesabı gerçekten
+  // kapanan adisyon bu ekrana zaten hiç düşmez (sorgu yalnızca status='open' çekiyor),
+  // o yüzden buradaki ayrım "işim bitti mi" ayrımıdır.
+  const kapanmamisSayi = tableGroups.filter((g) => g.pendingCount > 0).length;
+  const kapanmisSayi = tableGroups.length - kapanmamisSayi;
   // Bir masanın tüm ürünleri aynı anda çıksın diye: en uzun pişme süresi olan ürün hemen başlar,
   // kısa sürenler o kadar geç başlar ki hepsi birlikte biter. Sadece bilgi amaçlı — buton kilitlenmez.
   const startHint = (c: Card, maxPrep: number | null): string | null => {
@@ -187,19 +192,31 @@ function MutfakInner() {
 
   return (
     <StaffLoginGate restaurantId={restaurantId} roles={["mutfak", "bar"]}>
-    <div style={{ minHeight: "100vh", background: "var(--canvas)" }}>
-      <div style={{ padding: "18px 16px 40px" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} adisyon · ${visible.filter((c) => !c.servedAt).length} bekleyen kalem`}</div>
+    {/* Ekran yüksekliği sabit: adisyon şeridi yatayda kayar, sayfa dikeyde kaymaz.
+        Mutfakta tablet duvarda/tezgâhta sabit durduğu için aşağı kaydırmak zor — iş
+        alta düşmesin, sağa doğru dizilsin. */}
+    <div style={{ height: "100vh", background: "var(--canvas)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <div style={{ padding: "18px 16px 16px", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 18, minWidth: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)", flexShrink: 0 }}>{screenTitle}</div>
+            {/* Sayaçlar uzaktan okunacak: mutfaktaki kişi ekrana yaklaşmadan "kaç iş var"
+                görebilmeli, o yüzden rakamlar büyük ve etiketler küçük. */}
+            {!loading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+                <Sayac n={kapanmamisSayi} l="kapanmamış" renk={kapanmamisSayi > 0 ? "var(--ink-green)" : "var(--muted-2)"} />
+                <Sayac n={kapanmisSayi} l="kapanmış" renk="var(--muted-2)" />
+                <Sayac n={visible.filter((c) => !c.servedAt).length} l="bekleyen kalem" renk="var(--muted)" />
+              </div>
+            )}
+            {loading && <div style={{ fontSize: 13, color: "var(--muted)" }}>Yükleniyor…</div>}
           </div>
           <StaffProfileBadge restaurantId={restaurantId} />
         </div>
-        {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{err}</div>}
+        {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13, flexShrink: 0 }}>{err}</div>}
 
         {stations.length > 0 && (
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 14, paddingBottom: 2 }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 14, paddingBottom: 2, flexShrink: 0 }}>
             <button onClick={() => setSelectedStation(ALL)} style={tabBtn(selectedStation === ALL)}>Tümü</button>
             {stations.map((s) => (
               <button key={s.id} onClick={() => setSelectedStation(s.id)} style={tabBtn(selectedStation === s.id)}>{s.name}</button>
@@ -207,17 +224,27 @@ function MutfakInner() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 12, marginTop: 16, flex: 1, minHeight: 0, overflowX: "auto", overflowY: "hidden", alignItems: "stretch", paddingBottom: 6 }}>
           {tableGroups.map((g) => {
             const oldestMin = g.oldestPendingAt != null ? Math.max(0, Math.floor(((now || g.oldestPendingAt) - g.oldestPendingAt) / 60000)) : null;
+            const bitti = g.pendingCount === 0;
             return (
-              <div key={g.tableId} style={{ borderRadius: 16, padding: 16, background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--line)" }}>
+              <div key={g.tableId} style={{
+                borderRadius: 16, padding: 16, background: "var(--card)",
+                // Biten adisyon soluklaşır ama yerinde kalır — sıra bozulmadan "bu bitti" der.
+                border: `1px solid ${bitti ? "var(--line)" : "var(--brand)"}`,
+                boxShadow: "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)",
+                flexShrink: 0, width: 292, boxSizing: "border-box",
+                display: "flex", flexDirection: "column", minHeight: 0, opacity: bitti ? 0.62 : 1,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
                   <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ink-green)" }}>{tableName(g.tableId === "__yok__" ? null : g.tableId)}</span>
                   <span className="tnum" style={{ fontSize: 12, color: oldestMin != null && oldestMin >= 10 ? "var(--danger)" : "var(--muted)" }}>
                     {oldestMin != null ? `${oldestMin} dk` : "✓ Tamamlandı"}
                   </span>
                 </div>
+                {/* Kalem çoksa kart kendi içinde dikey kayar; şerit yataylığını bozmaz. */}
+                <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
                 {g.items.map((c) => {
                   const stage = c.servedAt ? "teslim" : c.readyAt ? "hazir" : c.preparingAt ? "hazirlaniyor" : "yeni";
                   const mins = elapsedMin(c.sentAt);
@@ -250,14 +277,25 @@ function MutfakInner() {
                     </div>
                   );
                 })}
+                </div>
               </div>
             );
           })}
-          {!loading && !err && tableGroups.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, gridColumn: "1 / -1" }}>Bekleyen kalem yok.</div>}
+          {!loading && !err && tableGroups.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13 }}>Bekleyen kalem yok.</div>}
         </div>
       </div>
     </div>
     </StaffLoginGate>
+  );
+}
+
+// Başlıktaki sayaç: rakam büyük, etiket küçük — mutfakta ekrana bakan kişi uzaktan okusun.
+function Sayac({ n, l, renk }: { n: number; l: string; renk: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+      <span className="tnum" style={{ fontSize: 22, fontWeight: 700, letterSpacing: "-0.5px", color: renk, lineHeight: 1 }}>{n}</span>
+      <span style={{ fontSize: 12, color: "var(--muted)" }}>{l}</span>
+    </div>
   );
 }
 
