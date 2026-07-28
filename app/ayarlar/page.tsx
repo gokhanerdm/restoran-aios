@@ -124,7 +124,6 @@ export default function Ayarlar() {
 
   const [providers, setProviders] = useState<Provider[]>([]);
   const [provDrafts, setProvDrafts] = useState<Record<string, { rate: string; days: string }>>({});
-  const [provSaved, setProvSaved] = useState(false);
 
   const load = useCallback(async () => {
     const restId = await getMyRestaurantId();
@@ -151,13 +150,18 @@ export default function Ayarlar() {
 
   useEffect(() => { load(); }, [load]);
 
+  // PAGE_STANDARDS #2: bir panelde tek Kaydet. Bu buton panelin tamamını kaydeder —
+  // varsayılan ayarlar + ödeme sağlayıcılarının komisyon/valör satırları birlikte.
   const saveSettings = async () => {
     if (!restaurantId) return;
     setSaveError(null);
     const { error } = await supabase.from("restaurant_settings").upsert({ restaurant_id: restaurantId, ...settings }, { onConflict: "restaurant_id" });
     if (error) { setSaveError(error.message); return; }
+    const provErr = await saveProviders();
+    if (provErr) { setSaveError(provErr); return; }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+    await load();
   };
 
   const saveCategoryRates = async () => {
@@ -186,8 +190,8 @@ export default function Ayarlar() {
     setAnonBusy(false);
   };
 
-  const saveProviders = async () => {
-    setSaveError(null);
+  // Kendi butonu yok — saveSettings'in parçası. Hata varsa mesajı döner, yoksa null.
+  const saveProviders = async (): Promise<string | null> => {
     const results = await Promise.all(providers.map((p) => {
       const d = provDrafts[p.id];
       return supabase.from("payment_providers").update({
@@ -197,11 +201,7 @@ export default function Ayarlar() {
         updated_at: new Date().toISOString(),
       }).eq("id", p.id);
     }));
-    const firstError = results.find((r) => r.error)?.error;
-    if (firstError) { setSaveError(firstError.message); return; }
-    setProvSaved(true);
-    setTimeout(() => setProvSaved(false), 2000);
-    await load();
+    return results.find((r) => r.error)?.error?.message ?? null;
   };
 
   // Mevcut load()'a dokunmadan, restoran kimliği hazır olunca işletme panelini doldur.
@@ -363,11 +363,6 @@ export default function Ayarlar() {
                 >{p.is_active ? "gizle" : "aç"}</button>
               </div>
             ))}
-            <div style={{ marginTop: 10 }}>
-              <button onClick={saveProviders} style={{ ...btnPrimary, padding: "8px 16px", fontSize: 13 }}>Sağlayıcıları kaydet</button>
-              {provSaved && <span style={{ marginLeft: 10, fontSize: 12.5, color: "var(--success)" }}>Kaydedildi</span>}
-            </div>
-
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 14, lineHeight: 1.6 }}>
               Restoran bilgisi, masa &amp; salon düzeni (Salonlar sayfasında) ve sabit giderlerin tam dökümü ileride buraya eklenecek.
             </div>

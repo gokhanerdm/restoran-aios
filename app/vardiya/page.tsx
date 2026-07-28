@@ -660,11 +660,12 @@ export default function Vardiya() {
 
                     {izinFor === c.staff_id ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
-                        <select value={izinTip} onChange={(e) => setIzinTip(e.target.value)} style={{ ...inp, padding: "5px 8px", fontSize: 12, width: 108 }}>
+                        {/* PAGE_STANDARDS #1b: ekle formunda her alan Enter'a basınca da kaydeder. */}
+                        <select value={izinTip} onChange={(e) => setIzinTip(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 8px", fontSize: 12, width: 108 }}>
                           {LEAVE_TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
                         </select>
-                        <input type="date" value={izinBas} onChange={(e) => setIzinBas(e.target.value)} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
-                        <input type="date" value={izinBit} onChange={(e) => setIzinBit(e.target.value)} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
+                        <input type="date" value={izinBas} onChange={(e) => setIzinBas(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
+                        <input type="date" value={izinBit} onChange={(e) => setIzinBit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
                         <button onClick={izinKaydet} style={btnSmall}>Kaydet</button>
                         <button onClick={() => setIzinFor(null)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}>Vazgeç</button>
                       </div>
