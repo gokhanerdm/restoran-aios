@@ -21,6 +21,11 @@ type Card = {
   stationId: string | null; sentAt: string; preparingAt: string | null; readyAt: string | null;
   servedAt: string | null; prepMinutes: number | null;
 };
+// Personel yemeği — masada değil mutfaktan girilir (Gökhan: "personel yemeğinin masada
+// ne işi var"). Stoktan aynı anda düşer (mark_item_ready), satışa değil gidere yazılır
+// (bkz. Kasa ekranı "Personel yemeği (maliyet)" satırı).
+type MealItem = { id: string; name: string; sale_price: number };
+type StaffOpt = { id: string; full_name: string };
 
 const ALL = "__all__";
 
@@ -44,6 +49,14 @@ function MutfakInner() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [now, setNow] = useState(0);
+  const [mealItems, setMealItems] = useState<MealItem[]>([]);
+  const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([]);
+  const [mealOpen, setMealOpen] = useState(false);
+  const [mealItemId, setMealItemId] = useState("");
+  const [mealStaffId, setMealStaffId] = useState("");
+  const [mealQty, setMealQty] = useState("1");
+  const [mealBusy, setMealBusy] = useState(false);
+  const [mealDone, setMealDone] = useState<string | null>(null);
   // Link ?istasyon=Bar gibi bir kod taşıyorsa, ilk veri gelince sekmeyi otomatik ona kilitle
   // (bar tableti hep Bar'ı görsün, her seferinde sekmeye dokunması gerekmesin) — ama sadece bir kez,
   // kullanıcı sonradan "Tümü"ne geçerse her 4sn'lik tazelemede geri zıplamasın.
@@ -56,15 +69,18 @@ function MutfakInner() {
       const restId = rest.id;
       setRestaurantId(restId);
 
-      const [{ data: t, error: tErr }, { data: st, error: stErr }, { data: cats, error: cErr }, { data: items, error: iErr }, { data: orders, error: oErr }] = await Promise.all([
+      const [{ data: t, error: tErr }, { data: st, error: stErr }, { data: cats, error: cErr }, { data: items, error: iErr }, { data: orders, error: oErr }, { data: staffRows }] = await Promise.all([
         supabase.from("restaurant_tables").select("id, name").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
         supabase.from("menu_categories").select("id, default_station_id").eq("restaurant_id", restId).is("deleted_at", null),
-        supabase.from("menu_items").select("id, name, category_id, station_override_id, prep_minutes").eq("restaurant_id", restId).is("deleted_at", null),
+        supabase.from("menu_items").select("id, name, category_id, station_override_id, prep_minutes, sale_price, is_active").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("orders").select("id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at)").eq("restaurant_id", restId).eq("status", "open"),
+        supabase.from("staff_members").select("id, full_name").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null).order("full_name"),
       ]);
       const anyErr = tErr ?? stErr ?? cErr ?? iErr ?? oErr;
       if (anyErr) { setErr(anyErr.message); setLoading(false); return; }
+      setStaffOpts((staffRows as StaffOpt[]) ?? []);
+      setMealItems((((items as { id: string; name: string; sale_price: number; is_active: boolean }[]) ?? []).filter((m) => m.is_active)).map((m) => ({ id: m.id, name: m.name, sale_price: m.sale_price })));
 
       setTables((t as TableRow[]) ?? []);
       const stationRows = (st as Station[]) ?? [];
@@ -153,6 +169,30 @@ function MutfakInner() {
     await load();
   };
 
+  // Personel yemeği — mutfaktan girilir, stoktan aynı anda düşer. mark_item_ready'ye
+  // bağlanıyor (2026-07-28 gecesi 'personel' durumunu da işleyecek şekilde genişletildi):
+  // aynı RPC hem reçeteyi stoktan düşürüyor hem de tek yerden yönetiliyor.
+  const addStaffMeal = async () => {
+    if (!restaurantId || !mealItemId || !mealStaffId) return;
+    const qty = Math.max(1, parseInt(mealQty, 10) || 1);
+    setMealBusy(true);
+    setErr(null);
+    const { data: orderId, error: orderErr } = await supabase.rpc("get_or_create_staff_meal_order", { p_restaurant_id: restaurantId });
+    if (orderErr || !orderId) { setErr(orderErr?.message ?? "Personel siparişi açılamadı"); setMealBusy(false); return; }
+    const meal = mealItems.find((m) => m.id === mealItemId);
+    const { data: item, error: insErr } = await supabase.from("order_items").insert({
+      restaurant_id: restaurantId, order_id: orderId, menu_item_id: mealItemId,
+      quantity: qty, unit_price: meal?.sale_price ?? 0, status: "personel",
+      staff_meal_for_id: mealStaffId, sent_at: new Date().toISOString(),
+    }).select("id").single();
+    if (insErr || !item) { setErr(insErr?.message ?? "Personel yemeği eklenemedi"); setMealBusy(false); return; }
+    const staff = getStaffSession();
+    await supabase.rpc("mark_item_ready", { p_order_item_id: item.id, p_staff_id: staff?.id ?? null });
+    setMealDone(`${staffOpts.find((s) => s.id === mealStaffId)?.full_name ?? "?"} — ${qty}× ${meal?.name ?? "?"}`);
+    setMealItemId(""); setMealQty("1"); setMealBusy(false);
+    setTimeout(() => setMealDone(null), 3000);
+  };
+
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? "?";
   const visible = selectedStation === ALL ? cards : cards.filter((c) => c.stationId === selectedStation);
   const screenTitle = selectedStation === ALL ? "Sipariş Ekranı" : stations.find((s) => s.id === selectedStation)?.name ?? "Sipariş Ekranı";
@@ -211,8 +251,18 @@ function MutfakInner() {
             )}
             {loading && <div style={{ fontSize: 13, color: "var(--muted)" }}>Yükleniyor…</div>}
           </div>
-          <StaffProfileBadge restaurantId={restaurantId} />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button onClick={() => { setMealOpen(true); setErr(null); }} style={{ border: "1px solid var(--line-2)", borderRadius: 980, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, background: "var(--card)", color: "var(--ink-green)" }}>
+              Personel yemeği ekle
+            </button>
+            <StaffProfileBadge restaurantId={restaurantId} />
+          </div>
         </div>
+        {mealDone && (
+          <div style={{ marginTop: 10, padding: "8px 14px", borderRadius: 10, background: "var(--brand-strong)", color: "#fff", fontSize: 12.5, flexShrink: 0 }}>
+            Eklendi — {mealDone}
+          </div>
+        )}
         {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13, flexShrink: 0 }}>{err}</div>}
 
         {stations.length > 0 && (
@@ -284,6 +334,41 @@ function MutfakInner() {
           {!loading && !err && tableGroups.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13 }}>Bekleyen kalem yok.</div>}
         </div>
       </div>
+
+      {mealOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setMealOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Personel yemeği ekle</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
+              Stoktan hemen düşer. Ciroya girmez, Kasa&apos;da ayrı gider olarak görünür.
+            </div>
+
+            <label style={mealLbl}>Kim yiyor</label>
+            <select value={mealStaffId} onChange={(e) => setMealStaffId(e.target.value)} style={mealInp}>
+              <option value="">Personel seç…</option>
+              {staffOpts.map((s) => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+            </select>
+
+            <label style={{ ...mealLbl, marginTop: 10 }}>Ne yiyor</label>
+            <select value={mealItemId} onChange={(e) => setMealItemId(e.target.value)} style={mealInp}>
+              <option value="">Ürün seç…</option>
+              {mealItems.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+
+            <label style={{ ...mealLbl, marginTop: 10 }}>Adet</label>
+            <input value={mealQty} onChange={(e) => setMealQty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && addStaffMeal()} inputMode="numeric" className="tnum" style={mealInp} />
+
+            {err && <div style={{ marginTop: 10, fontSize: 12, color: "var(--danger)" }}>{err}</div>}
+
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button onClick={addStaffMeal} disabled={mealBusy || !mealItemId || !mealStaffId} style={{ ...stageBtnSm, flex: 1, padding: "10px 14px", fontSize: 13.5, opacity: mealBusy || !mealItemId || !mealStaffId ? 0.5 : 1 }}>
+                {mealBusy ? "…" : "Ekle"}
+              </button>
+              <button onClick={() => setMealOpen(false)} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: "var(--muted)", padding: "10px 14px" }}>Vazgeç</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </StaffLoginGate>
   );
@@ -304,3 +389,5 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
   background: active ? "var(--ink-green)" : "var(--card)", color: active ? "#fff" : "var(--ink-green)",
 });
 const stageBtnSm: React.CSSProperties = { flexShrink: 0, border: "none", borderRadius: 980, padding: "7px 12px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, fontWeight: 500 };
+const mealLbl: React.CSSProperties = { display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 4 };
+const mealInp: React.CSSProperties = { width: "100%", boxSizing: "border-box", border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 10px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };

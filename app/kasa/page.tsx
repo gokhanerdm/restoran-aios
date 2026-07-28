@@ -31,6 +31,10 @@ type Settlement = {
   expected_net_total: number; received_total: number; outstanding: number; overdue: number;
 };
 type Receipt = { id: string; provider_id: string; amount: number; note: string | null };
+// Personel yemeği kalıcı bir "personel" kanalı siparişinde durur (2026-07-29,
+// get_or_create_staff_meal_order) — hiç kapanmadığı için closedOrders'ın ids listesine
+// GİRMEZ, o yüzden günün items'ından değil ayrı bir RPC'den okunur.
+type StaffMeal = { staff_id: string | null; full_name: string; adet: number; menu_tutari: number; maliyet: number };
 // Garson parayı aldı ama kasa henüz onaylamadı (ROADMAP §O11 — "garson parayı kasaya
 // teslim etmeden masa kapanmaz"). Bu liste boşalana kadar o para hâlâ garsonun elinde sayılır.
 type PendingCashier = {
@@ -68,6 +72,7 @@ export default function Kasa() {
   const [rcAmount, setRcAmount] = useState("");
   const [pendingCashier, setPendingCashier] = useState<PendingCashier[]>([]);
   const [confirmBusy, setConfirmBusy] = useState<string | null>(null);
+  const [staffMeals, setStaffMeals] = useState<StaffMeal[]>([]);
 
   const [closeStep, setCloseStep] = useState(false);
   const [countedInput, setCountedInput] = useState("");
@@ -86,7 +91,7 @@ export default function Kasa() {
     setRestaurantId(restId);
     const { start, end } = gunSiniri(tarih);
 
-    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }, { data: setl }, { data: rcps }] = await Promise.all([
+    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }, { data: setl }, { data: rcps }, { data: meals }] = await Promise.all([
       supabase.from("orders").select("id, total_amount, party_size, channel").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
       supabase.from("restaurant_settings").select("default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
@@ -98,6 +103,7 @@ export default function Kasa() {
       supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
       supabase.rpc("settlement_status", { p_restaurant: restId, p_day: tarih }),
       supabase.from("settlement_receipts").select("id, provider_id, amount, note").eq("restaurant_id", restId).eq("received_date", tarih),
+      supabase.rpc("staff_meal_cost", { p_restaurant: restId, p_from: start, p_to: end }),
     ]);
 
     const orderRows = (ords as ClosedOrder[]) ?? [];
@@ -111,6 +117,7 @@ export default function Kasa() {
     setKritikSayisi(((usage as { par_level: number; current_stock: number }[]) ?? []).filter((u) => u.par_level > 0 && u.current_stock <= u.par_level).length);
     setSettlements((setl as Settlement[]) ?? []);
     setReceipts((rcps as Receipt[]) ?? []);
+    setStaffMeals((meals as StaffMeal[]) ?? []);
 
     const costMap: Record<string, number> = {};
     ((rec as unknown as { menu_item_id: string; quantity: number; ingredients: { current_unit_cost: number } | null }[]) ?? []).forEach((r) => {
@@ -182,8 +189,9 @@ export default function Kasa() {
   // ama müşteriye satılmadı. Bilerek receteMaliyeti'ne KATILMIYOR — o rakam food cost
   // yüzdesini besliyor; personel yemeğini oraya koymak menünün maliyetini olduğundan
   // yüksek gösterir. Kârdan ise düşülür, çünkü gerçek bir gider.
-  const personeller = items.filter((i) => i.status === "personel");
-  const personelYemegi = personeller.reduce((s, i) => s + i.quantity * (recipeCost[i.menu_item_id] ?? 0), 0);
+  // Kalıcı "personel" kanalı siparişinde durduğu için (hiç kapanmaz) closedOrders/items'tan
+  // değil, staff_meal_cost RPC'sinden okunur — bkz. get_or_create_staff_meal_order.
+  const personelYemegi = staffMeals.reduce((s, m) => s + Number(m.maliyet), 0);
   const kar = netSatis - receteMaliyeti - sarf - sabit - personelYemegi;
   const marj = netSatis > 0 ? (kar / netSatis) * 100 : 0;
 
