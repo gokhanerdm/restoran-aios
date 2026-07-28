@@ -14,7 +14,11 @@ import { useConfirm } from "./components/useConfirm";
 // salon sekmeleri + kasa hareketi (nakit giriş/çıkış) bir arada (Gökhan kararı, 2026-07-13).
 
 type Area = { id: string; name: string; sort_order: number };
-type TableStatus = "empty" | "occupied" | "bill_requested" | "reserved";
+// kasa_bekliyor: garson ödemeyi aldı, kasa henüz onaylamadı (ROADMAP §O11 — garson
+// parayı kasaya teslim etmeden masa kapanmaz). toplanacak: kasa onayladı, garson temizleyip
+// "hazır" (empty) diyene kadar bu durumda kalır. İkisi de restaurant_settings.table_flow_mode
+// = 'basit' olan işletmelerde hiç oluşmaz (confirm_cashier_payment direkt 'empty'e geçer).
+type TableStatus = "empty" | "occupied" | "bill_requested" | "reserved" | "kasa_bekliyor" | "toplanacak";
 type TableRow = {
   id: string; name: string; area_id: string | null; status: TableStatus; sort_order: number;
   position_x: number | null; position_y: number | null;
@@ -73,7 +77,9 @@ export default function KasaPage() {
     const [{ data: a }, { data: t }, { data: o }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id, seat_count").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
+      // pending_cashier da dahil: kasa onayı bekleyen masada tutar/süre hâlâ görünsün diye
+      // (ROADMAP §O11) — sipariş artık 'open' değil ama masa üzerindeki hesap hâlâ canlı.
+      supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", restId).in("status", ["open", "pending_cashier"]),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
@@ -435,6 +441,10 @@ export default function KasaPage() {
                 </div>
                 {ctxMenu.table.status === "occupied" || ctxMenu.table.status === "bill_requested" ? (
                   <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>Bu masa dolu — silmeden önce hesabı kapatın.</div>
+                ) : ctxMenu.table.status === "kasa_bekliyor" ? (
+                  <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>Kasa onayı bekleniyor — silmeden önce onaylanmalı.</div>
+                ) : ctxMenu.table.status === "toplanacak" ? (
+                  <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>Masa toplanacak — silmeden önce temizlenip hazır işaretlenmeli.</div>
                 ) : (
                   <button
                     onClick={() => { const t = ctxMenu.table!; setCtxMenu(null); deleteTable(t); }}
@@ -480,10 +490,18 @@ function TableBox({
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   const merged = !!table.merged_into_table_id;
-  const occupied = table.status === "occupied" || table.status === "bill_requested";
+  // kasa_bekliyor da "occupied" görünümünde kalır (tutar/süre hâlâ gösterilir) ama rengiyle
+  // ayrışır — garsonun elinde bekleyen para, dikkat çekmesi gereken bir durum (ROADMAP §O11).
+  const occupied = table.status === "occupied" || table.status === "bill_requested" || table.status === "kasa_bekliyor";
   const reserved = table.status === "reserved";
+  const toplanacak = table.status === "toplanacak";
 
-  const dotColor = merged ? "var(--muted-2)" : table.status === "bill_requested" ? "var(--gold)" : table.status === "occupied" ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
+  const dotColor = merged ? "var(--muted-2)"
+    : table.status === "kasa_bekliyor" ? "var(--danger)"
+    : table.status === "bill_requested" ? "var(--gold)"
+    : table.status === "occupied" ? "var(--brand)"
+    : toplanacak ? "var(--gold-text)"
+    : reserved ? "var(--info)" : "var(--muted-2)";
 
   const onPointerDown = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
@@ -522,7 +540,7 @@ function TableBox({
       style={{
         position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: 14, padding: 12,
         cursor: mergeMode ? "pointer" : "grab", touchAction: "none", userSelect: "none",
-        background: occupied ? "var(--card)" : reserved ? "var(--info-bg)" : "var(--recede)",
+        background: occupied ? "var(--card)" : reserved ? "var(--info-bg)" : toplanacak ? "var(--line)" : "var(--recede)",
         border: mergeSelected ? "2px solid var(--ink-green)" : selected ? "2px solid var(--brand)" : "1px solid var(--line)",
         boxSizing: "border-box", opacity: merged ? 0.6 : 1,
       }}
@@ -539,13 +557,15 @@ function TableBox({
       ) : occupied ? (
         <>
           <div className="tnum" style={{ fontSize: 17, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>{money(total)}</div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
-            <span>{order?.party_size ?? 1} kişi</span>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: table.status === "kasa_bekliyor" ? "var(--danger)" : "var(--muted)", marginTop: 4 }}>
+            <span>{table.status === "kasa_bekliyor" ? "Kasa bekliyor" : `${order?.party_size ?? 1} kişi`}</span>
             <span className="tnum">{durationLabel}</span>
           </div>
         </>
       ) : reserved ? (
         <div style={{ fontSize: 12, color: "var(--info)", marginTop: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{table.reservation_note || "Rezerve"}</div>
+      ) : toplanacak ? (
+        <div style={{ fontSize: 12.5, color: "var(--gold-text)", marginTop: 14 }}>Toplanacak</div>
       ) : (
         <div style={{ fontSize: 12.5, color: "var(--muted-2)", marginTop: 14 }}>Boş</div>
       )}
@@ -553,9 +573,10 @@ function TableBox({
       {hover && !mergeMode && (
         <div style={{ position: "absolute", bottom: 6, right: 6, display: "flex", gap: 4 }} onPointerDown={(e) => e.stopPropagation()}>
           {merged && <button onClick={onUnmerge} title="Ayır" style={miniBtn}>Ayır</button>}
-          {!merged && !occupied && !reserved && <button onClick={onReserve} title="Rezerve et" style={miniBtn}>Rzv</button>}
+          {/* toplanacak masa temizlenmeden rezerve edilemez/silinemez — henüz "hazır" değil. */}
+          {!merged && !occupied && !reserved && !toplanacak && <button onClick={onReserve} title="Rezerve et" style={miniBtn}>Rzv</button>}
           {!merged && reserved && <button onClick={onUnreserve} title="Rezervasyonu kaldır" style={miniBtn}>Kaldır</button>}
-          {!merged && !occupied && <button onClick={onDelete} title="Sil" style={miniBtn}><Trash2 size={11} /></button>}
+          {!merged && !occupied && !toplanacak && <button onClick={onDelete} title="Sil" style={miniBtn}><Trash2 size={11} /></button>}
         </div>
       )}
     </div>

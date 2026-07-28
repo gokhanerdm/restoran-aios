@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import { getStaffSession } from "@/lib/supabase/staffSession";
 
 // Kasa — adisyon kapandıktan SONRAKİ her şey: günün parası, nakit giriş/çıkış,
 // sayım, gün kapatma (ROADMAP H; Gökhan kararı 2026-07-27 ile "Gün Sonu"ndan dönüştü).
@@ -30,6 +31,12 @@ type Settlement = {
   expected_net_total: number; received_total: number; outstanding: number; overdue: number;
 };
 type Receipt = { id: string; provider_id: string; amount: number; note: string | null };
+// Garson parayı aldı ama kasa henüz onaylamadı (ROADMAP §O11 — "garson parayı kasaya
+// teslim etmeden masa kapanmaz"). Bu liste boşalana kadar o para hâlâ garsonun elinde sayılır.
+type PendingCashier = {
+  order_id: string; table_id: string | null; table_name: string; total_amount: number;
+  payment_collected_at: string; staff_id: string | null; staff_name: string; minutes_waiting: number;
+};
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
@@ -59,6 +66,8 @@ export default function Kasa() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [rcFor, setRcFor] = useState<string | null>(null);
   const [rcAmount, setRcAmount] = useState("");
+  const [pendingCashier, setPendingCashier] = useState<PendingCashier[]>([]);
+  const [confirmBusy, setConfirmBusy] = useState<string | null>(null);
 
   const [closeStep, setCloseStep] = useState(false);
   const [countedInput, setCountedInput] = useState("");
@@ -123,6 +132,35 @@ export default function Kasa() {
   }, [tarih]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Kasa onayı bekleyen adisyonlar — tarihe bağlı değil, her an geçerli olan canlı durum.
+  // Garsonun elinde bekleyen para olduğu için kısa aralıkla kendini tazeliyor.
+  const loadPendingCashier = useCallback(async () => {
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    const { data } = await supabase.rpc("pending_cashier_orders", { p_restaurant: restId });
+    setPendingCashier((data as PendingCashier[]) ?? []);
+  }, []);
+  useEffect(() => {
+    loadPendingCashier();
+    const id = setInterval(loadPendingCashier, 15000);
+    return () => clearInterval(id);
+  }, [loadPendingCashier]);
+
+  // Kasa onaylıyor — adisyon burada gerçekten kapanır (ROADMAP §O11). Onaydan önceki
+  // tutarsızlık burada fark edilir: garson "1.240 ₺ aldım" demişti, kasa sayınca 1.200 ₺
+  // çıkabilir — bu ekran o farkın müşteri hâlâ oradayken yakalanacağı yer.
+  const confirmCashier = async (orderId: string) => {
+    setConfirmBusy(orderId);
+    setErr(null);
+    const { error } = await supabase.rpc("confirm_cashier_payment", {
+      p_order_id: orderId, p_staff_id: getStaffSession()?.id ?? null, p_note: null,
+    });
+    if (error) { setErr(error.message); setConfirmBusy(null); return; }
+    setConfirmBusy(null);
+    await loadPendingCashier();
+    await load();
+  };
 
   // ---- SORU 1: Gerçek kâr ----
   const aktifler = items.filter((i) => i.status === "active");
@@ -207,6 +245,7 @@ export default function Kasa() {
   // ---- Hüküm ----
   const sorunlar: string[] = [];
   if (!closure) sorunlar.push("Kasa sayımı girilmedi");
+  if (pendingCashier.length > 0) sorunlar.push(`${pendingCashier.length} adisyon kasa onayı bekliyor (${money(pendingCashier.reduce((s, p) => s + Number(p.total_amount), 0))})`);
   if (gecikmisToplam > 0.01) sorunlar.push(`${money(gecikmisToplam)} hakediş gecikti (${gecikenler.map((g) => g.provider_name).join(", ")})`);
   if (acikMasalar.length > 0) sorunlar.push(`${acikMasalar.length} masa hâlâ açık (${acikMasalar.map((t) => t.name).join(", ")})`);
   if (hesapIsteyen.length > 0) sorunlar.push(`${hesapIsteyen.length} masa hesap istedi, kapanmadı`);
@@ -295,6 +334,31 @@ export default function Kasa() {
         )}
       </div>
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>Kaydedilemedi: {err}</div>}
+
+      {/* KASA ONAYI BEKLEYEN ADİSYONLAR — garson parayı kasaya teslim etmeden masa kapanmaz
+          (ROADMAP §O11). Boşken hiç yer kaplamıyor; para bekledikçe en üstte, en dikkat
+          çekici yerde duruyor. */}
+      {pendingCashier.length > 0 && (
+        <div style={{ border: "1px solid var(--danger)", background: "var(--danger-bg)", borderRadius: 14, padding: "14px 18px", marginBottom: 14, flexShrink: 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--danger)", marginBottom: 8 }}>
+            Kasa onayı bekliyor — garsonun elindeki para
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {pendingCashier.map((p) => (
+              <div key={p.order_id} style={{ display: "flex", alignItems: "center", gap: 12, background: "var(--card)", borderRadius: 10, padding: "9px 12px" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{p.table_name}</span>
+                  <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 8 }}>{p.staff_name} · {Math.round(p.minutes_waiting)} dk önce aldı</span>
+                </div>
+                <span className="tnum" style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-green)", flexShrink: 0 }}>{money(p.total_amount)}</span>
+                <button onClick={() => confirmCashier(p.order_id)} disabled={confirmBusy === p.order_id} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 12.5, opacity: confirmBusy === p.order_id ? 0.6 : 1 }}>
+                  {confirmBusy === p.order_id ? "…" : "Onayla"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
         {/* SORU 1 — Gerçek kâr */}

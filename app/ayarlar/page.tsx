@@ -14,6 +14,9 @@ type Settings = {
   role_visibility: RoleVisibility;
   staff_comparison_enabled: boolean;
   purchase_approval_roles: string[];
+  // Masa durumu zinciri (ROADMAP §O1). basit: hesap kapanınca masa direkt boş.
+  // garson_takipli: toplanacak->hazır, karşılama yok. karsilamali: tam zincir.
+  table_flow_mode: "basit" | "garson_takipli" | "karsilamali";
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -24,7 +27,14 @@ const DEFAULT_SETTINGS: Settings = {
   role_visibility: {},
   staff_comparison_enabled: false,
   purchase_approval_roles: ["yonetici"],
+  table_flow_mode: "basit",
 };
+
+const TABLE_FLOW_MODES: { v: Settings["table_flow_mode"]; l: string; d: string }[] = [
+  { v: "basit", l: "Basit", d: "Hesap kapanınca masa direkt boşalır. Hızlı işleyen yerler için." },
+  { v: "garson_takipli", l: "Garson takipli", d: "Kasa onaylayınca masa \"toplanacak\" olur; garson temizleyip \"hazır\" der. Karşılama yok." },
+  { v: "karsilamali", l: "Karşılamalı", d: "Tam zincir: toplanacak → hazır → karşılama sadece hazır masaları görüp müşteriyi oturtur." },
+];
 
 // app/personel/page.tsx'teki ROLES ile aynı liste/etiketler — satın alma onay rolü seçimi için.
 const PURCHASE_ROLES: { v: string; l: string }[] = [
@@ -130,7 +140,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
@@ -336,6 +346,20 @@ export default function Ayarlar() {
               </label>
             ))}
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>Şu an bu, Stok sayfasına erişebilen herkes için geçerli — personel PIN girişine bağlı değil, ileride oraya taşınabilir.</div>
+
+            {/* Masa durumu zinciri (ROADMAP §O1) — hesap kapandıktan sonra masanın nasıl
+                boşaldığını belirler. Kasa onayı kuralı (§O11) modu ne olursa olsun geçerlidir;
+                burada değişen sadece kasa onayından SONRA masanın nereye düştüğü. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Masa akışı</div>
+            {TABLE_FLOW_MODES.map((m) => (
+              <label key={m.v} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+                <input type="radio" name="table_flow_mode" checked={settings.table_flow_mode === m.v} onChange={() => setSettings((s) => ({ ...s, table_flow_mode: m.v }))} style={{ marginTop: 3 }} />
+                <span>
+                  <span style={{ display: "block", color: "var(--ink)" }}>{m.l}</span>
+                  <span style={{ display: "block", fontSize: 11.5, color: "var(--muted-2)", lineHeight: 1.5 }}>{m.d}</span>
+                </span>
+              </label>
+            ))}
 
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 6 }}>Kart ve yemek kartı sağlayıcıları</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>

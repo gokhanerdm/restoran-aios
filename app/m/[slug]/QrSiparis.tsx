@@ -89,6 +89,15 @@ export default function QrOrderCart({
     if (readErr) throw readErr;
     if (open?.id) return open.id as string;
 
+    // Masa 'kasa_bekliyor' ya da 'toplanacak' durumundaysa (ROADMAP §O1/§O11) yeni sipariş
+    // açılmaz — kasa onayı bekleyen bir hesabın üstüne QR'dan sessizce ikinci bir sipariş
+    // binip masa durumunu "occupied"a çekmesin diye. Bu, garsonun elindeki parayı
+    // gözden kaybeder ve kasa onay ekranıyla masa görünümünü tutarsız bırakırdı.
+    const { data: tbl } = await supabase.from("restaurant_tables").select("status").eq("id", tableId).maybeSingle();
+    if (tbl && tbl.status !== "empty" && tbl.status !== "occupied") {
+      throw new Error("Masa şu anda müsait değil, lütfen personelden yardım isteyin.");
+    }
+
     const { data: created, error: insErr } = await supabase
       .from("orders")
       .insert({

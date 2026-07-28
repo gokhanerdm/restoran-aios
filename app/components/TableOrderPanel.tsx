@@ -217,13 +217,17 @@ export default function TableOrderPanel({
   const orderTotal = (o: Order | null) => Math.max(0, grossTotal(o) - discountTotal);
 
   // Kişi sayısı sipariş açılırken zorunlu (BUSINESS_LOGIC #1) — günlük müşteri sayısı buradan hesaplanır.
+  // open_table_order RPC'si masanın gerçekten müsait olduğunu (empty) kendi kontrol eder —
+  // toplanacak/kasa_bekliyor durumundaki bir masaya yanlışlıkla yeni sipariş açılamaz
+  // (ROADMAP §O1). Karşılama ekranı da aynı RPC'yi kullanacak, mantık tek yerde.
   const startOrder = async () => {
     if (!restaurantId || !table || order) return; // zaten açık sipariş varsa ikinci kez açma
     setBusy(true);
     setErr(null);
-    const { error } = await supabase.from("orders").insert({ restaurant_id: restaurantId, table_id: table.id, status: "open", channel: "dine_in", party_size: partySize });
+    const { error } = await supabase.rpc("open_table_order", {
+      p_restaurant_id: restaurantId, p_table_id: table.id, p_party_size: partySize, p_staff_id: staffSession?.id ?? null,
+    });
     if (error) { setErr(error.message); setBusy(false); return; }
-    await supabase.from("restaurant_tables").update({ status: "occupied" }).eq("id", table.id);
     await loadOrder(); onChanged();
     setBusy(false);
     setMenuOpen(true);
@@ -442,10 +446,15 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
+  // Garson ödemeyi tamamladı — ama masa/adisyon henüz KAPANMIYOR (ROADMAP §O11,
+  // Gökhan: "garson parayı kasaya teslim etmeden masa kapanmaz"). Adisyon 'pending_cashier'a
+  // düşer, masa 'kasa_bekliyor' olur; gerçek kapanış Kasa ekranındaki onayla olur — yanlış
+  // alma/sayma müşteri daha masadayken ortaya çıksın diye.
   const closeBill = async () => {
     if (!order) return;
     setBusy(true);
-    await supabase.rpc("close_order", { p_order_id: order.id, p_staff_id: staffSession?.id ?? null });
+    const { error } = await supabase.rpc("mark_order_payment_collected", { p_order_id: order.id, p_staff_id: staffSession?.id ?? null });
+    if (error) { setErr(error.message); setBusy(false); return; }
     setMenuOpen(false); setPayStep(false);
     await loadOrder(); onChanged();
     setBusy(false);
@@ -574,16 +583,17 @@ export default function TableOrderPanel({
     if (amount <= 0) return;
     const closes = amount >= remaining - 0.001;
     const ok = await confirm(
-      `${money(amount)}${tip > 0 ? ` + ${money(tip)} bahşiş` : ""} · ${payLabel(method)} ile ayrılan hesabı ${closes ? "kapatmak" : "kısmi ödemek"} istiyor musunuz?`
+      `${money(amount)}${tip > 0 ? ` + ${money(tip)} bahşiş` : ""} · ${payLabel(method)} ile ayrılan hesabı ${closes ? "kasaya teslim etmek" : "kısmi ödemek"} istiyor musunuz?`
     );
     if (!ok) return;
     setBusy(true); setErr(null);
     // Ayrık hesapta sağlayıcı sorulmaz, türün varsayılanı yazılır — bölünen hesap zaten
     // birden çok onay adımından geçiyor, oraya bir seçim daha koymak akışı boğuyor.
     await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: b.id, amount, method, tip_amount: tip, provider_id: defaultProviderId(method) });
-    // Ayrık hesabın table_id'si NULL olduğu için close_order masa durumuna dokunmaz —
-    // masa, asıl adisyonu kapanana kadar dolu kalır. İstediğimiz de bu.
-    if (closes) await supabase.rpc("close_order", { p_order_id: b.id, p_staff_id: staffSession?.id ?? null });
+    // Ayrık hesabın table_id'si NULL olduğu için masa durumuna dokunulmaz — masa, asıl
+    // adisyon kapanana kadar dolu kalır. Ayrık hesap da aynı kasa onayı disiplininden
+    // geçer (ROADMAP §O11): pending_cashier'a düşer, gerçek kapanış Kasa'da onaylanır.
+    if (closes) await supabase.rpc("mark_order_payment_collected", { p_order_id: b.id, p_staff_id: staffSession?.id ?? null });
     setSplitPayFor(null); setSplitPayAmount(""); setSplitPayTip("");
     await loadSplitBills(); onChanged();
     setBusy(false);
@@ -629,7 +639,22 @@ export default function TableOrderPanel({
       {/* Yükleniyor durumunda bilinçli olarak hiçbir şey göstermiyoruz — bir yazı bile kısa bir
           "önce bu, sonra o" kesintisi gibi hissettiriyordu. Veri gelince doğru ekran tek seferde çıkar. */}
 
-      {table && !loadingOrder && !order && (
+      {/* Masa 'kasa_bekliyor' ya da 'toplanacak' durumundayken yeni sipariş başlatılamaz
+          (ROADMAP §O1/§O11) — açık sipariş yok ama masa da müsait değil. */}
+      {table && !loadingOrder && !order && table.status === "kasa_bekliyor" && (
+        <div style={{ margin: "auto", textAlign: "center" }}>
+          <div style={{ fontWeight: 600, fontSize: 19, color: "var(--ink-green)", marginBottom: 10 }}>{table.name}</div>
+          <div style={{ color: "var(--gold-text)", fontSize: 13.5, lineHeight: 1.6 }}>Ödeme alındı, kasa onayı bekleniyor.<br />Masa kasa onaylayınca temizlenecek.</div>
+        </div>
+      )}
+      {table && !loadingOrder && !order && table.status === "toplanacak" && (
+        <div style={{ margin: "auto", textAlign: "center" }}>
+          <div style={{ fontWeight: 600, fontSize: 19, color: "var(--ink-green)", marginBottom: 10 }}>{table.name}</div>
+          <div style={{ color: "var(--muted)", fontSize: 13.5, marginBottom: 16 }}>Kasa onayladı, masa toplanacak.</div>
+          <button onClick={async () => { setBusy(true); await supabase.rpc("mark_table_ready", { p_table_id: table.id }); onChanged(); setBusy(false); onClosed?.(); }} disabled={busy} style={pillPrimary}>Temizledim, hazır</button>
+        </div>
+      )}
+      {table && !loadingOrder && !order && table.status !== "kasa_bekliyor" && table.status !== "toplanacak" && (
         <div style={{ margin: "auto", textAlign: "center" }}>
           <div style={{ fontWeight: 600, fontSize: 19, color: "var(--ink-green)", marginBottom: 10 }}>{table.name}</div>
           <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>Açık sipariş yok</div>
@@ -928,7 +953,7 @@ export default function TableOrderPanel({
                 ) : (
                   <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 14, marginTop: 6 }}>
                     <div style={{ fontSize: 13.5, color: "var(--ink)", marginBottom: 12 }}>
-                      <b className="tnum">{money(confirmPayment.amount)}</b> · {payLabel(confirmPayment.method)} ile {confirmPayment.amount >= confirmPayment.remaining - 0.001 ? "hesabı kapatmak" : "bu ödemeyi kaydetmek"} istiyor musunuz?
+                      <b className="tnum">{money(confirmPayment.amount)}</b> · {payLabel(confirmPayment.method)} ile {confirmPayment.amount >= confirmPayment.remaining - 0.001 ? "hesabı kasaya teslim etmek" : "bu ödemeyi kaydetmek"} istiyor musunuz?
                     </div>
                     {providersFor(confirmPayment.method).length > 1 && (
                       <div style={{ marginBottom: 12 }}>
