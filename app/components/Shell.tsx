@@ -17,6 +17,7 @@ import {
   Clock,
   Settings,
   LogOut,
+  AlertTriangle,
 } from "lucide-react";
 
 // Adisyon = servis (salon/masa/açık hesap, hesap alma).
@@ -28,6 +29,7 @@ const nav = [
   { href: "/kasa", icon: Wallet, label: "Kasa" },
   { href: "/rezervasyon", icon: CalendarDays, label: "Rezervasyon" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
+  { href: "/sef", icon: AlertTriangle, label: "Şef paneli" },
   { href: "/stok", icon: Package, label: "Stok" },
   { href: "/sayim", icon: ClipboardList, label: "Sayım" },
   { href: "/menu", icon: BookOpen, label: "Menü" },

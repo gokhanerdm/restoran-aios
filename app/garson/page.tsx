@@ -15,7 +15,10 @@ import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate"
 // PIN ile giriş (StaffLoginGate) — hangi garsonun ne yaptığı böyle etiketleniyor.
 
 type Area = { id: string; name: string; sort_order: number };
-type TableStatus = "empty" | "occupied" | "bill_requested" | "reserved";
+// kasa_bekliyor/toplanacak: ROADMAP §O1/§O11 — kasa onayı bekleyen ve toplanmayı bekleyen
+// masalar. TableOrderPanel bu durumlarda yeni sipariş açmayı zaten engelliyor (open_table_order
+// RPC'si); burada eksik olan sadece masa ızgarasının bunu doğru renk/etiketle göstermesiydi.
+type TableStatus = "empty" | "occupied" | "bill_requested" | "reserved" | "kasa_bekliyor" | "toplanacak";
 type TableRow = {
   id: string; name: string; area_id: string | null; status: TableStatus;
   reservation_note: string | null; merged_into_table_id: string | null;
@@ -122,7 +125,8 @@ function GarsonInner() {
         Promise.all([
           supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
           supabase.from("restaurant_tables").select("id, name, area_id, status, reservation_note, merged_into_table_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status, sent_at, ready_at, served_at)").eq("restaurant_id", rest.id).eq("status", "open"),
+          // pending_cashier da dahil: kasa onayı bekleyen masada tutar hâlâ görünsün diye (ROADMAP §O11).
+          supabase.from("orders").select("id, table_id, order_items(id, quantity, unit_price, status, sent_at, ready_at, served_at)").eq("restaurant_id", rest.id).in("status", ["open", "pending_cashier"]),
         ]),
         timeout,
       ]);
@@ -259,10 +263,12 @@ function GarsonInner() {
             const ord = orderForTable(t.id);
             const total = orderTotal(ord);
             const merged = !!t.merged_into_table_id;
-            const occupied = t.status === "occupied" || t.status === "bill_requested";
+            const occupied = t.status === "occupied" || t.status === "bill_requested" || t.status === "kasa_bekliyor";
             const bill = t.status === "bill_requested";
+            const kasaBekliyor = t.status === "kasa_bekliyor";
+            const toplanacak = t.status === "toplanacak";
             const reserved = t.status === "reserved";
-            const dotColor = merged ? "var(--muted-2)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
+            const dotColor = merged ? "var(--muted-2)" : kasaBekliyor ? "var(--danger)" : bill ? "var(--gold)" : occupied ? "var(--brand)" : toplanacak ? "var(--gold-text)" : reserved ? "var(--info)" : "var(--muted-2)";
             const progress = !merged ? readyProgress(ord) : null;
             const ready = !!progress;
             const mergeSelected = mergeMode && mergeFirst === t.id;
@@ -274,7 +280,7 @@ function GarsonInner() {
                   textAlign: "left", borderRadius: 16, padding: 14, height: 108, boxSizing: "border-box",
                   display: "flex", flexDirection: "column",
                   border: mergeSelected ? "2px solid var(--gold)" : ready ? "2px solid var(--brand-strong)" : "none",
-                  background: merged ? "var(--recede)" : occupied ? "var(--card)" : reserved ? "var(--info-bg)" : "var(--recede)",
+                  background: merged ? "var(--recede)" : occupied ? "var(--card)" : reserved ? "var(--info-bg)" : toplanacak ? "var(--line)" : "var(--recede)",
                   boxShadow: ready ? "0 0 0 3px var(--success-bg), 0 6px 16px rgba(30,57,50,.12)" : occupied && !merged ? "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" : "none",
                   opacity: merged ? 0.6 : 1,
                 }}
@@ -288,10 +294,12 @@ function GarsonInner() {
                 ) : occupied ? (
                   <>
                     <div className="tnum" style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.3px", color: "var(--ink-green)", marginTop: 14 }}>{money(total)}</div>
-                    <div style={{ fontSize: 11.5, color: ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready ? 700 : 400 }}>{progress ? (progress.ready === progress.total ? "Hazır — servis et" : `${progress.ready}/${progress.total} ürün hazır`) : bill ? "hesap istedi" : "açık"}</div>
+                    <div style={{ fontSize: 11.5, color: kasaBekliyor ? "var(--danger)" : ready ? "var(--success)" : bill ? "var(--gold-text)" : "var(--muted)", marginTop: 3, fontWeight: ready || kasaBekliyor ? 700 : 400 }}>{kasaBekliyor ? "kasa onayı bekliyor" : progress ? (progress.ready === progress.total ? "Hazır — servis et" : `${progress.ready}/${progress.total} ürün hazır`) : bill ? "hesap istedi" : "açık"}</div>
                   </>
                 ) : reserved ? (
                   <div style={{ fontSize: 11.5, color: "var(--info)", marginTop: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.reservation_note || "Rezerve"}</div>
+                ) : toplanacak ? (
+                  <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: 14 }}>Toplanacak</div>
                 ) : (
                   <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 26 }}>Boş</div>
                 )}
