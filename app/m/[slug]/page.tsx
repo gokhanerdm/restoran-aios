@@ -71,18 +71,24 @@ export default async function PublicMenu({
     );
   }
 
-  const [{ data: c }, { data: p }, { data: settingsRow }] = await Promise.all([
+  const [{ data: c }, { data: p }, { data: settingsRow }, { data: stockRows }] = await Promise.all([
     db.from("menu_categories").select("id, name, parent_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
     db.from("menu_items")
       .select("id, name, sale_price, vat_rate, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
       .eq("restaurant_id", rest.id).eq("is_active", true).eq("available_dine_in", true).is("deleted_at", null).order("sort_order"),
     db.from("restaurant_settings").select("default_menu_design, kvkk_notice").eq("restaurant_id", rest.id).maybeSingle(),
+    // Ürün bitti (86) — canlı stok hesabı (ROADMAP §O7). Müşteri elle "bitti" işaretlemeyi
+    // beklemeden, mutfağın stoktan düştüğü an ekranda görür.
+    db.rpc("menu_items_stock_status", { p_restaurant: rest.id }),
   ]);
 
   const categories = (c as Category[]) ?? [];
   const products = (p as unknown as Product[]) ?? [];
   const photoStyle = settingsRow?.default_menu_design === "fotografli";
   const kvkkNotice = (settingsRow?.kvkk_notice as string | null) ?? "";
+  const stockMap = new Map<string, { is_86d: boolean; low_stock: boolean; servings_left: number | null }>();
+  ((stockRows as { menu_item_id: string; is_86d: boolean; low_stock: boolean; servings_left: number | null }[]) ?? [])
+    .forEach((s) => stockMap.set(s.menu_item_id, s));
 
   // QR sipariş — SADECE /m/<slug>?masa=<table_id> ile açıldığında. Masa parametresi yoksa,
   // geçersizse ya da başka bir restorana aitse sipariş özelliği HİÇ gösterilmez; sayfa
@@ -108,8 +114,10 @@ export default async function PublicMenu({
         }}>{cat.name}</div>
         {prods.map((prod) => {
           const { kcal, diet, allergens, ingredientsText, beyanVar } = nutrition(prod);
+          const stock = stockMap.get(prod.id);
+          const soldOut = stock?.is_86d ?? false;
           return (
-            <div key={prod.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
+            <div key={prod.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)", opacity: soldOut ? 0.5 : 1 }}>
               {photoStyle && prod.image_url && (
                 // eslint-disable-next-line @next/next/no-img-element -- işletmeci tarafından girilen keyfi harici URL
                 <img src={prod.image_url} alt={prod.name} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 10, flexShrink: 0 }} />
@@ -119,6 +127,11 @@ export default async function PublicMenu({
                   <span style={{ fontSize: 15, fontWeight: 500 }}>{prod.name}</span>
                   <span className="tnum" style={{ fontSize: 15, color: "var(--ink-green)", flexShrink: 0 }}>{money(prod.sale_price)}</span>
                 </div>
+                {soldOut ? (
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--danger)", marginTop: 3 }}>Tükendi</div>
+                ) : stock?.low_stock ? (
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: "var(--gold-text)", marginTop: 3 }}>{Math.round(stock.servings_left ?? 0)} porsiyon kaldı</div>
+                ) : null}
                 {prod.description && (
                   <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{prod.description}</div>
                 )}
@@ -137,7 +150,7 @@ export default async function PublicMenu({
               </div>
               {/* Sipariş verilebilir mod (QR + masa) — masa yoksa hiç render edilmez. */}
               {orderTable && (
-                <QrAddButton product={{ id: prod.id, name: prod.name, sale_price: prod.sale_price, vat_rate: prod.vat_rate }} />
+                <QrAddButton product={{ id: prod.id, name: prod.name, sale_price: prod.sale_price, vat_rate: prod.vat_rate }} soldOut={soldOut} />
               )}
             </div>
           );

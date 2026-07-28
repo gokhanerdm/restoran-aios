@@ -22,9 +22,23 @@ const CartCtx = createContext<{ add: (p: QrProduct) => void } | null>(null);
 // Menüdeki her ürün satırının sağındaki "Ekle" hapı. Sipariş katmanı yoksa (masa
 // parametresi verilmemişse) server component bunu zaten hiç render etmez; yine de
 // context boşsa sessizce hiçbir şey çizmiyoruz.
-export function QrAddButton({ product }: { product: QrProduct }) {
+// soldOut: canlı stok hesabından geliyor (ROADMAP §O7) — sunucu bileşeni hesaplayıp buraya
+// prop olarak geçiriyor, burada tekrar sorgulanmıyor.
+export function QrAddButton({ product, soldOut }: { product: QrProduct; soldOut?: boolean }) {
   const ctx = useContext(CartCtx);
   if (!ctx) return null;
+  if (soldOut) {
+    return (
+      <span
+        aria-label={`${product.name} tükendi`}
+        style={{
+          alignSelf: "center", flexShrink: 0, border: "1px solid var(--line-2)", borderRadius: 980,
+          padding: "7px 16px", background: "var(--recede)", color: "var(--muted-2)",
+          fontSize: 12, fontWeight: 600, lineHeight: 1,
+        }}
+      >Tükendi</span>
+    );
+  }
   return (
     <button
       onClick={() => ctx.add(product)}

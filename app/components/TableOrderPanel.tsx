@@ -38,6 +38,9 @@ const payLabel = (m: string) => PAY_METHODS.find((x) => x.v === m)?.l ?? m;
 // komisyon ve valör sağlayıcıya göre değişiyor. Tek sağlayıcı varsa sormaz, otomatik seçer.
 type Provider = { id: string; name: string; method: string; is_default: boolean };
 type MenuItem = { id: string; name: string; sale_price: number; category_id: string | null; vat_rate: number };
+// Ürün bitti (86) — canlı hesaplanır, stoktan çıkan porsiyon sayısına göre (ROADMAP §O7).
+// Reçetesi olmayan ürün bu haritada hiç yer almaz (sınırsız satılır, bugüne kadar olduğu gibi).
+type StockStatus = { servings_left: number | null; is_86d: boolean; low_stock: boolean };
 type Category = { id: string; name: string };
 type CfgVariant = { id: string; name: string; sale_price: number };
 type CfgMod = { id: string; name: string; price_delta: number };
@@ -125,27 +128,38 @@ export default function TableOrderPanel({
   // dokunuşta tarayıcı :active'i göstermeye fırsat bulamadan parmak zaten kalkmış oluyor. JS ile
   // basılı state'i en az bir süre (140ms) görünür tutuyoruz ki gerçekten fark edilsin.
   const [pressedItemId, setPressedItemId] = useState<string | null>(null);
+  const [stockStatus, setStockStatus] = useState<Record<string, StockStatus>>({});
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handlePressStart = (id: string) => { if (pressTimer.current) clearTimeout(pressTimer.current); setPressedItemId(id); };
   const handlePressEnd = () => { pressTimer.current = setTimeout(() => setPressedItemId(null), 140); };
 
   const loadMenu = useCallback(async () => {
     if (!restaurantId) return;
-    const [{ data: c }, { data: m }, { data: pv }] = await Promise.all([
+    const [{ data: c }, { data: m }, { data: pv }, { data: ss }] = await Promise.all([
       supabase.from("menu_categories").select("id, name").eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
       supabase.from("menu_items").select("id, name, sale_price, category_id, vat_rate").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("name"),
       supabase.from("payment_providers").select("id, name, method, is_default").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("sort_order"),
+      supabase.rpc("menu_items_stock_status", { p_restaurant: restaurantId }),
     ]);
     setCategories((c as Category[]) ?? []);
     setMenuItems((m as MenuItem[]) ?? []);
     setProviders((pv as Provider[]) ?? []);
+    const stockMap: Record<string, StockStatus> = {};
+    ((ss as (StockStatus & { menu_item_id: string })[]) ?? []).forEach((s) => { stockMap[s.menu_item_id] = s; });
+    setStockStatus(stockMap);
   }, [restaurantId]);
 
   const toggleCat = (id: string) => {
     setExpandedCats((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
-  useEffect(() => { loadMenu(); }, [loadMenu]);
+  useEffect(() => {
+    loadMenu();
+    // Stok durumu servis sırasında hızlı değişir (her "Hazır" tıklaması stoktan düşürüyor);
+    // garson menüyü açık tutarken bile "tükendi" bilgisi güncel kalsın diye kısa aralıkla tazelenir.
+    const id = setInterval(loadMenu, 20000);
+    return () => clearInterval(id);
+  }, [loadMenu]);
 
   const loadOrder = useCallback(async () => {
     if (!table) { setOrder(null); setLoadingOrder(false); return; }
@@ -1022,20 +1036,30 @@ export default function TableOrderPanel({
                   </button>
                   {open && (
                     <div style={{ paddingBottom: 6 }}>
-                      {items.map((m) => (
-                        <button key={m.id} onClick={() => openProduct(m)} disabled={busy}
+                      {items.map((m) => {
+                        // Ürün bitti (86) — canlı stok hesabı, elle işaretlemeye gerek yok (ROADMAP §O7).
+                        const stock = stockStatus[m.id];
+                        const soldOut = stock?.is_86d ?? false;
+                        return (
+                        <button key={m.id} onClick={() => !soldOut && openProduct(m)} disabled={busy || soldOut}
                           onPointerDown={() => handlePressStart(m.id)} onPointerUp={handlePressEnd} onPointerLeave={handlePressEnd} onPointerCancel={handlePressEnd}
                           style={{
-                            textAlign: "left", font: "inherit", color: "inherit", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
+                            textAlign: "left", font: "inherit", color: "inherit", cursor: soldOut ? "not-allowed" : "pointer", display: "flex", justifyContent: "space-between", alignItems: "center",
                             width: "100%", padding: "9px 4px 9px 23px", fontSize: 13.5, boxSizing: "border-box", border: "none", borderRadius: 10,
                             background: pressedItemId === m.id ? "var(--line-2)" : "transparent",
                             transform: pressedItemId === m.id ? "scale(0.97)" : "scale(1)",
                             transition: "background-color .08s ease, transform .08s ease",
+                            opacity: soldOut ? 0.45 : 1,
                           }}>
-                          <span>{m.name}</span>
+                          <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            {m.name}
+                            {soldOut && <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--danger)", background: "var(--danger-bg)", borderRadius: 980, padding: "2px 8px" }}>TÜKENDİ</span>}
+                            {!soldOut && stock?.low_stock && <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--gold-text)", background: "var(--recede)", borderRadius: 980, padding: "2px 8px" }}>{Math.round(stock.servings_left ?? 0)} porsiyon kaldı</span>}
+                          </span>
                           <span className="tnum" style={{ color: "var(--muted)" }}>{money(m.sale_price)}</span>
                         </button>
-                      ))}
+                        );
+                      })}
                       {items.length === 0 && <div style={{ fontSize: 12, color: "var(--muted-2)", padding: "6px 4px 6px 23px" }}>Ürün yok</div>}
                     </div>
                   )}
