@@ -38,7 +38,15 @@ function nutrition(prod: Product) {
   const allergens = prod.allergens_override ?? allergensAuto;
   const ingredientsAuto = items.map((r) => r.ingredients?.name).filter(Boolean).join(", ");
   const ingredientsText = prod.ingredients_text ?? ingredientsAuto;
-  return { kcal, diet, allergens, ingredientsText };
+  // "Alerjen içermez" YALNIZCA işletmeci listeyi bilerek onayladıysa yazılır
+  // (allergens_override boş dizi = "baktım, yok" beyanı).
+  //
+  // Reçetesi olmak yeterli DEĞİL: malzemelere alerjen etiketi hiç girilmemişse reçeteden boş
+  // liste çıkar, bu da "alerjen yok" değil "bilinmiyor" demektir. Ununda gluten, peynirinde süt
+  // olan bir pizzaya "alerjen içermez" yazmak, hiçbir şey yazmamaktan daha tehlikelidir.
+  // Bilinmiyorsa sessiz kalıp Menü ekranındaki uyum panelinde işletmeciyi uyarıyoruz.
+  const beyanVar = prod.allergens_override != null;
+  return { kcal, diet, allergens, ingredientsText, beyanVar };
 }
 
 export default async function PublicMenu({
@@ -68,12 +76,13 @@ export default async function PublicMenu({
     db.from("menu_items")
       .select("id, name, sale_price, vat_rate, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
       .eq("restaurant_id", rest.id).eq("is_active", true).eq("available_dine_in", true).is("deleted_at", null).order("sort_order"),
-    db.from("restaurant_settings").select("default_menu_design").eq("restaurant_id", rest.id).maybeSingle(),
+    db.from("restaurant_settings").select("default_menu_design, kvkk_notice").eq("restaurant_id", rest.id).maybeSingle(),
   ]);
 
   const categories = (c as Category[]) ?? [];
   const products = (p as unknown as Product[]) ?? [];
   const photoStyle = settingsRow?.default_menu_design === "fotografli";
+  const kvkkNotice = (settingsRow?.kvkk_notice as string | null) ?? "";
 
   // QR sipariş — SADECE /m/<slug>?masa=<table_id> ile açıldığında. Masa parametresi yoksa,
   // geçersizse ya da başka bir restorana aitse sipariş özelliği HİÇ gösterilmez; sayfa
@@ -98,7 +107,7 @@ export default async function PublicMenu({
           marginLeft: depth * 4,
         }}>{cat.name}</div>
         {prods.map((prod) => {
-          const { kcal, diet, allergens, ingredientsText } = nutrition(prod);
+          const { kcal, diet, allergens, ingredientsText, beyanVar } = nutrition(prod);
           return (
             <div key={prod.id} style={{ display: "flex", gap: 12, padding: "12px 0", borderBottom: "1px solid var(--line)" }}>
               {photoStyle && prod.image_url && (
@@ -120,9 +129,11 @@ export default async function PublicMenu({
                   {kcal > 0 && <span style={{ fontSize: 12.5, color: "var(--muted)" }} className="tnum">{kcal} kcal</span>}
                   {diet && <span style={{ fontSize: 11.5, fontWeight: 600, padding: "2px 9px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" }}>{diet}</span>}
                 </div>
-                {allergens.length > 0 && (
+                {allergens.length > 0 ? (
                   <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 4 }}>Alerjen: {allergens.join(", ")}</div>
-                )}
+                ) : beyanVar ? (
+                  <div style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 4 }}>Alerjen içermez</div>
+                ) : null}
               </div>
               {/* Sipariş verilebilir mod (QR + masa) — masa yoksa hiç render edilmez. */}
               {orderTable && (
@@ -157,7 +168,21 @@ export default async function PublicMenu({
           </QrOrderCart>
         ) : menuTree}
         {!embed && (
-          <div style={{ textAlign: "center", marginTop: 40, fontSize: 11, color: "var(--muted-2)" }}>Restoran AIOS</div>
+          <>
+            {/* Alerjen bildirimi yönetmelikçe QR menüyle yapılabiliyor; hangi grupların
+                bildirildiğini müşteriye açıkça söylüyoruz. */}
+            <div style={{ marginTop: 32, paddingTop: 16, borderTop: "1px solid var(--line)", fontSize: 11, color: "var(--muted-2)", lineHeight: 1.6 }}>
+              Alerjen bilgileri Türk Gıda Kodeksi&apos;nde tanımlı 14 alerjen grubuna göre verilmiştir.
+              Ciddi alerjiniz varsa lütfen siparişinizden önce personelimize bildirin.
+            </div>
+            {kvkkNotice.trim() && (
+              <details style={{ marginTop: 12, fontSize: 11, color: "var(--muted-2)" }}>
+                <summary style={{ cursor: "pointer" }}>Kişisel verilerin korunması (KVKK)</summary>
+                <div style={{ marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{kvkkNotice}</div>
+              </details>
+            )}
+            <div style={{ textAlign: "center", marginTop: 28, fontSize: 11, color: "var(--muted-2)" }}>Restoran AIOS</div>
+          </>
         )}
       </div>
     </div>

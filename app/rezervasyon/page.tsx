@@ -78,6 +78,10 @@ export default function Rezervasyon() {
   const [fTable, setFTable] = useState("");
   const [fNote, setFNote] = useState("");
   const [formCakisma, setFormCakisma] = useState<string | null>(null);
+  // KVKK: misafirin adı ve telefonu kişisel veri. Kaydı oluşturmadan önce aydınlatma
+  // metninin gösterildiği onaylanır, onay zamanı consent_at'e yazılır.
+  const [kvkkNotice, setKvkkNotice] = useState("");
+  const [kvkkAcik, setKvkkAcik] = useState(false);
 
   useEffect(() => {
     const t = bugunIstanbul();
@@ -94,7 +98,7 @@ export default function Rezervasyon() {
     if (!restId) return;
     setRestaurantId(restId);
     const { start, end } = gunSiniri(gun);
-    const [{ data: rez }, { data: t }, { data: a }] = await Promise.all([
+    const [{ data: rez }, { data: t }, { data: a }, { data: kv }] = await Promise.all([
       supabase
         .from("reservations")
         .select("id, table_id, guest_name, guest_phone, party_size, reserved_at, duration_minutes, status, note")
@@ -105,10 +109,12 @@ export default function Rezervasyon() {
         .order("reserved_at"),
       supabase.from("restaurant_tables").select("id, name, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_settings").select("kvkk_notice").eq("restaurant_id", restId).maybeSingle(),
     ]);
     setRows((rez as Rez[]) ?? []);
     setTables((t as TableRow[]) ?? []);
     setAreas((a as Area[]) ?? []);
+    setKvkkNotice((kv as { kvkk_notice: string | null } | null)?.kvkk_notice ?? "");
   }, [gun]);
 
   useEffect(() => { load(); }, [load]);
@@ -192,6 +198,8 @@ export default function Rezervasyon() {
       reserved_at: new Date(`${fDate}T${fTime}:00+03:00`).toISOString(),
       duration_minutes: parseInt(fDur, 10) || 90,
       note: fNote.trim() || null,
+      // Telefon alındıysa aydınlatma yükümlülüğü doğar; onay anını kayda geçiriyoruz.
+      consent_at: fPhone.trim() ? new Date().toISOString() : null,
     });
     if (error) { setErr(error.message); return; }
     setFName(""); setFPhone(""); setFNote(""); setFTable(""); setFormCakisma(null);
@@ -371,6 +379,24 @@ export default function Rezervasyon() {
             </select>
             <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Not" style={{ ...inp, flex: "1 1 120px" }} />
             <button onClick={submit} style={btnSmall}><Plus size={15} /></button>
+          </div>
+          {/* KVKK aydınlatma — telefon alındığında yükümlülük doğuyor, metni bir tık uzakta
+              tutuyoruz ki misafir sorduğunda okunabilsin. */}
+          <div style={{ marginTop: 8 }}>
+            {kvkkNotice.trim() ? (
+              <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
+                {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
+              </button>
+            ) : (
+              <span style={{ fontSize: 11.5, color: "var(--danger)" }}>
+                KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.
+              </span>
+            )}
+            {kvkkAcik && kvkkNotice.trim() && (
+              <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto" }}>
+                {kvkkNotice}
+              </div>
+            )}
           </div>
           <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8, lineHeight: 1.5 }}>
             Rezervasyon masayı doldurmaz — masa durumu (boş/dolu/ayrılmış) Kasa ekranından yönetilir. Misafir adı, telefon, kişi, süre ve not çift tıklayarak düzenlenir.

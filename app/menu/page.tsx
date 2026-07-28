@@ -8,6 +8,7 @@ import EditableText from "../components/EditableText";
 import { useConfirm } from "../components/useConfirm";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import { parseNaturalQuantity, formatQuantity, NATURAL_UNIT_HINT, type BaseUnit } from "@/lib/units";
+import { ALLERGEN_KEYS, ALERJEN_SON_TARIH, KALORI_SON_TARIH, kalanGun } from "@/lib/allergens";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -36,7 +37,8 @@ type Settings = {
 };
 type ConceptTemplate = { id: string; name: string; description: string | null };
 
-const ALLERGENS = ["Gluten", "Süt", "Yumurta", "Sert kabuklu", "Yer fıstığı", "Soya", "Balık", "Kabuklu deniz", "Susam", "Hardal"];
+// 14 zorunlu alerjen grubu lib/allergens.ts'te — QR menü ve uyum paneli de aynı listeyi kullanıyor.
+const ALLERGENS = ALLERGEN_KEYS;
 const DIET_OPTS = [
   { v: "bitkisel", l: "Bitkisel (vegan)" },
   { v: "hayvansal", l: "Süt/yumurta (vejetaryen)" },
@@ -88,6 +90,9 @@ export default function MenuPage() {
   const [stockByIngredient, setStockByIngredient] = useState<Record<string, number>>({});
   const [usageCountByIngredient, setUsageCountByIngredient] = useState<Record<string, number>>({});
   const [menuItemsWithRecipe, setMenuItemsWithRecipe] = useState<Set<string>>(new Set());
+  const [kcalByItem, setKcalByItem] = useState<Record<string, number>>({});
+  const [itemsWithAllergens, setItemsWithAllergens] = useState<Set<string>>(new Set());
+  const [uyumAcik, setUyumAcik] = useState(false);
   const [priceChanges, setPriceChanges] = useState<Record<string, { from: number; to: number }>>({});
   const [concepts, setConcepts] = useState<ConceptTemplate[]>([]);
   const [applyingConcept, setApplyingConcept] = useState<string | null>(null);
@@ -140,7 +145,7 @@ export default function MenuPage() {
       supabase.from("modifier_groups").select("id, name").eq("restaurant_id", restId).is("deleted_at", null).order("name"),
       supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
-      supabase.from("recipe_items").select("ingredient_id, menu_item_id").eq("restaurant_id", restId),
+      supabase.from("recipe_items").select("ingredient_id, menu_item_id, quantity, ingredients(kcal_per_unit, allergens)").eq("restaurant_id", restId),
       supabase.from("concept_templates").select("id, name, description").order("sort_order"),
       supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
     ]);
@@ -158,11 +163,19 @@ export default function MenuPage() {
 
     const withRecipe = new Set<string>();
     const usageSets: Record<string, Set<string>> = {};
-    (allLinks as { ingredient_id: string; menu_item_id: string }[] ?? []).forEach((l) => {
+    const kcalMap: Record<string, number> = {};
+    // Reçetesinde alerjen etiketli en az bir malzeme olan ürünler — "boş liste" ile
+    // "hiç etiketlenmemiş" ayrımı için gerekli.
+    const alerjenliUrunler = new Set<string>();
+    ((allLinks as unknown as { ingredient_id: string; menu_item_id: string; quantity: number; ingredients: { kcal_per_unit: number; allergens: string[] | null } | null }[]) ?? []).forEach((l) => {
       withRecipe.add(l.menu_item_id);
       (usageSets[l.ingredient_id] ??= new Set()).add(l.menu_item_id);
+      kcalMap[l.menu_item_id] = (kcalMap[l.menu_item_id] ?? 0) + l.quantity * Number(l.ingredients?.kcal_per_unit ?? 0);
+      if ((l.ingredients?.allergens?.length ?? 0) > 0) alerjenliUrunler.add(l.menu_item_id);
     });
     setMenuItemsWithRecipe(withRecipe);
+    setKcalByItem(kcalMap);
+    setItemsWithAllergens(alerjenliUrunler);
     setUsageCountByIngredient(Object.fromEntries(Object.entries(usageSets).map(([k, v]) => [k, v.size])));
   }, []);
 
@@ -414,10 +427,87 @@ export default function MenuPage() {
     renameCategory, renameProduct, defaultVatFor,
   };
 
+  // --- Mevzuat uyumu (Türk Gıda Kodeksi Etiketleme Yönetmeliği) ---
+  // Alerjen bilgisi "beyan edilmiş" sayılır: ürünün reçetesi varsa (malzemelerden türetiliyor)
+  // ya da üründe alerjen listesi elle onaylanmışsa — boş liste de geçerli bir beyandır,
+  // "alerjen içermiyor" demektir. Reçetesi de beyanı da yoksa hiçbir şey bilinmiyor demektir.
+  // Kalori: elle yazılmışsa ya da reçeteden 0'dan büyük çıkıyorsa beyan edilebilir.
+  // Beyan sayılması için ikisinden biri şart: (1) işletmeci ürünün alerjen listesini elle
+  // onaylamış (boş dizi de geçerli beyandır, "baktım, yok" demektir), ya da (2) reçetesindeki
+  // malzemelerden en az biri alerjen etiketli. Sadece reçetesi olması YETMEZ — malzemeler hiç
+  // etiketlenmemişse reçeteden boş liste çıkar, bu "yok" değil "bilinmiyor"dur. Ununda gluten,
+  // peynirinde süt olan pizzaya "içermez" yazdırmamak için bu ayrım şart; QR menü de aynı kuralı
+  // uyguluyor ve emin olmadığında hiçbir şey yazmıyor.
+  const aktifUrunler = products.filter((p) => p.is_active);
+  const alerjenEksik = aktifUrunler.filter((p) => p.allergens_override == null && !itemsWithAllergens.has(p.id));
+  const kaloriEksik = aktifUrunler.filter((p) => p.calorie_override == null && !((kcalByItem[p.id] ?? 0) > 0));
+  const alerjenKalanGun = kalanGun(ALERJEN_SON_TARIH);
+  const kaloriKalanGun = kalanGun(KALORI_SON_TARIH);
+  const uyumSorunVar = alerjenEksik.length > 0 || kaloriEksik.length > 0;
+
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
-      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 20, flexShrink: 0 }}>Menü</div>
+      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>Menü</div>
+
+      {/* Mevzuat uyumu bandı — alerjen 31.12.2026, kalori 31.12.2027'de zorunlu.
+          QR menü yönetmelikçe kabul edilen sunum yöntemi olduğu için altyapı zaten hazır;
+          eksik olan tek şey bilgisi girilmemiş ürünler. */}
+      {aktifUrunler.length > 0 && (
+        <div style={{
+          borderRadius: 14, marginBottom: 16, flexShrink: 0, overflow: "hidden",
+          background: uyumSorunVar ? "var(--danger-bg)" : "var(--card)",
+          border: `1px solid ${uyumSorunVar ? "var(--gold)" : "var(--brand)"}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
+            <AlertTriangle size={18} color={uyumSorunVar ? "var(--gold-text)" : "var(--brand)"} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: uyumSorunVar ? "var(--gold-text)" : "var(--ink-green)" }}>
+                {uyumSorunVar
+                  ? [
+                      alerjenEksik.length > 0 ? `${alerjenEksik.length} üründe alerjen bilgisi yok` : null,
+                      kaloriEksik.length > 0 ? `${kaloriEksik.length} üründe kalori yok` : null,
+                    ].filter(Boolean).join(" · ")
+                  : `${aktifUrunler.length} ürünün tamamında alerjen ve kalori bilgisi var — menü mevzuata uygun.`}
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 2 }}>
+                Alerjen bildirimi 31.12.2026&apos;da zorunlu ({alerjenKalanGun > 0 ? `${alerjenKalanGun} gün kaldı` : "süre doldu"}) ·
+                {" "}kalori 31.12.2027&apos;de ({kaloriKalanGun > 0 ? `${kaloriKalanGun} gün` : "süre doldu"}).
+                Reçetesi olan ürünlerde ikisi de otomatik hesaplanır.
+              </div>
+            </div>
+            {uyumSorunVar && (
+              <button onClick={() => setUyumAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--gold-text)", fontWeight: 600, flexShrink: 0 }}>
+                {uyumAcik ? "Gizle" : "Eksikleri gör"}
+              </button>
+            )}
+          </div>
+          {uyumAcik && uyumSorunVar && (
+            <div style={{ padding: "0 16px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {alerjenEksik.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Alerjen bilgisi yok — malzemelere alerjen etiketi gir ya da ürünün alerjen listesini onayla. Onaylanana kadar QR menüde bu ürün için alerjen satırı görünmez:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {alerjenEksik.map((p) => (
+                      <button key={p.id} onClick={() => { selectProduct(p); setUyumAcik(false); }} style={uyumChip}>{p.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {kaloriEksik.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Kalori yok — malzemelere kcal gir ya da ürüne elle kalori yaz:</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                    {kaloriEksik.map((p) => (
+                      <button key={p.id} onClick={() => { selectProduct(p); setUyumAcik(false); }} style={uyumChip}>{p.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 22, flex: 1, minHeight: 0 }}>
         <div style={{ flex: 1, minWidth: 300, maxWidth: 420, display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -911,6 +1001,8 @@ const miniLink: React.CSSProperties = { all: "unset", cursor: "pointer", fontSiz
 const badge: React.CSSProperties = { fontSize: 12, fontWeight: 600, padding: "3px 12px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" };
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, flex: 1, fontFamily: "inherit" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 4 };
+// Mevzuat uyum bandındaki eksik ürün rozetleri — tıklayınca o ürünün düzenleyicisi açılır.
+const uyumChip: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "4px 10px", fontSize: 12, background: "var(--card)", color: "var(--ink)", cursor: "pointer" };
 const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
 const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5 };
 const btnSmall: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5 };

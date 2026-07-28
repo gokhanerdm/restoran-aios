@@ -19,6 +19,8 @@ type TableRow = {
   id: string; name: string; area_id: string | null; status: TableStatus; sort_order: number;
   position_x: number | null; position_y: number | null;
   reservation_note: string | null; merged_into_table_id: string | null;
+  // Koltuk sayısı — Raporlar'daki RevPASH (koltuk-saat başına ciro) bu alandan hesaplanır.
+  seat_count: number;
 };
 type OrderItem = { id: string; quantity: number; unit_price: number; status: string };
 type OrderRow = { id: string; table_id: string | null; opened_at: string; party_size: number; order_items: OrderItem[] };
@@ -50,6 +52,7 @@ export default function KasaPage() {
   const [isMobile, setIsMobile] = useState(false);
   // Sağ tık menüsü: boş alanda "Masa ekle" (table: null), bir masa üzerinde "Masa sil" (table dolu)
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
+  const [koltukInput, setKoltukInput] = useState("");
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Nakit giriş/çıkış artık burada değil, Kasa sayfasında (/kasa) — bu ekran
@@ -69,7 +72,7 @@ export default function KasaPage() {
     setRestaurantId(restId);
     const [{ data: a }, { data: t }, { data: o }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id, seat_count").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status)").eq("restaurant_id", restId).eq("status", "open"),
     ]);
     const areaRows = (a as Area[]) ?? [];
@@ -140,6 +143,17 @@ export default function KasaPage() {
     if (error) { setErr(error.message); return; }
     await load();
   };
+  // Koltuk sayısı — Raporlar'daki RevPASH'in paydası. 1–50 arası, DB'de de sınırlı.
+  const saveSeatCount = async (id: string) => {
+    const n = parseInt(koltukInput, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 50) { setErr("Koltuk sayısı 1 ile 50 arasında olmalı."); return; }
+    setErr(null);
+    const { error } = await supabase.from("restaurant_tables").update({ seat_count: n }).eq("id", id);
+    if (error) { setErr(error.message); return; }
+    setCtxMenu(null);
+    await load();
+  };
+
   const deleteTable = async (t: TableRow) => {
     const ok = await confirm(`"${t.name}" silinsin mi?`);
     if (!ok) return;
@@ -307,7 +321,7 @@ export default function KasaPage() {
                   onReserve={() => reserveTable(t.id)}
                   onUnreserve={() => unreserveTable(t.id)}
                   onUnmerge={() => unmergeTable(t.id)}
-                  onContextMenu={(x2, y2) => setCtxMenu({ x: x2, y: y2, table: t })}
+                  onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
                 />
               ))}
               {/* Masa ekleme artık sağ tık menüsünden — burada sadece form açılınca görünür. */}
@@ -397,15 +411,39 @@ export default function KasaPage() {
               >
                 <Plus size={14} /> Masa ekle
               </button>
-            ) : ctxMenu.table.status === "occupied" || ctxMenu.table.status === "bill_requested" ? (
-              <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200 }}>Bu masa dolu — silmeden önce hesabı kapatın.</div>
             ) : (
-              <button
-                onClick={() => { const t = ctxMenu.table!; setCtxMenu(null); deleteTable(t); }}
-                style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)" }}
-              >
-                <Trash2 size={14} /> Masa sil
-              </button>
+              <>
+                {/* Koltuk sayısı masa dolu olsa da değiştirilebilir — kapasite bilgisi
+                    operasyonu etkilemez, sadece Raporlar'daki RevPASH hesabına girer. */}
+                <div style={{ padding: "8px 12px 9px" }}>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Koltuk sayısı</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      value={koltukInput}
+                      onChange={(e) => setKoltukInput(e.target.value.replace(/\D/g, ""))}
+                      onKeyDown={(e) => e.key === "Enter" && saveSeatCount(ctxMenu.table!.id)}
+                      inputMode="numeric"
+                      autoFocus
+                      className="tnum"
+                      style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: 13, width: 56, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                    />
+                    <button
+                      onClick={() => saveSeatCount(ctxMenu.table!.id)}
+                      style={{ border: "none", borderRadius: 8, padding: "6px 12px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, cursor: "pointer" }}
+                    >Kaydet</button>
+                  </div>
+                </div>
+                {ctxMenu.table.status === "occupied" || ctxMenu.table.status === "bill_requested" ? (
+                  <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>Bu masa dolu — silmeden önce hesabı kapatın.</div>
+                ) : (
+                  <button
+                    onClick={() => { const t = ctxMenu.table!; setCtxMenu(null); deleteTable(t); }}
+                    style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)", borderTop: "1px solid var(--line)" }}
+                  >
+                    <Trash2 size={14} /> Masa sil
+                  </button>
+                )}
+              </>
             )}
           </div>
         </>

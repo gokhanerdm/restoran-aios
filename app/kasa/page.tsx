@@ -21,6 +21,15 @@ type CashMove = { id: string; movement_type: string; amount: number; note: strin
 type Closure = { expected_cash: number; counted_cash: number; difference: number };
 type OpenTable = { name: string; status: string };
 type Settings = { default_variable_cost_per_cover: number; default_fixed_cost_share_percent: number };
+// Hakediş — kartla/yemek kartıyla çekilen para anında kasaya girmez; komisyon düşülüp
+// valör kadar gün sonra bankaya yatar. "Yolda" olan bu paranın takibi.
+type Settlement = {
+  provider_id: string; provider_name: string; method: string;
+  commission_rate: number; settlement_days: number;
+  day_gross: number; day_net: number; day_due_date: string | null;
+  expected_net_total: number; received_total: number; outstanding: number; overdue: number;
+};
+type Receipt = { id: string; provider_id: string; amount: number; note: string | null };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
@@ -46,6 +55,10 @@ export default function Kasa() {
   const [openTables, setOpenTables] = useState<OpenTable[]>([]);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [kritikSayisi, setKritikSayisi] = useState(0);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [rcFor, setRcFor] = useState<string | null>(null);
+  const [rcAmount, setRcAmount] = useState("");
 
   const [closeStep, setCloseStep] = useState(false);
   const [countedInput, setCountedInput] = useState("");
@@ -64,7 +77,7 @@ export default function Kasa() {
     setRestaurantId(restId);
     const { start, end } = gunSiniri(tarih);
 
-    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }] = await Promise.all([
+    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }, { data: setl }, { data: rcps }] = await Promise.all([
       supabase.from("orders").select("id, total_amount, party_size, channel").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
       supabase.from("restaurant_settings").select("default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
@@ -74,6 +87,8 @@ export default function Kasa() {
       supabase.from("day_closures").select("counted_cash").eq("restaurant_id", restId).lt("closure_date", tarih).order("closure_date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("restaurant_tables").select("name, status").eq("restaurant_id", restId).is("deleted_at", null).neq("status", "empty").neq("status", "reserved"),
       supabase.rpc("ingredient_expected_usage", { p_restaurant: restId, p_days_ahead: 7 }),
+      supabase.rpc("settlement_status", { p_restaurant: restId, p_day: tarih }),
+      supabase.from("settlement_receipts").select("id, provider_id, amount, note").eq("restaurant_id", restId).eq("received_date", tarih),
     ]);
 
     const orderRows = (ords as ClosedOrder[]) ?? [];
@@ -85,6 +100,8 @@ export default function Kasa() {
     setDevir(Number((prevCls as { counted_cash: number } | null)?.counted_cash ?? 0));
     setOpenTables((opens as OpenTable[]) ?? []);
     setKritikSayisi(((usage as { par_level: number; current_stock: number }[]) ?? []).filter((u) => u.par_level > 0 && u.current_stock <= u.par_level).length);
+    setSettlements((setl as Settlement[]) ?? []);
+    setReceipts((rcps as Receipt[]) ?? []);
 
     const costMap: Record<string, number> = {};
     ((rec as unknown as { menu_item_id: string; quantity: number; ingredients: { current_unit_cost: number } | null }[]) ?? []).forEach((r) => {
@@ -172,9 +189,19 @@ export default function Kasa() {
   const acikMasalar = openTables;
   const hesapIsteyen = openTables.filter((t) => t.status === "bill_requested");
 
+  // ---- SORU 4: Yoldaki para ----
+  // Kartla çekilen para bugün kasaya girmez: komisyon düşülür, valör kadar gün sonra yatar.
+  // "Gecikmiş" = valörü dolmuş ama hâlâ hesaba geçmemiş tutar; asıl alarm bu.
+  const yoldaToplam = settlements.reduce((s, x) => s + Number(x.outstanding), 0);
+  const gecikmisToplam = settlements.reduce((s, x) => s + Number(x.overdue), 0);
+  const gecikenler = settlements.filter((x) => Number(x.overdue) > 0.01);
+  const gunlukHakedis = settlements.filter((x) => Number(x.day_gross) > 0.01);
+  const bugunKomisyon = gunlukHakedis.reduce((s, x) => s + (Number(x.day_gross) - Number(x.day_net)), 0);
+
   // ---- Hüküm ----
   const sorunlar: string[] = [];
   if (!closure) sorunlar.push("Kasa sayımı girilmedi");
+  if (gecikmisToplam > 0.01) sorunlar.push(`${money(gecikmisToplam)} hakediş gecikti (${gecikenler.map((g) => g.provider_name).join(", ")})`);
   if (acikMasalar.length > 0) sorunlar.push(`${acikMasalar.length} masa hâlâ açık (${acikMasalar.map((t) => t.name).join(", ")})`);
   if (hesapIsteyen.length > 0) sorunlar.push(`${hesapIsteyen.length} masa hesap istedi, kapanmadı`);
   if (closure && Number(closure.difference) !== 0) sorunlar.push(`Kasada ${money(Math.abs(Number(closure.difference)))} ${Number(closure.difference) < 0 ? "eksik" : "fazla"}`);
@@ -189,6 +216,20 @@ export default function Kasa() {
     const { error } = await supabase.from("cash_movements").insert({ restaurant_id: restaurantId, movement_type: cmType, amount, note: cmNote || null });
     if (error) { setErr(error.message); return; }
     setCmAmount(""); setCmNote(""); setAddingCm(false);
+    await load();
+  };
+
+  // Ekstreye bakıp "bugün bu sağlayıcıdan şu kadar yattı" girilir; sistem beklenenle kıyaslar.
+  const addReceipt = async (providerId: string) => {
+    if (!restaurantId) return;
+    setErr(null);
+    const amount = parseFloat(rcAmount.replace(",", ".")) || 0;
+    if (amount <= 0) return;
+    const { error } = await supabase.from("settlement_receipts").insert({
+      restaurant_id: restaurantId, provider_id: providerId, received_date: tarih, amount,
+    });
+    if (error) { setErr(error.message); return; }
+    setRcAmount(""); setRcFor(null);
     await load();
   };
 
@@ -329,6 +370,82 @@ export default function Kasa() {
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", padding: "6px 0", lineHeight: 1.5 }}>
               Teorik tüketim vs sayım farkı (fire/kaçak radarı) — sayım ekranıyla birlikte gelecek (Faz 3).<br />
               Mutfakta bekleyen sipariş — mutfak ekranıyla birlikte (Faz 1). Onay bekleyen işlemler — yetki sistemiyle (Faz 2).
+            </div>
+          </div>
+        </div>
+
+        {/* SORU 4 — Yoldaki para (hakediş mutabakatı) */}
+        <div style={{ flex: 1, minWidth: 260, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <SectionLabel>3 · Yoldaki para</SectionLabel>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
+              <span style={{ fontSize: 13, color: "var(--muted)" }}>Bankaya yatmayı bekleyen</span>
+              <span className="tnum" style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.6px", color: "var(--ink-green)" }}>{money(yoldaToplam)}</span>
+            </div>
+            {gecikmisToplam > 0.01 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--danger)", fontWeight: 600, marginBottom: 4 }}>
+                <span>Valörü geçti, hâlâ yatmadı</span>
+                <span className="tnum">{money(gecikmisToplam)}</span>
+              </div>
+            )}
+
+            <MiniBaslik>Bugün çekilen</MiniBaslik>
+            {gunlukHakedis.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: "var(--muted-2)", padding: "4px 0" }}>Bugün kart/yemek kartı çekimi yok.</div>
+            ) : (
+              <>
+                {gunlukHakedis.map((s) => (
+                  <div key={s.provider_id} style={{ padding: "6px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                      <span style={{ color: "var(--ink)" }}>{s.provider_name}</span>
+                      <span className="tnum" style={{ fontWeight: 600 }}>{money(Number(s.day_net))}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "var(--muted-2)", marginTop: 1 }}>
+                      <span>{money(Number(s.day_gross))} çekildi · %{Number(s.commission_rate)} komisyon</span>
+                      <span>{s.day_due_date ? `${s.day_due_date.slice(8, 10)}.${s.day_due_date.slice(5, 7)} yatar` : ""}</span>
+                    </div>
+                  </div>
+                ))}
+                <Satir l="Bugünün komisyon gideri" v={`−${money(bugunKomisyon)}`} renk="var(--gold-text)" />
+              </>
+            )}
+
+            <MiniBaslik>Sağlayıcı bazında</MiniBaslik>
+            {settlements.filter((s) => Number(s.outstanding) > 0.01 || Number(s.received_total) > 0.01).length === 0 ? (
+              <div style={{ fontSize: 12.5, color: "var(--muted-2)", padding: "4px 0" }}>Bekleyen hakediş yok.</div>
+            ) : settlements.filter((s) => Number(s.outstanding) > 0.01 || Number(s.received_total) > 0.01).map((s) => {
+              const gecikti = Number(s.overdue) > 0.01;
+              const bugunYatan = receipts.filter((r) => r.provider_id === s.provider_id).reduce((a, r) => a + Number(r.amount), 0);
+              return (
+                <div key={s.provider_id} style={{ padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span style={{ color: "var(--ink)" }}>{s.provider_name}</span>
+                    <span className="tnum" style={{ fontWeight: 600, color: gecikti ? "var(--danger)" : "var(--ink)" }}>{money(Number(s.outstanding))}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: gecikti ? "var(--danger)" : "var(--muted-2)", marginTop: 1 }}>
+                    {gecikti ? `${money(Number(s.overdue))} gecikmiş · ` : ""}
+                    toplam beklenen {money(Number(s.expected_net_total))} · yatan {money(Number(s.received_total))}
+                  </div>
+                  {bugunYatan > 0 && (
+                    <div className="tnum" style={{ fontSize: 11.5, color: "var(--brand)", marginTop: 2 }}>Bugün {money(bugunYatan)} yattı</div>
+                  )}
+                  {rcFor === s.provider_id ? (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input value={rcAmount} onChange={(e) => setRcAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addReceipt(s.provider_id)} placeholder="Yatan tutar ₺" inputMode="decimal" autoFocus style={{ ...inp, flex: 1, minWidth: 0 }} />
+                      <button onClick={() => addReceipt(s.provider_id)} style={btnSmall}>Kaydet</button>
+                      <button onClick={() => { setRcFor(null); setRcAmount(""); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted)", padding: "0 4px" }}>Vazgeç</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setRcFor(s.provider_id); setRcAmount(""); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)", display: "flex", alignItems: "center", gap: 4, paddingTop: 5 }}><Plus size={12} /> Hesaba yatanı gir</button>
+                  )}
+                </div>
+              );
+            })}
+
+            <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 10, lineHeight: 1.5 }}>
+              Komisyon ve valör (kaç gün sonra yattığı) sağlayıcı bazında Ayarlar'dan girilir.
+              Eşleştirme cari hesap mantığıyla yapılır: para sırayla yattığı için beklenen toplamdan
+              yatan toplam düşülür.
             </div>
           </div>
         </div>

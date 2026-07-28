@@ -34,6 +34,9 @@ const PAY_METHODS = [
   { v: "yemek_karti", l: "Yemek Kartı" },
 ] as const;
 const payLabel = (m: string) => PAY_METHODS.find((x) => x.v === m)?.l ?? m;
+// Hangi banka/yemek kartı sağlayıcısından geçtiği, Kasa'daki hakediş takibi için kaydedilir:
+// komisyon ve valör sağlayıcıya göre değişiyor. Tek sağlayıcı varsa sormaz, otomatik seçer.
+type Provider = { id: string; name: string; method: string; is_default: boolean };
 type MenuItem = { id: string; name: string; sale_price: number; category_id: string | null; vat_rate: number };
 type Category = { id: string; name: string };
 type CfgVariant = { id: string; name: string; sale_price: number };
@@ -89,7 +92,8 @@ export default function TableOrderPanel({
   const [payAmount, setPayAmount] = useState("");
   // Ödeme türüne basınca direkt kapatmak yerine kısa bir onay adımı — yanlış dokunuşla
   // hesabın geri dönüşsüz kapanmasını engellemek için.
-  const [confirmPayment, setConfirmPayment] = useState<{ method: string; amount: number; remaining: number } | null>(null);
+  const [confirmPayment, setConfirmPayment] = useState<{ method: string; amount: number; remaining: number; providerId: string | null } | null>(null);
+  const [providers, setProviders] = useState<Provider[]>([]);
   // Bahşiş ödemeyle birlikte alınır ama CİROYA GİRMEZ — order_payments.tip_amount'a ayrı yazılır,
   // orders.total_amount'a hiç dokunmaz (close_order onu kalemlerden hesaplıyor).
   const [tipAmount, setTipAmount] = useState("");
@@ -127,12 +131,14 @@ export default function TableOrderPanel({
 
   const loadMenu = useCallback(async () => {
     if (!restaurantId) return;
-    const [{ data: c }, { data: m }] = await Promise.all([
+    const [{ data: c }, { data: m }, { data: pv }] = await Promise.all([
       supabase.from("menu_categories").select("id, name").eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
       supabase.from("menu_items").select("id, name, sale_price, category_id, vat_rate").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("name"),
+      supabase.from("payment_providers").select("id, name, method, is_default").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("sort_order"),
     ]);
     setCategories((c as Category[]) ?? []);
     setMenuItems((m as MenuItem[]) ?? []);
+    setProviders((pv as Provider[]) ?? []);
   }, [restaurantId]);
 
   const toggleCat = (id: string) => {
@@ -476,7 +482,15 @@ export default function TableOrderPanel({
   };
 
   // Kısmi ödeme: kaydedilen tutar kalanı aşamaz (nakit fazlası para üstüdür, adisyona yazılmaz).
-  const addPayment = async (method: string, remaining: number) => {
+  // Nakitte sağlayıcı yok. Kart/yemek kartında tek sağlayıcı varsa sessizce o seçilir,
+  // birden fazlaysa onay adımında sorulur — garsonu her ödemede bir tık fazlaya zorlamamak için.
+  const providersFor = (method: string) => providers.filter((p) => p.method === method);
+  const defaultProviderId = (method: string) => {
+    const list = providersFor(method);
+    return (list.find((p) => p.is_default) ?? list[0])?.id ?? null;
+  };
+
+  const addPayment = async (method: string, remaining: number, providerId: string | null) => {
     if (!restaurantId || !order) return;
     const typed = parseFloat(payAmount.replace(",", ".")) || remaining;
     const amount = Math.min(typed, remaining);
@@ -484,7 +498,7 @@ export default function TableOrderPanel({
     // Bahşiş kalanı azaltmaz — ayrı kolonda durur, hesabın kapanıp kapanmayacağını etkilemez.
     const tip = Math.max(0, parseFloat(tipAmount.replace(",", ".")) || 0);
     setBusy(true);
-    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: order.id, amount, method, tip_amount: tip });
+    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: order.id, amount, method, tip_amount: tip, provider_id: providerId });
     const { data: p } = await supabase.from("order_payments").select("id, amount, method, tip_amount").eq("order_id", order.id).order("paid_at");
     const list = (p as Payment[]) ?? [];
     setPayments(list);
@@ -564,7 +578,9 @@ export default function TableOrderPanel({
     );
     if (!ok) return;
     setBusy(true); setErr(null);
-    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: b.id, amount, method, tip_amount: tip });
+    // Ayrık hesapta sağlayıcı sorulmaz, türün varsayılanı yazılır — bölünen hesap zaten
+    // birden çok onay adımından geçiyor, oraya bir seçim daha koymak akışı boğuyor.
+    await supabase.from("order_payments").insert({ restaurant_id: restaurantId, order_id: b.id, amount, method, tip_amount: tip, provider_id: defaultProviderId(method) });
     // Ayrık hesabın table_id'si NULL olduğu için close_order masa durumuna dokunmaz —
     // masa, asıl adisyonu kapanana kadar dolu kalır. İstediğimiz de bu.
     if (closes) await supabase.rpc("close_order", { p_order_id: b.id, p_staff_id: staffSession?.id ?? null });
@@ -904,7 +920,7 @@ export default function TableOrderPanel({
                   <>
                     <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                       {PAY_METHODS.map((m) => (
-                        <button key={m.v} onClick={() => setConfirmPayment({ method: m.v, amount: Math.min(typed || remaining, remaining), remaining })} disabled={busy || remaining <= 0} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13 }}>{m.l}</button>
+                        <button key={m.v} onClick={() => setConfirmPayment({ method: m.v, amount: Math.min(typed || remaining, remaining), remaining, providerId: defaultProviderId(m.v) })} disabled={busy || remaining <= 0} style={{ ...pillSecondary, flex: 1, padding: 10, fontSize: 13 }}>{m.l}</button>
                       ))}
                     </div>
                     <button onClick={() => setPayStep(false)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--muted)", marginTop: 10, display: "block" }}>Vazgeç</button>
@@ -914,9 +930,26 @@ export default function TableOrderPanel({
                     <div style={{ fontSize: 13.5, color: "var(--ink)", marginBottom: 12 }}>
                       <b className="tnum">{money(confirmPayment.amount)}</b> · {payLabel(confirmPayment.method)} ile {confirmPayment.amount >= confirmPayment.remaining - 0.001 ? "hesabı kapatmak" : "bu ödemeyi kaydetmek"} istiyor musunuz?
                     </div>
+                    {providersFor(confirmPayment.method).length > 1 && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 6 }}>Hangi sağlayıcı?</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {providersFor(confirmPayment.method).map((p) => {
+                            const on = confirmPayment.providerId === p.id;
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => setConfirmPayment({ ...confirmPayment, providerId: p.id })}
+                                style={{ fontSize: 12, padding: "5px 11px", borderRadius: 980, cursor: "pointer", border: on ? "none" : "1px solid var(--line-2)", background: on ? "var(--ink-green)" : "var(--card)", color: on ? "#fff" : "var(--muted)" }}
+                              >{p.name}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
-                        onClick={() => { const cp = confirmPayment; setConfirmPayment(null); addPayment(cp.method, cp.remaining); }}
+                        onClick={() => { const cp = confirmPayment; setConfirmPayment(null); addPayment(cp.method, cp.remaining, cp.providerId); }}
                         disabled={busy}
                         style={{ ...pillPrimary, flex: 1, padding: 10, fontSize: 13.5 }}
                       >Onayla</button>

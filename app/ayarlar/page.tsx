@@ -40,6 +40,14 @@ const PURCHASE_ROLES: { v: string; l: string }[] = [
 type RestaurantInfo = { name: string; address: string; phone: string; tax_office: string; tax_number: string };
 const EMPTY_INFO: RestaurantInfo = { name: "", address: "", phone: "", tax_office: "", tax_number: "" };
 
+// --- Ödeme sağlayıcıları (20260728100000_payment_providers_settlements.sql) ---
+// Kasa'daki "Yoldaki para" hesabı buradaki komisyon ve valöre göre yapılır.
+type Provider = { id: string; name: string; method: string; commission_rate: number; settlement_days: number; is_default: boolean; is_active: boolean };
+const METHOD_LABEL: Record<string, string> = { kart: "Kart", yemek_karti: "Yemek kartı" };
+
+// --- KVKK (20260728110000_kvkk_compliance.sql) ---
+type PersonalDataStatus = { retention_days: number; total_records: number; expired_pending: number; anonymized_count: number; oldest_record: string | null };
+
 type DayKey = "pzt" | "sal" | "car" | "per" | "cum" | "cmt" | "paz";
 type DayHours = { acilis: string; kapanis: string; kapali: boolean };
 type OpeningHours = Record<DayKey, DayHours>;
@@ -107,15 +115,32 @@ export default function Ayarlar() {
   const [infoSaved, setInfoSaved] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
 
+  // KVKK paneli — aydınlatma metni, saklama süresi ve anonimleştirme durumu.
+  const [kvkkNotice, setKvkkNotice] = useState("");
+  const [kvkkDays, setKvkkDays] = useState("365");
+  const [pdStatus, setPdStatus] = useState<PersonalDataStatus | null>(null);
+  const [anonBusy, setAnonBusy] = useState(false);
+  const [anonDone, setAnonDone] = useState<number | null>(null);
+
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [provDrafts, setProvDrafts] = useState<Record<string, { rate: string; days: string }>>({});
+  const [provSaved, setProvSaved] = useState(false);
+
   const load = useCallback(async () => {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: s }, { data: c }] = await Promise.all([
+    const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
       supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
     if (s) setSettings(s as Settings);
+    const provs = (pv as Provider[]) ?? [];
+    setProviders(provs);
+    setProvDrafts(Object.fromEntries(provs.map((p) => [p.id, {
+      rate: String(p.commission_rate), days: String(p.settlement_days),
+    }])));
     const cats = (c as Category[]) ?? [];
     setCategories(cats);
     setCatDrafts(Object.fromEntries(cats.map((cat) => [cat.id, {
@@ -149,16 +174,51 @@ export default function Ayarlar() {
     await load();
   };
 
+  // Geri alınamaz: süresi dolmuş kayıtlarda isim/telefon silinir, satır istatistik için kalır.
+  const anonymizeNow = async () => {
+    if (!restaurantId) return;
+    setAnonBusy(true); setAnonDone(null); setInfoError(null);
+    const { data, error } = await supabase.rpc("anonymize_expired_personal_data", { p_restaurant: restaurantId });
+    if (error) { setInfoError(error.message); setAnonBusy(false); return; }
+    setAnonDone(Number(data ?? 0));
+    const { data: pd } = await supabase.rpc("personal_data_status", { p_restaurant: restaurantId });
+    setPdStatus(((pd as PersonalDataStatus[]) ?? [])[0] ?? null);
+    setAnonBusy(false);
+  };
+
+  const saveProviders = async () => {
+    setSaveError(null);
+    const results = await Promise.all(providers.map((p) => {
+      const d = provDrafts[p.id];
+      return supabase.from("payment_providers").update({
+        commission_rate: Math.min(99.99, Math.max(0, parseFloat((d?.rate ?? "").replace(",", ".")) || 0)),
+        settlement_days: Math.max(0, parseInt(d?.days ?? "", 10) || 0),
+        is_active: p.is_active,
+        updated_at: new Date().toISOString(),
+      }).eq("id", p.id);
+    }));
+    const firstError = results.find((r) => r.error)?.error;
+    if (firstError) { setSaveError(firstError.message); return; }
+    setProvSaved(true);
+    setTimeout(() => setProvSaved(false), 2000);
+    await load();
+  };
+
   // Mevcut load()'a dokunmadan, restoran kimliği hazır olunca işletme panelini doldur.
   useEffect(() => {
     if (!restaurantId) return;
     let iptal = false;
     (async () => {
-      const [{ data: r }, { data: s }] = await Promise.all([
+      const [{ data: r }, { data: s }, { data: pd }] = await Promise.all([
         supabase.from("restaurants").select("name, address, phone, tax_office, tax_number").eq("id", restaurantId).maybeSingle(),
-        supabase.from("restaurant_settings").select("opening_hours, background_choice").eq("restaurant_id", restaurantId).maybeSingle(),
+        supabase.from("restaurant_settings").select("opening_hours, background_choice, kvkk_notice, kvkk_retention_days").eq("restaurant_id", restaurantId).maybeSingle(),
+        supabase.rpc("personal_data_status", { p_restaurant: restaurantId }),
       ]);
       if (iptal) return;
+      const kv = s as { kvkk_notice: string | null; kvkk_retention_days: number | null } | null;
+      setKvkkNotice(kv?.kvkk_notice ?? "");
+      setKvkkDays(String(kv?.kvkk_retention_days ?? 365));
+      setPdStatus(((pd as PersonalDataStatus[]) ?? [])[0] ?? null);
       if (r) {
         const row = r as Partial<Record<keyof RestaurantInfo, string | null>>;
         setInfo({
@@ -192,12 +252,18 @@ export default function Ayarlar() {
       tax_number: info.tax_number.trim() || null,
     }).eq("id", restaurantId);
     if (infoErr) { setInfoError(infoErr.message); return; }
-    // Sadece bu iki kolon gönderiliyor; restaurant_settings'teki diğer ayarlar korunur.
+    // Sadece bu kolonlar gönderiliyor; restaurant_settings'teki diğer ayarlar korunur.
     const { error: setErr } = await supabase.from("restaurant_settings").upsert(
-      { restaurant_id: restaurantId, opening_hours: hours, background_choice: background },
+      {
+        restaurant_id: restaurantId, opening_hours: hours, background_choice: background,
+        kvkk_notice: kvkkNotice.trim() || null,
+        kvkk_retention_days: Math.max(1, parseInt(kvkkDays, 10) || 365),
+      },
       { onConflict: "restaurant_id" },
     );
     if (setErr) { setInfoError(setErr.message); return; }
+    const { data: pd } = await supabase.rpc("personal_data_status", { p_restaurant: restaurantId });
+    setPdStatus(((pd as PersonalDataStatus[]) ?? [])[0] ?? null);
     setInfoSaved(true);
     setTimeout(() => setInfoSaved(false), 2000);
   };
@@ -270,6 +336,37 @@ export default function Ayarlar() {
               </label>
             ))}
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>Şu an bu, Stok sayfasına erişebilen herkes için geçerli — personel PIN girişine bağlı değil, ileride oraya taşınabilir.</div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 6 }}>Kart ve yemek kartı sağlayıcıları</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+              Komisyon oranı ve valör (paranın kaç gün sonra hesaba geçtiği). Kasa'daki &quot;Yoldaki para&quot;
+              hesabı bu değerlerle yapılır — kendi sözleşmenize göre düzeltin.
+            </div>
+            <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 5px", borderBottom: "1px solid var(--line)" }}>
+              <span style={{ flex: 1.6 }}>Sağlayıcı</span>
+              <span style={{ width: 62, textAlign: "right" }}>Kom. %</span>
+              <span style={{ width: 58, textAlign: "right", marginLeft: 6 }}>Valör</span>
+              <span style={{ width: 30, textAlign: "right" }} />
+            </div>
+            {providers.map((p) => (
+              <div key={p.id} style={{ display: "flex", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13, opacity: p.is_active ? 1 : 0.45 }}>
+                <span style={{ flex: 1.6, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {p.name}
+                  <span style={{ fontSize: 10.5, color: "var(--muted-2)", marginLeft: 5 }}>{METHOD_LABEL[p.method] ?? p.method}{p.is_default ? " · varsayılan" : ""}</span>
+                </span>
+                <input value={provDrafts[p.id]?.rate ?? ""} onChange={(e) => setProvDrafts((d) => ({ ...d, [p.id]: { ...d[p.id], rate: e.target.value } }))} inputMode="decimal" style={{ ...inp, width: 62, textAlign: "right", padding: "6px 7px" }} />
+                <input value={provDrafts[p.id]?.days ?? ""} onChange={(e) => setProvDrafts((d) => ({ ...d, [p.id]: { ...d[p.id], days: e.target.value } }))} inputMode="numeric" style={{ ...inp, width: 58, marginLeft: 6, textAlign: "right", padding: "6px 7px" }} />
+                <button
+                  onClick={() => setProviders((ps) => ps.map((x) => x.id === p.id ? { ...x, is_active: !x.is_active } : x))}
+                  title={p.is_active ? "Kullanılmıyor olarak işaretle" : "Tekrar kullan"}
+                  style={{ all: "unset", cursor: "pointer", width: 30, textAlign: "right", fontSize: 11.5, color: "var(--muted)" }}
+                >{p.is_active ? "gizle" : "aç"}</button>
+              </div>
+            ))}
+            <div style={{ marginTop: 10 }}>
+              <button onClick={saveProviders} style={{ ...btnPrimary, padding: "8px 16px", fontSize: 13 }}>Sağlayıcıları kaydet</button>
+              {provSaved && <span style={{ marginLeft: 10, fontSize: 12.5, color: "var(--success)" }}>Kaydedildi</span>}
+            </div>
 
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 14, lineHeight: 1.6 }}>
               Restoran bilgisi, masa &amp; salon düzeni (Salonlar sayfasında) ve sabit giderlerin tam dökümü ileride buraya eklenecek.
@@ -368,7 +465,62 @@ export default function Ayarlar() {
                 </div>
               );
             })}
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 8, lineHeight: 1.6 }}>Şimdilik sadece tercihin kaydedilir; ekranın gerçekten bu arka plana geçmesi ayrı bir adımda devreye alınacak.</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 8, marginBottom: 18, lineHeight: 1.6 }}>Şimdilik sadece tercihin kaydedilir; ekranın gerçekten bu arka plana geçmesi ayrı bir adımda devreye alınacak.</div>
+
+            {/* KVKK — rezervasyon isim/telefon topluyor, QR menü sipariş alıyor: işletme
+                veri sorumlusu. Aydınlatma yükümlülüğüne aykırılığın cezası 100.000–1.000.000 TL. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }}>KVKK — kişisel veri</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+              Rezervasyonda isim ve telefon topladığınız için işletmeniz veri sorumlusudur.
+              Aşağıdaki metin rezervasyon ekranında ve QR menüde müşteriye gösterilir.
+            </div>
+
+            {!kvkkNotice.trim() && (
+              <div style={{ padding: "9px 12px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 12, marginBottom: 10, lineHeight: 1.5 }}>
+                Aydınlatma metni boş. Bu hâliyle aydınlatma yükümlülüğü yerine getirilmiş sayılmaz.
+              </div>
+            )}
+
+            <label style={lbl}>Aydınlatma metni</label>
+            <textarea value={kvkkNotice} onChange={(e) => setKvkkNotice(e.target.value)} rows={8} placeholder="Müşteriye gösterilecek KVKK aydınlatma metni" style={{ ...inp, width: "100%", marginBottom: 6, resize: "vertical", fontFamily: "inherit", fontSize: 12.5, lineHeight: 1.55 }} />
+            <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 12, lineHeight: 1.55 }}>
+              Buradaki metin bir şablondur, hukuki danışmanlıkla kontrol ettirin.
+            </div>
+
+            <label style={lbl}>Saklama süresi (gün)</label>
+            <input value={kvkkDays} onChange={(e) => setKvkkDays(e.target.value)} inputMode="numeric" placeholder="365" className="tnum" style={{ ...inp, width: "100%", marginBottom: 6 }} />
+            <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 12, lineHeight: 1.55 }}>
+              Bu süreyi geçen rezervasyonlarda isim ve telefon silinir. Kayıt silinmez —
+              kaç kişi, hangi saat, geldi mi bilgisi istatistik için kalır, kişisel veri değildir.
+            </div>
+
+            {pdStatus && (
+              <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
+                  <span style={{ color: "var(--muted)" }}>Kişisel veri taşıyan kayıt</span>
+                  <span className="tnum">{pdStatus.total_records - pdStatus.anonymized_count}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
+                  <span style={{ color: "var(--muted)" }}>Anonimleştirilmiş</span>
+                  <span className="tnum">{pdStatus.anonymized_count}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "2px 0" }}>
+                  <span style={{ color: pdStatus.expired_pending > 0 ? "var(--danger)" : "var(--muted)", fontWeight: pdStatus.expired_pending > 0 ? 600 : 400 }}>Süresi dolmuş, bekliyor</span>
+                  <span className="tnum" style={{ color: pdStatus.expired_pending > 0 ? "var(--danger)" : undefined, fontWeight: pdStatus.expired_pending > 0 ? 600 : 400 }}>{pdStatus.expired_pending}</span>
+                </div>
+                {pdStatus.expired_pending > 0 && (
+                  <button onClick={anonymizeNow} disabled={anonBusy} style={{ ...btnPrimary, marginTop: 10, padding: "8px 14px", fontSize: 12.5, opacity: anonBusy ? 0.6 : 1 }}>
+                    {anonBusy ? "Temizleniyor…" : `${pdStatus.expired_pending} kaydı şimdi anonimleştir`}
+                  </button>
+                )}
+                {anonDone != null && (
+                  <div style={{ fontSize: 12, color: "var(--brand-strong)", marginTop: 8 }}>{anonDone} kayıt anonimleştirildi.</div>
+                )}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.55 }}>
+              Anonimleştirme geri alınamaz. Otomatik çalışmaz — ne zaman temizleneceğine siz karar verirsiniz.
+            </div>
           </div>
 
           <div style={{ flexShrink: 0, marginTop: 14 }}>

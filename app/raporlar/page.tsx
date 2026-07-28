@@ -26,6 +26,7 @@ type ClosedOrder = {
   id: string;
   total_amount: number;
   party_size: number | null;
+  opened_at: string | null;
   closed_at: string | null;
   closed_by_staff_id: string | null;
   order_items: OItem[];
@@ -72,7 +73,35 @@ const roleLabel = (v: string) =>
   ({ garson: "Garson", mutfak: "Mutfak", bar: "Bar", kasa: "Kasa", sef: "Şef", yonetici: "Yönetici" }[v] ?? v);
 const odemeLabel = (v: string) => ({ nakit: "Nakit", kart: "Kredi kartı", yemek_karti: "Yemek kartı" }[v] ?? v);
 
+// Menü mühendisliği (Kasavana–Smith) dört kadranı. Her kadranın tek bir aksiyonu var —
+// tablo "ne kadar" der, buradaki cümle "ne yap" der.
+type Kadran = "yildiz" | "at" | "bilmece" | "kopek";
+const KADRANLAR: { k: Kadran; ad: string; renk: string; aksiyon: string }[] = [
+  { k: "yildiz", ad: "Yıldız", renk: "var(--brand)", aksiyon: "Çok satıyor, çok kazandırıyor. Menüde öne çıkar, fiyatına dokunma, porsiyonunu ve kalitesini bozma." },
+  { k: "at", ad: "Beygir", renk: "var(--gold-text)", aksiyon: "Çok satıyor ama az kazandırıyor. Önce maliyeti düşür (porsiyon, tedarikçi); olmuyorsa fiyatı kademeli artır." },
+  { k: "bilmece", ad: "Bilmece", renk: "var(--ink-green)", aksiyon: "Kazandırıyor ama satmıyor. Menüdeki yerini ve adını değiştir, garsonlara önerttir, görselini ekle." },
+  { k: "kopek", ad: "Köpek", renk: "var(--danger)", aksiyon: "Ne satıyor ne kazandırıyor. Menüden çıkarmayı ya da baştan kurgulamayı düşün — mutfağı meşgul ediyor." },
+];
+
 type Aralik = { startMs: number; endMs: number; etiket: string };
+
+// Ayarlar'daki haftalık çalışma saatleri — RevPASH'in paydası buradan gelir.
+type DayKey = "pzt" | "sal" | "car" | "per" | "cum" | "cmt" | "paz";
+type OpeningHours = Record<DayKey, { acilis: string; kapanis: string; kapali: boolean }>;
+const GUN_ANAHTARI: DayKey[] = ["pzt", "sal", "car", "per", "cum", "cmt", "paz"];
+
+// "18:00" → 18.0. Kapanış açılıştan küçükse gece yarısını geçmiştir (02:00 → ertesi gün).
+const saateCevir = (v: string) => {
+  const [s, d] = (v ?? "").split(":").map((x) => parseInt(x, 10));
+  return Number.isFinite(s) ? s + (Number.isFinite(d) ? d / 60 : 0) : 0;
+};
+const gunlukAcikSaat = (h: OpeningHours | null, gunKey: DayKey) => {
+  const d = h?.[gunKey];
+  if (!d || d.kapali) return 0;
+  const a = saateCevir(d.acilis);
+  const k = saateCevir(d.kapanis);
+  return k > a ? k - a : 24 - a + k;
+};
 
 function donemAraligi(d: Donem, bugun: string, bas: string, bit: string): Aralik | null {
   if (!bugun) return null;
@@ -109,6 +138,9 @@ export default function Raporlar() {
   const [karsilastirmaAcik, setKarsilastirmaAcik] = useState(false);
   const [cashMoves, setCashMoves] = useState<CashMove[]>([]);
   const [closures, setClosures] = useState<Closure[]>([]);
+  const [koltukSayisi, setKoltukSayisi] = useState(0);
+  const [masaSayisi, setMasaSayisi] = useState(0);
+  const [openingHours, setOpeningHours] = useState<OpeningHours | null>(null);
 
   // Tarih state'i ilk render'da değil mount sonrası set edilir — sunucu/istemci
   // arasında hydration uyuşmazlığı olmasın diye (Gün Sonu ile aynı desen).
@@ -139,10 +171,10 @@ export default function Raporlar() {
     const basGun = istanbulGun(new Date(aralik.startMs));
     const bitGun = istanbulGun(new Date(aralik.endMs - 1));
 
-    const [kap, onc, voids, pays, stf, ayar, rec, prof, cms, cls] = await Promise.all([
+    const [kap, onc, voids, pays, stf, ayar, rec, prof, cms, cls, tbl] = await Promise.all([
       supabase
         .from("orders")
-        .select("id, total_amount, party_size, closed_at, closed_by_staff_id, order_items(quantity, unit_price, status, vat_rate, menu_item_id, sent_by_staff_id, menu_items(name))")
+        .select("id, total_amount, party_size, opened_at, closed_at, closed_by_staff_id, order_items(quantity, unit_price, status, vat_rate, menu_item_id, sent_by_staff_id, menu_items(name))")
         .eq("restaurant_id", restId)
         .eq("status", "closed")
         .gte("closed_at", startISO)
@@ -172,7 +204,7 @@ export default function Raporlar() {
         .lt("paid_at", endISO)
         .limit(5000),
       supabase.from("staff_members").select("id, full_name, role").eq("restaurant_id", restId).is("deleted_at", null),
-      supabase.from("restaurant_settings").select("staff_comparison_enabled").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("staff_comparison_enabled, opening_hours").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
       supabase.from("profiles").select("id, full_name").eq("restaurant_id", restId).is("deleted_at", null),
       supabase
@@ -190,6 +222,8 @@ export default function Raporlar() {
         .gte("closure_date", basGun)
         .lte("closure_date", bitGun)
         .order("closure_date"),
+      // Koltuk kapasitesi — RevPASH tabanı. Silinmiş masalar sayılmaz.
+      supabase.from("restaurant_tables").select("seat_count").eq("restaurant_id", restId).is("deleted_at", null),
     ]);
 
     const ilkHata = kap.error ?? onc.error ?? voids.error ?? pays.error;
@@ -203,7 +237,12 @@ export default function Raporlar() {
     setProfiles((prof.data as Profile[]) ?? []);
     setCashMoves((cms.data as CashMove[]) ?? []);
     setClosures((cls.data as Closure[]) ?? []);
-    setKarsilastirmaAcik(Boolean((ayar.data as { staff_comparison_enabled: boolean } | null)?.staff_comparison_enabled));
+    const ayarRow = ayar.data as { staff_comparison_enabled: boolean; opening_hours: unknown } | null;
+    setKarsilastirmaAcik(Boolean(ayarRow?.staff_comparison_enabled));
+    setOpeningHours((ayarRow?.opening_hours as OpeningHours | null) ?? null);
+    const masalar = (tbl.data as { seat_count: number }[]) ?? [];
+    setMasaSayisi(masalar.length);
+    setKoltukSayisi(masalar.reduce((s, m) => s + Number(m.seat_count ?? 0), 0));
 
     const costMap: Record<string, number> = {};
     ((rec.data as unknown as RecipeRow[]) ?? []).forEach((r) => {
@@ -279,6 +318,62 @@ export default function Raporlar() {
     return receteli.filter((u) => u.adet >= medyanAdet && u.kar < medyanKar).slice(0, 5);
   }, [urunler]);
   const uyariVar = uyariZarar.length + uyariYuksekFC.length + uyariRecetesiz.length + uyariCokSatipAzKazanan.length > 0;
+
+  // ---------- 1c) Menü mühendisliği matrisi ----------
+  // Kasavana–Smith modeli: her ürün iki eksende konumlanır — popülerlik (satış adedi payı) ve
+  // birim katkı payı (kâr / adet). Popülerlik eşiği (1/ürün sayısı) × %70; bu sektör standardıdır
+  // ve "eşit dağılımın biraz altı da popüler sayılır" demektir. Katkı payı eşiği, ağırlıklı
+  // ortalama birim kâr. Uyarı listesi "neye bak" der; matris "ne yap" der.
+  const menuMatris = useMemo(() => {
+    const receteli = urunler.filter((u) => u.receteVar && u.adet > 0);
+    if (receteli.length < 4) return null;
+    const toplamAdet = receteli.reduce((s, u) => s + u.adet, 0);
+    const toplamKar = receteli.reduce((s, u) => s + u.kar, 0);
+    if (toplamAdet === 0) return null;
+    const ortBirimKar = toplamKar / toplamAdet;
+    const popEsik = (1 / receteli.length) * 0.7;
+    const rows = receteli.map((u) => {
+      const birimKar = u.kar / u.adet;
+      const pay = u.adet / toplamAdet;
+      const populer = pay >= popEsik;
+      const karli = birimKar >= ortBirimKar;
+      const kadran: Kadran = populer ? (karli ? "yildiz" : "at") : (karli ? "bilmece" : "kopek");
+      return { ...u, birimKar, pay, kadran };
+    });
+    return { rows, ortBirimKar, popEsik };
+  }, [urunler]);
+
+  // ---------- 1d) Kapasite verimliliği: RevPASH ve devir hızı ----------
+  // RevPASH = ciro / (koltuk sayısı × açık saat). Ciro büyürken RevPASH düşüyorsa işletme
+  // kapasitesini değil sadece fiyatını büyütüyor demektir. Saatlik yoğunluk "ne zaman dolu"
+  // der, RevPASH "kapasitenin ne kadarını paraya çevirdin" der.
+  const kapasite = useMemo(() => {
+    if (!aralik || koltukSayisi === 0) return null;
+    // Dönemdeki her günün açık saatini takvimden topla — kapalı günler paydaya girmez.
+    let acikSaat = 0;
+    let gunSayisi = 0;
+    for (let ms = aralik.startMs; ms < aralik.endMs; ms += 86400000) {
+      const gun = istanbulGun(new Date(ms));
+      const haftaGunu = (new Date(`${gun}T00:00:00Z`).getUTCDay() + 6) % 7;
+      acikSaat += gunlukAcikSaat(openingHours, GUN_ANAHTARI[haftaGunu]);
+      gunSayisi++;
+    }
+    if (acikSaat <= 0) return null;
+    const koltukSaat = koltukSayisi * acikSaat;
+    // Masada geçirilen ortalama süre — sadece açılış ve kapanışı olan adisyonlardan.
+    const sureliler = kapanan.filter((o) => o.opened_at && o.closed_at);
+    const ortSureDk = sureliler.length > 0
+      ? sureliler.reduce((s, o) => s + (Date.parse(o.closed_at!) - Date.parse(o.opened_at!)), 0) / sureliler.length / 60000
+      : null;
+    return {
+      acikSaat, gunSayisi, koltukSaat,
+      revpash: ciro / koltukSaat,
+      koltukDoluluk: musteri / (koltukSayisi * gunSayisi),   // günde koltuk başına kaç misafir
+      masaDevir: masaSayisi > 0 ? kapanan.length / (masaSayisi * gunSayisi) : null,
+      ortSureDk,
+      ortKisiBasi: musteri > 0 ? ciro / musteri : 0,
+    };
+  }, [aralik, koltukSayisi, masaSayisi, openingHours, kapanan, ciro, musteri]);
 
   // ---------- 7) Kasa raporu ----------
   const nakitSatis = payments.filter((p) => p.method === "nakit").reduce((s, p) => s + Number(p.amount), 0);
@@ -508,11 +603,105 @@ export default function Raporlar() {
           )}
         </Kolon>
 
+        {/* 1c — MENÜ MÜHENDİSLİĞİ MATRİSİ */}
+        <Kolon
+          flex={1.15}
+          minWidth={300}
+          baslik="2 · Menü mühendisliği"
+          alt={menuMatris ? `Ortalama birim kâr ${money(menuMatris.ortBirimKar)} — eşiğin altı "az kazandıran"` : "Dört kadran: yıldız, beygir, bilmece, köpek"}
+        >
+          {!menuMatris ? (
+            <Bos>Matris için reçeteli ve satılmış en az 4 ürün gerekir.</Bos>
+          ) : (
+            <>
+              {KADRANLAR.map((kd) => {
+                const grup = menuMatris.rows.filter((r) => r.kadran === kd.k).sort((a, b) => b.adet - a.adet);
+                if (grup.length === 0) return null;
+                return (
+                  <div key={kd.k} style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: kd.renk }}>{kd.ad}</span>
+                      <span className="tnum" style={{ fontSize: 11.5, color: "var(--muted-2)" }}>{grup.length} ürün</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--muted)", lineHeight: 1.5, marginBottom: 6 }}>{kd.aksiyon}</div>
+                    {grup.map((u) => (
+                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: "1px solid var(--line)", fontSize: 12.5 }}>
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.ad}</span>
+                        <span className="tnum" style={{ width: 42, textAlign: "right", color: "var(--muted)" }}>{u.adet}</span>
+                        <span className="tnum" style={{ width: 46, textAlign: "right", color: "var(--muted-2)" }}>{yuzde(u.pay * 100)}</span>
+                        <span className="tnum" style={{ width: 72, textAlign: "right", fontWeight: 600, color: u.birimKar >= menuMatris.ortBirimKar ? "var(--brand)" : "var(--gold-text)" }}>
+                          {money(u.birimKar)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              <Not>
+                Sütunlar: satış adedi, toplam içindeki payı, birim başına kâr.
+                Popülerlik eşiği (1 / ürün sayısı) × %70 = {yuzde(menuMatris.popEsik * 100)};
+                bu payın üstündeki ürün &quot;çok satan&quot; sayılır. Reçetesi olmayan ürünler
+                matrise girmez — kârları bilinmiyor.
+              </Not>
+            </>
+          )}
+        </Kolon>
+
+        {/* 3 — KAPASİTE VERİMLİLİĞİ (RevPASH) */}
+        <Kolon
+          flex={1}
+          minWidth={272}
+          baslik="3 · Kapasite verimliliği"
+          alt={koltukSayisi > 0 ? `${masaSayisi} masa · ${koltukSayisi} koltuk` : "Masa kapasitesi girilmemiş"}
+        >
+          {koltukSayisi === 0 ? (
+            <Bos>Masalarda koltuk sayısı tanımlı değil. Salon ekranında masaya sağ tıklayıp girebilirsin.</Bos>
+          ) : !kapasite ? (
+            <Bos>Çalışma saatleri girilmeden hesaplanamaz — Ayarlar &gt; İşletme.</Bos>
+          ) : (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "2px 0 10px" }}>
+                <span style={{ fontSize: 12.5, color: "var(--muted)" }}>RevPASH</span>
+                <span className="tnum" style={{ fontSize: 26, fontWeight: 600, letterSpacing: "-0.6px", color: "var(--ink-green)" }}>
+                  {money(kapasite.revpash)}
+                </span>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--muted)", lineHeight: 1.55, marginBottom: 12 }}>
+                Açık olduğun her saatte, her koltuk ortalama bu kadar ciro üretti.
+                Dönemde {Math.round(kapasite.acikSaat)} saat açıktın, {koltukSayisi} koltukla
+                toplam <span className="tnum">{Math.round(kapasite.koltukSaat).toLocaleString("tr-TR")}</span> koltuk-saat kapasiten vardı.
+              </div>
+
+              <BaslikSatiri>
+                <span style={{ flex: 1 }}>Ölçü</span>
+                <span style={{ width: 82, textAlign: "right" }}>Değer</span>
+              </BaslikSatiri>
+              <OlcuSatiri l="Koltuk başına günlük misafir" v={kapasite.koltukDoluluk.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} />
+              {kapasite.masaDevir != null && (
+                <OlcuSatiri l="Masa devir hızı (gün/masa)" v={kapasite.masaDevir.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} />
+              )}
+              <OlcuSatiri
+                l="Ortalama masa süresi"
+                v={kapasite.ortSureDk != null ? `${Math.round(kapasite.ortSureDk)} dk` : "—"}
+              />
+              <OlcuSatiri l="Kişi başı ortalama harcama" v={money(kapasite.ortKisiBasi)} />
+              <OlcuSatiri l="Günlük açık süre (ortalama)" v={`${(kapasite.acikSaat / Math.max(1, kapasite.gunSayisi)).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} sa`} />
+
+              <Not>
+                RevPASH otelcilikten restorana geçmiş standart verimlilik ölçüsüdür: ciroyu masaya
+                değil kapasiteye böler. Ciro artarken RevPASH düşüyorsa büyüme kapasiteden değil
+                fiyattan geliyordur. Yükseltmenin iki yolu var: masa süresini kısaltmak ya da
+                kişi başı harcamayı artırmak.
+              </Not>
+            </>
+          )}
+        </Kolon>
+
         {/* 4 — İPTAL / İKRAM */}
         <Kolon
           flex={1.15}
           minWidth={290}
-          baslik="2 · İptal / ikram"
+          baslik="4 · İptal / ikram"
           alt={kacaklar.length > 0 ? `İptal ${money(iptalTutar)} · İkram ${money(ikramTutar)} — ciroya oranı ${yuzde(kacakOran)}` : "Kaçak radarı"}
           vurgu={iptalTutar + ikramTutar > 0}
         >
@@ -555,7 +744,7 @@ export default function Raporlar() {
         </Kolon>
 
         {/* 2, 3, 5 — PERSONEL · SAATLİK · ÖDEME */}
-        <Kolon flex={1.1} minWidth={280} baslik="3 · Personel, saat ve ödeme" alt={enYogunSaat ? `En yoğun saat ${String(enYogunSaat.saat).padStart(2, "0")}:00` : "Dönem dağılımı"}>
+        <Kolon flex={1.1} minWidth={280} baslik="5 · Personel, saat ve ödeme" alt={enYogunSaat ? `En yoğun saat ${String(enYogunSaat.saat).padStart(2, "0")}:00` : "Dönem dağılımı"}>
           {/* 2 — Personel satışı (işletme ayarı kapalıysa hiç gösterilmez) */}
           {karsilastirmaAcik && (
             <>
@@ -651,7 +840,7 @@ export default function Raporlar() {
         <Kolon
           flex={1.1}
           minWidth={270}
-          baslik="4 · Kasa"
+          baslik="6 · Kasa"
           vurgu={tutmayanGunler.length > 0}
           alt={
             closures.length === 0
@@ -759,6 +948,16 @@ function BaslikSatiri({ children }: { children: React.ReactNode }) {
 
 function MiniBaslik({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-green)", margin: "14px 0 5px" }}>{children}</div>;
+}
+
+// Kapasite kolonundaki tek satırlık ölçüler — sol etiket, sağ hizalı rakam.
+function OlcuSatiri({ l, v }: { l: string; v: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 12.5 }}>
+      <span style={{ flex: 1, minWidth: 0, color: "var(--muted)" }}>{l}</span>
+      <span className="tnum" style={{ width: 82, textAlign: "right", fontWeight: 600, color: "var(--ink)" }}>{v}</span>
+    </div>
+  );
 }
 
 function Bos({ children }: { children: React.ReactNode }) {

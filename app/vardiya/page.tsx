@@ -22,6 +22,46 @@ type Staff = {
 type Shift = { id: string; staff_id: string; started_at: string; ended_at: string | null };
 type CostRow = { staff_id: string; full_name: string; role: string; toplam_saat: number; maliyet: number; yontem: string };
 
+// --- Puantaj / yasal uyum (20260728120000_timesheet_overtime_leave.sql) ---
+// 4857 sayılı İş Kanunu md.67 çalışma sürelerinin kayıt altına alınmasını zorunlu kılıyor;
+// md.63 haftalık sınırı 45 saat, md.41 fazla çalışma için yazılı onay ve yılda 270 saat tavanı,
+// md.53 yıllık izin sürelerini belirliyor. Vardiya kaydı vardı, yasal çerçeve eksikti.
+type TimesheetRow = { staff_id: string; full_name: string; role: string; work_date: string; hours: number };
+type ComplianceRow = {
+  staff_id: string; full_name: string; role: string; hire_date: string | null;
+  week_hours: number; overtime_hours: number; has_consent: boolean; year_overtime_hours: number;
+  leave_entitled: number; leave_used: number; leave_remaining: number;
+};
+type Leave = { id: string; staff_id: string; leave_type: string; start_date: string; end_date: string; note: string | null };
+
+const HAFTA_GUN = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
+const LEAVE_TYPES: { v: string; l: string }[] = [
+  { v: "yillik", l: "Yıllık izin" },
+  { v: "ucretsiz", l: "Ücretsiz" },
+  { v: "raporlu", l: "Raporlu" },
+  { v: "mazeret", l: "Mazeret" },
+];
+const HAFTALIK_SINIR = 45;   // İş Kanunu md.63
+const YILLIK_FAZLA_TAVAN = 270; // İş Kanunu md.41
+
+// --- Satış tahmini / personel planı (20260728140000_sales_forecast_staffing.sql) ---
+// Tahmin, aynı hafta gününün son 8 haftalık ağırlıklı ortalaması. Bilerek basit: işletmeci
+// rakamın nereden geldiğini göremezse güvenmez, güvenmediği plana da uymaz.
+type PlanRow = {
+  forecast_date: string; weekday: number;
+  predicted_covers: number; predicted_revenue: number;
+  covers_per_staff_hour: number | null; suggested_staff_hours: number | null;
+  suggested_staff_count: number | null; estimated_labor_cost: number | null;
+  labor_percent: number | null; target_labor_percent: number; confidence: string;
+};
+const GUVEN: Record<string, { l: string; renk: string }> = {
+  yuksek: { l: "yüksek", renk: "var(--brand)" },
+  orta: { l: "orta", renk: "var(--gold-text)" },
+  dusuk: { l: "düşük", renk: "var(--muted-2)" },
+};
+// isodow: 1 = Pazartesi … 7 = Pazar
+const GUN_ADI = ["", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -65,6 +105,19 @@ const fromInputValue = (v: string) => {
   return isNaN(d.getTime()) ? null : d.toISOString();
 };
 
+// Puantaj haftası pazartesi başlar (Postgres date_trunc('week') ile aynı kural).
+const haftaBasi = (gun: string) => {
+  const d = new Date(`${gun}T12:00:00+03:00`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return istGun(d);
+};
+const gunEkle = (gun: string, n: number) => {
+  const d = new Date(`${gun}T12:00:00+03:00`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return istGun(d);
+};
+const kisaTarih = (gun: string) => `${gun.slice(8, 10)}.${gun.slice(5, 7)}`;
+
 export default function Vardiya() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -80,7 +133,21 @@ export default function Vardiya() {
   const [editEnd, setEditEnd] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { setFrom(gunOnce(6)); setTo(bugunIstanbul()); }, []);
+  // Puantaj görünümü — vardiya kaydıyla aynı veriden beslenir, ayrı ekran açmamak için
+  // aynı sayfada sekme olarak duruyor.
+  const [gorunum, setGorunum] = useState<"vardiya" | "puantaj" | "plan">("vardiya");
+  const [plan, setPlan] = useState<PlanRow[]>([]);
+  const [hedefIscilik, setHedefIscilik] = useState("30");
+  const [hafta, setHafta] = useState("");
+  const [timesheet, setTimesheet] = useState<TimesheetRow[]>([]);
+  const [compliance, setCompliance] = useState<ComplianceRow[]>([]);
+  const [leaves, setLeaves] = useState<Leave[]>([]);
+  const [izinFor, setIzinFor] = useState<string | null>(null);
+  const [izinTip, setIzinTip] = useState("yillik");
+  const [izinBas, setIzinBas] = useState("");
+  const [izinBit, setIzinBit] = useState("");
+
+  useEffect(() => { setFrom(gunOnce(6)); setTo(bugunIstanbul()); setHafta(haftaBasi(bugunIstanbul())); }, []);
   useEffect(() => {
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 30000);
@@ -116,6 +183,94 @@ export default function Vardiya() {
   }, [from, to]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadPuantaj = useCallback(async () => {
+    if (!hafta || gorunum !== "puantaj") return;
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
+    const [{ data: ts }, { data: lc }, { data: lv }] = await Promise.all([
+      supabase.rpc("weekly_timesheet", { p_restaurant: restId, p_week_start: hafta }),
+      supabase.rpc("labor_compliance", { p_restaurant: restId, p_week_start: hafta }),
+      supabase.from("staff_leaves").select("id, staff_id, leave_type, start_date, end_date, note")
+        .eq("restaurant_id", restId).is("deleted_at", null)
+        .gte("end_date", `${hafta.slice(0, 4)}-01-01`).order("start_date", { ascending: false }),
+    ]);
+    setTimesheet((ts as TimesheetRow[]) ?? []);
+    setCompliance((lc as ComplianceRow[]) ?? []);
+    setLeaves((lv as Leave[]) ?? []);
+  }, [hafta, gorunum]);
+
+  useEffect(() => { loadPuantaj(); }, [loadPuantaj]);
+
+  const loadPlan = useCallback(async () => {
+    if (gorunum !== "plan") return;
+    const restId = await getMyRestaurantId();
+    if (!restId) return;
+    setRestaurantId(restId);
+    const [{ data: pl }, { data: st }] = await Promise.all([
+      supabase.rpc("staffing_plan", { p_restaurant: restId, p_days_ahead: 14 }),
+      supabase.from("restaurant_settings").select("target_labor_percent").eq("restaurant_id", restId).maybeSingle(),
+    ]);
+    setPlan((pl as PlanRow[]) ?? []);
+    setHedefIscilik(String((st as { target_labor_percent: number } | null)?.target_labor_percent ?? 30));
+  }, [gorunum]);
+
+  useEffect(() => { loadPlan(); }, [loadPlan]);
+
+  const hedefKaydet = async () => {
+    if (!restaurantId) return;
+    const n = Math.min(99, Math.max(1, parseFloat(hedefIscilik.replace(",", ".")) || 30));
+    await supabase.from("restaurant_settings").upsert(
+      { restaurant_id: restaurantId, target_labor_percent: n }, { onConflict: "restaurant_id" },
+    );
+    await loadPlan();
+  };
+
+  const haftaGunleri = useMemo(() => (hafta ? Array.from({ length: 7 }, (_, i) => gunEkle(hafta, i)) : []), [hafta]);
+  // personel × gün → saat
+  const puantajMap = useMemo(() => {
+    const m: Record<string, Record<string, number>> = {};
+    timesheet.forEach((r) => { (m[r.staff_id] ??= {})[r.work_date] = Number(r.hours); });
+    return m;
+  }, [timesheet]);
+
+  const izinKaydet = async () => {
+    if (!restaurantId || !izinFor || !izinBas || !izinBit) return;
+    setErr(null);
+    if (izinBit < izinBas) { setErr("İzin bitişi başlangıçtan önce olamaz."); return; }
+    const { error } = await supabase.from("staff_leaves").insert({
+      restaurant_id: restaurantId, staff_id: izinFor, leave_type: izinTip,
+      start_date: izinBas, end_date: izinBit,
+    });
+    if (error) { setErr(error.message); return; }
+    setIzinFor(null); setIzinBas(""); setIzinBit(""); setIzinTip("yillik");
+    await loadPuantaj();
+  };
+
+  const izinSil = async (id: string) => {
+    await supabase.from("staff_leaves").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+    await loadPuantaj();
+  };
+
+  // İş Kanunu md.41: fazla çalışma işçinin yazılı onayına bağlı, onay yılda bir alınır.
+  const onayDegistir = async (staffId: string, varMi: boolean) => {
+    if (!restaurantId || !hafta) return;
+    setErr(null);
+    const yil = parseInt(hafta.slice(0, 4), 10);
+    if (varMi) {
+      await supabase.from("overtime_consents").delete().eq("staff_id", staffId).eq("consent_year", yil);
+    } else {
+      const { error } = await supabase.from("overtime_consents").insert({ restaurant_id: restaurantId, staff_id: staffId, consent_year: yil });
+      if (error) { setErr(error.message); return; }
+    }
+    await loadPuantaj();
+  };
+
+  const iseGirisKaydet = async (staffId: string, v: string) => {
+    await supabase.from("staff_members").update({ hire_date: v || null }).eq("id", staffId);
+    await loadPuantaj();
+  };
 
   const staffMap = useMemo(() => Object.fromEntries(staff.map((s) => [s.id, s] as const)) as Record<string, Staff>, [staff]);
   const costMap = useMemo(() => Object.fromEntries(costs.map((c) => [c.staff_id, c] as const)) as Record<string, CostRow>, [costs]);
@@ -223,15 +378,44 @@ export default function Vardiya() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Aralık</span>
-          <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={inp} />
-          <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>–</span>
-          <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={inp} />
+          <div style={{ display: "flex", gap: 4, background: "var(--recede)", borderRadius: 980, padding: 3, marginRight: 4 }}>
+            {([["vardiya", "Vardiya"], ["puantaj", "Puantaj & izin"], ["plan", "Plan"]] as const).map(([v, l]) => (
+              <button key={v} onClick={() => setGorunum(v)} style={{
+                border: "none", borderRadius: 980, padding: "6px 14px", fontSize: 12.5, cursor: "pointer",
+                background: gorunum === v ? "var(--ink-green)" : "transparent",
+                color: gorunum === v ? "#fff" : "var(--muted)",
+              }}>{l}</button>
+            ))}
+          </div>
+          {gorunum === "vardiya" ? (
+            <>
+              <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Aralık</span>
+              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={inp} />
+              <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>–</span>
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={inp} />
+            </>
+          ) : gorunum === "plan" ? (
+            <>
+              <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Hedef işçilik</span>
+              <input value={hedefIscilik} onChange={(e) => setHedefIscilik(e.target.value)} onKeyDown={(e) => e.key === "Enter" && hedefKaydet()} onBlur={hedefKaydet} inputMode="decimal" className="tnum" style={{ ...inp, width: 56, textAlign: "right" }} />
+              <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>% ciro</span>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setHafta((h) => gunEkle(h, -7))} style={btnSecondary}>‹</button>
+              <span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)", minWidth: 116, textAlign: "center" }}>
+                {hafta ? `${kisaTarih(hafta)} – ${kisaTarih(gunEkle(hafta, 6))}` : "—"}
+              </span>
+              <button onClick={() => setHafta((h) => gunEkle(h, 7))} style={btnSecondary}>›</button>
+              <button onClick={() => setHafta(haftaBasi(bugunIstanbul()))} style={btnSecondary}>Bu hafta</button>
+            </>
+          )}
         </div>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
+      {gorunum === "vardiya" && (<>
       {/* ŞU AN MESAİDE + MESAİ BAŞLAT */}
       <div style={{ ...card, flexShrink: 0, marginBottom: 16 }}>
         <SectionLabel>Şu an mesaide</SectionLabel>
@@ -376,6 +560,197 @@ export default function Vardiya() {
           </div>
         </div>
       </div>
+      </>)}
+
+      {gorunum === "puantaj" && (
+        <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
+          {/* PUANTAJ CETVELİ — İş Kanunu md.67 gereği tutulması zorunlu kayıt */}
+          <div style={{ ...card, flex: 1.5, minWidth: 420, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <SectionLabel>Puantaj cetveli</SectionLabel>
+            <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+              <span style={{ flex: 1.4, minWidth: 0 }}>Personel</span>
+              {haftaGunleri.map((g, i) => (
+                <span key={g} style={{ width: 46, textAlign: "right" }}>{HAFTA_GUN[i]}</span>
+              ))}
+              <span style={{ width: 58, textAlign: "right" }}>Toplam</span>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {compliance.map((c) => {
+                const gunler = puantajMap[c.staff_id] ?? {};
+                const asim = Number(c.week_hours) > HAFTALIK_SINIR;
+                return (
+                  <div key={c.staff_id} style={{ display: "flex", alignItems: "center", fontSize: 13, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                    <span style={{ flex: 1.4, minWidth: 0 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.full_name}</span>
+                      <span style={{ fontSize: 11, color: "var(--muted-2)" }}>{roleLabel(c.role)}</span>
+                    </span>
+                    {haftaGunleri.map((g) => {
+                      const s = gunler[g] ?? 0;
+                      return (
+                        <span key={g} className="tnum" style={{ width: 46, textAlign: "right", color: s > 0 ? "var(--ink)" : "var(--muted-2)" }}>
+                          {s > 0 ? r2(s).toLocaleString("tr-TR") : "—"}
+                        </span>
+                      );
+                    })}
+                    <span className="tnum" style={{ width: 58, textAlign: "right", fontWeight: 600, color: asim ? "var(--danger)" : "var(--ink)" }}>
+                      {r2(Number(c.week_hours)).toLocaleString("tr-TR")}
+                    </span>
+                  </div>
+                );
+              })}
+              {compliance.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Aktif personel yok.</div>}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted-2)", lineHeight: 1.5, paddingTop: 10, borderTop: "1px solid var(--line)", marginTop: 4, flexShrink: 0 }}>
+              İş Kanunu md.67 çalışma sürelerinin kayıt altına alınmasını zorunlu kılar.
+              Gece yarısını geçen vardiya başladığı güne yazılır (18:00–02:00 tek çalışma günüdür).
+            </div>
+          </div>
+
+          {/* YASAL UYUM + İZİN */}
+          <div style={{ ...card, flex: 1, minWidth: 340, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <SectionLabel>Yasal uyum ve izin</SectionLabel>
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {compliance.map((c) => {
+                const fazla = Number(c.overtime_hours);
+                const yilFazla = Number(c.year_overtime_hours);
+                const tavanAsim = yilFazla > YILLIK_FAZLA_TAVAN;
+                const izinleri = leaves.filter((l) => l.staff_id === c.staff_id);
+                return (
+                  <div key={c.staff_id} style={{ padding: "10px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                      <span style={{ fontSize: 13.5, fontWeight: 500, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.full_name}</span>
+                      <span className="tnum" style={{ fontSize: 12.5, color: fazla > 0 ? "var(--danger)" : "var(--muted-2)", flexShrink: 0 }}>
+                        {fazla > 0 ? `+${r2(fazla).toLocaleString("tr-TR")} sa fazla` : "45 saat içinde"}
+                      </span>
+                    </div>
+
+                    {fazla > 0 && (
+                      <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, marginTop: 5, cursor: "pointer", color: c.has_consent ? "var(--muted)" : "var(--danger)" }}>
+                        <input type="checkbox" checked={c.has_consent} onChange={() => onayDegistir(c.staff_id, c.has_consent)} />
+                        {hafta.slice(0, 4)} yılı fazla çalışma yazılı onayı alındı
+                      </label>
+                    )}
+
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginTop: 5, color: tavanAsim ? "var(--danger)" : "var(--muted-2)" }}>
+                      <span>Yıllık fazla çalışma</span>
+                      <span className="tnum">{r2(yilFazla).toLocaleString("tr-TR")} / {YILLIK_FAZLA_TAVAN} sa</span>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginTop: 3, color: "var(--muted-2)" }}>
+                      <span>Yıllık izin (hak / kullanılan / kalan)</span>
+                      <span className="tnum">{c.leave_entitled} / {c.leave_used} / {c.leave_remaining}</span>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
+                      <span style={{ fontSize: 11.5, color: "var(--muted-2)", flexShrink: 0 }}>İşe giriş</span>
+                      <input type="date" value={c.hire_date ?? ""} onChange={(e) => iseGirisKaydet(c.staff_id, e.target.value)} style={{ ...inp, padding: "4px 7px", fontSize: 12 }} />
+                      {!c.hire_date && <span style={{ fontSize: 11, color: "var(--gold-text)" }}>izin hakkı hesaplanamıyor</span>}
+                    </div>
+
+                    {izinleri.length > 0 && (
+                      <div style={{ marginTop: 5 }}>
+                        {izinleri.map((l) => (
+                          <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, color: "var(--muted)", padding: "2px 0" }}>
+                            <span>{LEAVE_TYPES.find((t) => t.v === l.leave_type)?.l ?? l.leave_type} · {kisaTarih(l.start_date)}–{kisaTarih(l.end_date)}</span>
+                            <button onClick={() => izinSil(l.id)} title="Sil" style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", fontSize: 11 }}>sil</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {izinFor === c.staff_id ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
+                        <select value={izinTip} onChange={(e) => setIzinTip(e.target.value)} style={{ ...inp, padding: "5px 8px", fontSize: 12, width: 108 }}>
+                          {LEAVE_TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+                        </select>
+                        <input type="date" value={izinBas} onChange={(e) => setIzinBas(e.target.value)} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
+                        <input type="date" value={izinBit} onChange={(e) => setIzinBit(e.target.value)} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
+                        <button onClick={izinKaydet} style={btnSmall}>Kaydet</button>
+                        <button onClick={() => setIzinFor(null)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}>Vazgeç</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setIzinFor(c.staff_id); setIzinBas(bugunIstanbul()); setIzinBit(bugunIstanbul()); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)", paddingTop: 5 }}>+ İzin ekle</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--muted-2)", lineHeight: 1.5, paddingTop: 10, borderTop: "1px solid var(--line)", marginTop: 4, flexShrink: 0 }}>
+              Haftalık sınır 45 saat (md.63). Fazla çalışma yazılı onaya bağlıdır ve yılda 270 saati
+              geçemez (md.41). Yıllık izin: 1–5 yıl 14 gün, 5–15 yıl 20 gün, 15+ yıl 26 gün (md.53) —
+              işe giriş tarihinden hesaplanır.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {gorunum === "plan" && (
+        <div style={{ ...card, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <SectionLabel>Önümüzdeki 14 gün — tahmin ve personel planı</SectionLabel>
+          {plan.length === 0 ? (
+            <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Tahmin için yeterli geçmiş satış verisi yok.</div>
+          ) : (
+            <>
+              {plan[0]?.covers_per_staff_hour == null && (
+                <div style={{ padding: "10px 13px", borderRadius: 11, background: "var(--danger-bg)", border: "1px solid var(--gold)", fontSize: 12.5, color: "var(--gold-text)", marginBottom: 12, lineHeight: 1.55 }}>
+                  Personel önerisi hesaplanamıyor: son 8 haftada vardiya kaydı yok.
+                  Mesai başlat/bitir kullanılmaya başlandığında öneri kendiliğinden gelir —
+                  sistem &quot;bir personel-saat kaç misafire yetiyor&quot; oranını geçmişten öğreniyor.
+                </div>
+              )}
+              <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+                <span style={{ flex: 1.2, minWidth: 0 }}>Gün</span>
+                <span style={{ width: 74, textAlign: "right" }}>Misafir</span>
+                <span style={{ width: 96, textAlign: "right" }}>Ciro tahmini</span>
+                <span style={{ width: 78, textAlign: "right" }}>Personel-saat</span>
+                <span style={{ width: 62, textAlign: "right" }}>Kişi</span>
+                <span style={{ width: 96, textAlign: "right" }}>İşçilik</span>
+                <span style={{ width: 74, textAlign: "right" }}>Oran</span>
+                <span style={{ width: 62, textAlign: "right" }}>Güven</span>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+                {plan.map((p) => {
+                  const oran = p.labor_percent;
+                  const hedef = Number(p.target_labor_percent);
+                  const asim = oran != null && oran > hedef;
+                  const g = GUVEN[p.confidence] ?? GUVEN.dusuk;
+                  return (
+                    <div key={p.forecast_date} style={{ display: "flex", alignItems: "center", fontSize: 13, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                      <span style={{ flex: 1.2, minWidth: 0 }}>
+                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{GUN_ADI[p.weekday] ?? "—"}</span>
+                        <span className="tnum" style={{ fontSize: 11, color: "var(--muted-2)" }}>{kisaTarih(p.forecast_date)}</span>
+                      </span>
+                      <span className="tnum" style={{ width: 74, textAlign: "right" }}>{Math.round(Number(p.predicted_covers)).toLocaleString("tr-TR")}</span>
+                      <span className="tnum" style={{ width: 96, textAlign: "right", fontWeight: 500 }}>{money(Number(p.predicted_revenue))}</span>
+                      <span className="tnum" style={{ width: 78, textAlign: "right", color: "var(--muted)" }}>
+                        {p.suggested_staff_hours != null ? r2(Number(p.suggested_staff_hours)).toLocaleString("tr-TR") : "—"}
+                      </span>
+                      <span className="tnum" style={{ width: 62, textAlign: "right", fontWeight: 600, color: "var(--ink-green)" }}>
+                        {p.suggested_staff_count != null ? r2(Number(p.suggested_staff_count)).toLocaleString("tr-TR") : "—"}
+                      </span>
+                      <span className="tnum" style={{ width: 96, textAlign: "right", color: "var(--muted)" }}>
+                        {p.estimated_labor_cost != null ? money(Number(p.estimated_labor_cost)) : "—"}
+                      </span>
+                      <span className="tnum" style={{ width: 74, textAlign: "right", fontWeight: 600, color: oran == null ? "var(--muted-2)" : asim ? "var(--danger)" : "var(--brand)" }}>
+                        {oran != null ? `%${r2(oran).toLocaleString("tr-TR")}` : "—"}
+                      </span>
+                      <span style={{ width: 62, textAlign: "right", fontSize: 11.5, color: g.renk }}>{g.l}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted-2)", lineHeight: 1.55, paddingTop: 10, borderTop: "1px solid var(--line)", marginTop: 4, flexShrink: 0 }}>
+                Tahmin, aynı hafta gününün son 8 haftalık ağırlıklı ortalamasıdır (son 4 hafta çift ağırlıklı).
+                Güven: 4+ örnek ve düşük dalgalanma varsa yüksek, dalgalanma büyükse orta, 2 örnekten azsa düşük.
+                Personel önerisi geçmişteki &quot;bir personel-saat kaç misafire yetiyor&quot; oranından çıkar,
+                kişi sayısı 8 saatlik vardiya varsayımıyla verilir. Oran hedefin üstündeyse kırmızı —
+                o gün ya fazla personel planlanmış ya da ciro beklentisi düşük.
+                Tatil, hava durumu ve özel gün etkisi bu modelde yok; onları sen düzelteceksin.
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
