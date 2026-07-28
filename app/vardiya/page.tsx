@@ -53,6 +53,14 @@ type PlanRow = {
   covers_per_staff_hour: number | null; suggested_staff_hours: number | null;
   suggested_staff_count: number | null; estimated_labor_cost: number | null;
   labor_percent: number | null; target_labor_percent: number; confidence: string;
+  holiday_name: string | null; basis: string;
+};
+// Tahmin rakamının nereden geldiği. İşletmeci "bu sayı nereden çıktı" diyebilmeli,
+// yoksa güvenmez; güvenmediği plana da uymaz.
+const BASIS_ETIKET: Record<string, string> = {
+  hafta_gunu: "hafta günü ortalaması",
+  benzer_tatil: "geçmiş bayramlardan",
+  tatil_veri_yok: "bayram — geçmiş veri yok",
 };
 const GUVEN: Record<string, { l: string; renk: string }> = {
   yuksek: { l: "yüksek", renk: "var(--brand)" },
@@ -718,8 +726,13 @@ export default function Vardiya() {
                   return (
                     <div key={p.forecast_date} style={{ display: "flex", alignItems: "center", fontSize: 13, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
                       <span style={{ flex: 1.2, minWidth: 0 }}>
-                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{GUN_ADI[p.weekday] ?? "—"}</span>
-                        <span className="tnum" style={{ fontSize: 11, color: "var(--muted-2)" }}>{kisaTarih(p.forecast_date)}</span>
+                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {GUN_ADI[p.weekday] ?? "—"}
+                          {p.holiday_name && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--gold-text)", marginLeft: 6 }}>{p.holiday_name}</span>}
+                        </span>
+                        <span className="tnum" style={{ fontSize: 11, color: "var(--muted-2)" }}>
+                          {kisaTarih(p.forecast_date)} · {BASIS_ETIKET[p.basis] ?? p.basis}
+                        </span>
                       </span>
                       <span className="tnum" style={{ width: 74, textAlign: "right" }}>{Math.round(Number(p.predicted_covers)).toLocaleString("tr-TR")}</span>
                       <span className="tnum" style={{ width: 96, textAlign: "right", fontWeight: 500 }}>{money(Number(p.predicted_revenue))}</span>
@@ -741,7 +754,12 @@ export default function Vardiya() {
                 })}
               </div>
               <div style={{ fontSize: 11, color: "var(--muted-2)", lineHeight: 1.55, paddingTop: 10, borderTop: "1px solid var(--line)", marginTop: 4, flexShrink: 0 }}>
-                Tahmin, aynı hafta gününün son 8 haftalık ağırlıklı ortalamasıdır (son 4 hafta çift ağırlıklı).
+                Normal günlerde tahmin, aynı hafta gününün son 8 haftalık ağırlıklı ortalamasıdır
+                (son 4 hafta çift ağırlıklı) ve bu ortalamaya geçmiş bayramlar karışmaz.
+                Resmi tatil ve bayram günleri ise hafta gününe değil, geçmişteki aynı tür
+                tatillere bakılarak tahmin edilir; her satırın altında hangi yöntemin
+                kullanıldığı yazıyor. Dini bayram tarihleri hesaplanmış değerlerdir, Diyanet
+                takvimiyle bir gün oynayabilir.
                 Güven: 4+ örnek ve düşük dalgalanma varsa yüksek, dalgalanma büyükse orta, 2 örnekten azsa düşük.
                 Personel önerisi geçmişteki &quot;bir personel-saat kaç misafire yetiyor&quot; oranından çıkar,
                 kişi sayısı 8 saatlik vardiya varsayımıyla verilir. Oran hedefin üstündeyse kırmızı —
