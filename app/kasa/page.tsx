@@ -140,7 +140,13 @@ export default function Kasa() {
   const sabit = netSatis * ((settings?.default_fixed_cost_share_percent ?? 0) / 100);
   const ikramBedeli = ikramlar.reduce((s, i) => s + i.quantity * i.unit_price, 0);
   const iptalBedeli = iptaller.reduce((s, i) => s + i.quantity * i.unit_price, 0);
-  const kar = netSatis - receteMaliyeti - sarf - sabit;
+  // Personel yemeği ayrı bir gider kalemi (ROADMAP §L(E)): mutfaktan çıktı, stoktan düştü,
+  // ama müşteriye satılmadı. Bilerek receteMaliyeti'ne KATILMIYOR — o rakam food cost
+  // yüzdesini besliyor; personel yemeğini oraya koymak menünün maliyetini olduğundan
+  // yüksek gösterir. Kârdan ise düşülür, çünkü gerçek bir gider.
+  const personeller = items.filter((i) => i.status === "personel");
+  const personelYemegi = personeller.reduce((s, i) => s + i.quantity * (recipeCost[i.menu_item_id] ?? 0), 0);
+  const kar = netSatis - receteMaliyeti - sarf - sabit - personelYemegi;
   const marj = netSatis > 0 ? (kar / netSatis) * 100 : 0;
 
   // ---- SORU 2: Ürünler ----
@@ -302,6 +308,7 @@ export default function Kasa() {
             <Satir l="Sabit gider payı (varsayılan %)" v={`−${money(sabit)}`} />
             <Satir l="İndirimler" v={indirimToplam > 0 ? `−${money(indirimToplam)}` : "—"} muted={indirimToplam === 0} />
             <Satir l="İkramlar (bedeli)" v={ikramBedeli > 0 ? money(ikramBedeli) : "—"} muted={ikramBedeli === 0} />
+            <Satir l="Personel yemeği (maliyet)" v={personelYemegi > 0 ? `−${money(personelYemegi)}` : "—"} muted={personelYemegi === 0} />
             <Satir l="İptaller (bedeli)" v={iptalBedeli > 0 ? money(iptalBedeli) : "—"} muted={iptalBedeli === 0} />
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
