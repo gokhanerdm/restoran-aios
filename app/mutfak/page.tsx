@@ -169,17 +169,13 @@ function MutfakInner() {
       const pending = items.filter((i) => !i.servedAt);
       const preps = pending.map((i) => i.prepMinutes).filter((p): p is number => p != null);
       const oldestPendingAt = pending.length ? Math.min(...pending.map((i) => Date.parse(i.sentAt))) : null;
-      const lastServedAt = Math.max(...items.map((i) => Date.parse(i.servedAt ?? i.sentAt)));
-      return { tableId, items, pendingCount: pending.length, oldestPendingAt, lastServedAt, maxPrep: preps.length ? Math.max(...preps) : null };
+      const firstSentAt = Math.min(...items.map((i) => Date.parse(i.sentAt)));
+      return { tableId, items, pendingCount: pending.length, oldestPendingAt, firstSentAt, maxPrep: preps.length ? Math.max(...preps) : null };
     })
-    // İşlemdeki masalar hep önde (en eski bekleyen önce); tamamen teslim edilmiş masalar arkada,
-    // en son teslim edilen önce olacak şekilde — göz hizasından hiç çıkmasınlar diye.
-    .sort((a, b) => {
-      if (a.pendingCount === 0 && b.pendingCount === 0) return b.lastServedAt - a.lastServedAt;
-      if (a.pendingCount === 0) return 1;
-      if (b.pendingCount === 0) return -1;
-      return a.oldestPendingAt! - b.oldestPendingAt!;
-    });
+    // Masa, ilk siparişin geldiği andaki sırada sabit kalır: tüm kalemler teslim edilse bile
+    // (hesap gerçekten kapanana kadar) yeri değişmez, listenin sonuna atlamaz — mutfak "az önce
+    // baktığım masa nerede" diye aramasın. Yeni masa her zaman en sona eklenir.
+    .sort((a, b) => a.firstSentAt - b.firstSentAt);
   // Bir masanın tüm ürünleri aynı anda çıksın diye: en uzun pişme süresi olan ürün hemen başlar,
   // kısa sürenler o kadar geç başlar ki hepsi birlikte biter. Sadece bilgi amaçlı — buton kilitlenmez.
   const startHint = (c: Card, maxPrep: number | null): string | null => {
@@ -196,7 +192,7 @@ function MutfakInner() {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} masa · ${visible.filter((c) => !c.servedAt).length} bekleyen kalem`}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} adisyon · ${visible.filter((c) => !c.servedAt).length} bekleyen kalem`}</div>
           </div>
           <StaffProfileBadge restaurantId={restaurantId} />
         </div>
