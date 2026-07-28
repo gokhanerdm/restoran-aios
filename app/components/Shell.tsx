@@ -19,6 +19,7 @@ import {
   LogOut,
   AlertTriangle,
   DoorOpen,
+  Car,
 } from "lucide-react";
 
 // Adisyon = servis (salon/masa/açık hesap, hesap alma).
@@ -28,6 +29,7 @@ const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
   { href: "/", icon: LayoutGrid, label: "Adisyon" },
   { href: "/karsilama", icon: DoorOpen, label: "Karşılama" },
+  { href: "/vale", icon: Car, label: "Vale" },
   { href: "/kasa", icon: Wallet, label: "Kasa" },
   { href: "/rezervasyon", icon: CalendarDays, label: "Rezervasyon" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
