@@ -19,7 +19,7 @@ type TableRow = { id: string; name: string };
 type Card = {
   id: string; tableId: string | null; name: string; quantity: number;
   stationId: string | null; sentAt: string; preparingAt: string | null; readyAt: string | null;
-  prepMinutes: number | null;
+  servedAt: string | null; prepMinutes: number | null;
 };
 
 const ALL = "__all__";
@@ -87,16 +87,23 @@ function MutfakInner() {
       const list: Card[] = [];
       ((orders as unknown as OrderRow[]) ?? []).forEach((o) => {
         o.order_items.forEach((oi) => {
-          if (!(oi.status === "active" || oi.status === "ikram") || !oi.sent_at || oi.served_at) return;
+          if (!(oi.status === "active" || oi.status === "ikram") || !oi.sent_at) return;
           const info = itemInfo.get(oi.menu_item_id);
           list.push({
             id: oi.id, tableId: o.table_id, name: info?.name ?? "?", quantity: oi.quantity,
             stationId: info?.stationId ?? null, sentAt: oi.sent_at, preparingAt: oi.preparing_at, readyAt: oi.ready_at,
-            prepMinutes: info?.prepMinutes ?? null,
+            servedAt: oi.served_at, prepMinutes: info?.prepMinutes ?? null,
           });
         });
       });
-      list.sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt));
+      // Teslim edilenler ekrandan silinmiyor artık — süre/işlem bilgisi için arşiv gibi kalıyor.
+      // İşlemdeki kalemler hep önde (en eski önce); teslim edilenler arkada, en son teslim en önde
+      // olacak şekilde sıralanır ("yeni fiş geldikçe eskiler arkaya kayar").
+      list.sort((a, b) => {
+        const aDone = !!a.servedAt, bDone = !!b.servedAt;
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        return aDone ? Date.parse(b.servedAt!) - Date.parse(a.servedAt!) : Date.parse(a.sentAt) - Date.parse(b.sentAt);
+      });
       setCards(list);
       setErr(null);
       setLoading(false);
@@ -119,7 +126,8 @@ function MutfakInner() {
     // "Hazır" artık dogrudan update degil — stok dusumunu de atomik yapan RPC'ye baglandi.
     if (field === "ready_at") {
       const staff = getStaffSession();
-      await supabase.rpc("mark_item_ready", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      const { error } = await supabase.rpc("mark_item_ready", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      if (error) setErr(`Hazır işaretlenemedi: ${error.message}`);
       await load();
       return;
     }
@@ -130,7 +138,8 @@ function MutfakInner() {
     // satır varsa ikisini birleştiriyor.
     if (field === "served_at") {
       const staff = getStaffSession();
-      await supabase.rpc("mark_item_served", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      const { error } = await supabase.rpc("mark_item_served", { p_order_item_id: id, p_staff_id: staff?.id ?? null });
+      if (error) setErr(`Teslim edildi işaretlenemedi: ${error.message}`);
       await load();
       return;
     }
@@ -157,10 +166,20 @@ function MutfakInner() {
   });
   const tableGroups = Array.from(byTable.entries())
     .map(([tableId, items]) => {
-      const preps = items.map((i) => i.prepMinutes).filter((p): p is number => p != null);
-      return { tableId, items, oldestSentAt: Math.min(...items.map((i) => Date.parse(i.sentAt))), maxPrep: preps.length ? Math.max(...preps) : null };
+      const pending = items.filter((i) => !i.servedAt);
+      const preps = pending.map((i) => i.prepMinutes).filter((p): p is number => p != null);
+      const oldestPendingAt = pending.length ? Math.min(...pending.map((i) => Date.parse(i.sentAt))) : null;
+      const lastServedAt = Math.max(...items.map((i) => Date.parse(i.servedAt ?? i.sentAt)));
+      return { tableId, items, pendingCount: pending.length, oldestPendingAt, lastServedAt, maxPrep: preps.length ? Math.max(...preps) : null };
     })
-    .sort((a, b) => a.oldestSentAt - b.oldestSentAt);
+    // İşlemdeki masalar hep önde (en eski bekleyen önce); tamamen teslim edilmiş masalar arkada,
+    // en son teslim edilen önce olacak şekilde — göz hizasından hiç çıkmasınlar diye.
+    .sort((a, b) => {
+      if (a.pendingCount === 0 && b.pendingCount === 0) return b.lastServedAt - a.lastServedAt;
+      if (a.pendingCount === 0) return 1;
+      if (b.pendingCount === 0) return -1;
+      return a.oldestPendingAt! - b.oldestPendingAt!;
+    });
   // Bir masanın tüm ürünleri aynı anda çıksın diye: en uzun pişme süresi olan ürün hemen başlar,
   // kısa sürenler o kadar geç başlar ki hepsi birlikte biter. Sadece bilgi amaçlı — buton kilitlenmez.
   const startHint = (c: Card, maxPrep: number | null): string | null => {
@@ -177,7 +196,7 @@ function MutfakInner() {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: "-0.4px", color: "var(--ink-green)" }}>{screenTitle}</div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} masa · ${visible.length} bekleyen kalem`}</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{loading ? "Yükleniyor…" : `${tableGroups.length} masa · ${visible.filter((c) => !c.servedAt).length} bekleyen kalem`}</div>
           </div>
           <StaffProfileBadge restaurantId={restaurantId} />
         </div>
@@ -194,29 +213,36 @@ function MutfakInner() {
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginTop: 16 }}>
           {tableGroups.map((g) => {
-            const oldestMin = Math.max(0, Math.floor(((now || g.oldestSentAt) - g.oldestSentAt) / 60000));
+            const oldestMin = g.oldestPendingAt != null ? Math.max(0, Math.floor(((now || g.oldestPendingAt) - g.oldestPendingAt) / 60000)) : null;
             return (
               <div key={g.tableId} style={{ borderRadius: 16, padding: 16, background: "var(--card)", border: "1px solid var(--line)", boxShadow: "0 1px 2px rgba(30,57,50,.05), 0 6px 16px rgba(30,57,50,.07)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid var(--line)" }}>
                   <span style={{ fontWeight: 600, fontSize: 15, color: "var(--ink-green)" }}>{tableName(g.tableId === "__yok__" ? null : g.tableId)}</span>
-                  <span className="tnum" style={{ fontSize: 12, color: oldestMin >= 10 ? "var(--danger)" : "var(--muted)" }}>{oldestMin} dk</span>
+                  <span className="tnum" style={{ fontSize: 12, color: oldestMin != null && oldestMin >= 10 ? "var(--danger)" : "var(--muted)" }}>
+                    {oldestMin != null ? `${oldestMin} dk` : "✓ Tamamlandı"}
+                  </span>
                 </div>
                 {g.items.map((c) => {
-                  const stage = c.readyAt ? "hazir" : c.preparingAt ? "hazirlaniyor" : "yeni";
+                  const stage = c.servedAt ? "teslim" : c.readyAt ? "hazir" : c.preparingAt ? "hazirlaniyor" : "yeni";
                   const mins = elapsedMin(c.sentAt);
                   const hint = stage === "yeni" ? startHint(c, g.maxPrep) : null;
                   // Süresi olan üründe (pizza, kahve gibi) kırmızıya dönme eşiği kendi süresi;
                   // hazır üründe (prepMinutes yok — kutu kola gibi) genel "çok bekledi" eşiği (10dk),
                   // çünkü onun için gösterilecek bir hedef süre yok.
-                  const overdue = c.prepMinutes != null ? mins >= c.prepMinutes : mins >= 10;
+                  const overdue = stage !== "teslim" && (c.prepMinutes != null ? mins >= c.prepMinutes : mins >= 10);
+                  const servedMins = c.servedAt ? Math.max(0, Math.round((Date.parse(c.servedAt) - Date.parse(c.sentAt)) / 60000)) : null;
                   return (
-                    <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 0", borderBottom: "1px solid var(--line)", opacity: stage === "teslim" ? 0.5 : 1 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 14 }}><span className="tnum">{c.quantity}×</span> {c.name}</div>
-                        <div className="tnum" style={{ fontSize: 11, color: overdue ? "var(--danger)" : "var(--muted-2)" }}>
-                          {mins} dk{c.prepMinutes != null && ` / ${c.prepMinutes} dk`}
-                          {hint && <span style={{ color: hint === "Şimdi başlat" ? "var(--brand)" : "var(--muted-2)", fontWeight: hint === "Şimdi başlat" ? 700 : 400 }}> · {hint}</span>}
-                        </div>
+                        {stage === "teslim" ? (
+                          <div className="tnum" style={{ fontSize: 11, color: "var(--muted-2)" }}>✓ Teslim edildi · {servedMins} dk</div>
+                        ) : (
+                          <div className="tnum" style={{ fontSize: 11, color: overdue ? "var(--danger)" : "var(--muted-2)" }}>
+                            {mins} dk{c.prepMinutes != null && ` / ${c.prepMinutes} dk`}
+                            {hint && <span style={{ color: hint === "Şimdi başlat" ? "var(--brand)" : "var(--muted-2)", fontWeight: hint === "Şimdi başlat" ? 700 : 400 }}> · {hint}</span>}
+                          </div>
+                        )}
                       </div>
                       {/* Hazır ürün (kutu kola vb.): "Hazırlanıyor" aşaması hiç yaşanmaz — koyan kişi
                           tek tıkla direkt Hazır der, stok o an düşer (mark_item_ready). */}
