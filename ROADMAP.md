@@ -418,3 +418,175 @@ panelinde işletmeciye söylenir. **Bu kural bozulmamalı.**
   değişmedi.
 - Proje genelinde ~40 lint hatası var (`react-hooks/set-state-in-effect`); bugünkü işten
   değil, mevcut desenin sonucu — toplu düzeltme ayrı bir iş.
+
+## O) Masa servisi simülasyonu — karar defteri (2026-07-28 gecesi)
+
+Gökhan'la "müşteri içeri girdiği andan çıkana kadar tüm yolları çıkaralım" sohbetinin
+kararları. **Yöntem (Gökhan):** önce yazılı simülasyon, tüm yolların eksiği çıkar, tek
+seferde yapılır, en son canlı simülasyon. Masa servisiyle başlandı; bitince diğer
+sektörlere (kafe/self servis, dönerci, paket) uyarlanacak. Tasarım en lüks restorana
+göre yapılıyor, aşağı doğru sadeleşecek.
+
+### O0) ANA İLKE — bu bölümün tamamını yöneten kural
+
+> **Otomatikleştirilebilecek her şey otomatik olacak. Manuel alternatif tasarlanmayacak.**
+> Gökhan'ın kendi sözleri: *"bana manuel sistemlerle gelme… biz gereken özellikleri
+> koyacağız, kullanmak işletmeye kalmış."* Her özelliğin kapatma seçeneği zaten olacak;
+> ama tasarım hep otomatik olandan başlayacak. Mevcut Türkiye programları sipariş + stok +
+> raporlamadan ibaret, gerisi manuel — farkımız tam burada.
+
+### O1) Masa durumu zinciri
+
+Bugünkü `empty / occupied / bill_requested / reserved` yetmiyor. Yeni zincir:
+
+hazır → (karşılama oturtur) dolu → hesap istendi → müşteri gitti / kasa bekliyor
+→ toplanacak → (garson temizler, "hazır" der) hazır
+
+- Hesap kapanınca masa **boş değil "toplanacak"** olur.
+- Garson toplayıp kurunca **"hazır"** işaretler. Karşılama **sadece hazır** masaları görür.
+- Oturtma ile adisyon açma **ayrılıyor** — müşteri oturur, masa dolu görünür, sipariş sonra.
+- "Hazır"a düşünce karşılamaya sinyal gider (hesap istendiğinde değil).
+- Masanın toplanma süresi ölçülür → devir hızı analizine girer.
+
+**Üç mod (işletme seçer):**
+1. *Basit* — hesap kapanınca masa direkt boş (dönerci, hızlı işleyen yer)
+2. *Garson takipli* — toplanacak → hazır, karşılama yok
+3. *Karşılamalı* — tam zincir
+
+### O2) Karşılama modülü ve bekleme listesi
+
+- Bekleme listesi: **isim soyisim + kişi sayısı** zorunlu, **telefon** alınabilirse (vale için
+  de gerekiyor).
+- Sıra sırayla ilerler ama **son karar karşılamada** — yoğunsa 4 kişilik masaya 2 kişi
+  almayabilir.
+- Bekleme süresini şimdilik karşılama söyler ("şu kadar kişi var"). Mesaj/bildirim,
+  müşteri uygulaması geldiğinde eklenecek.
+- Müşteri kaydı: zorlama yok. Asıl yol **müşteri uygulaması** — restoran teşvikle
+  yönlendirir ("uygulamamızı indirirseniz tatlı bizden"). KVKK da müşterinin kendi
+  onayıyla çözülmüş olur.
+
+### O3) Garson ataması ve mola
+
+- Masalar garsonlara **atanacak** (bölge sistemi).
+- Sipariş alınmamış dolu masa **ayrı renkte** görünür.
+- Bildirim gider; garson kapatabilir, titreşim/sessiz seçebilir.
+- **Mola özelliği (Gökhan'ın fikri):** garson "mola" seçer → masaları ya herkese ya da
+  yardımcısına açılır. Hem mola görünür olur hem masa sahipsiz kalmaz. Puantaja bağlanır.
+
+### O4) Vale
+
+- Vale kaydı: **plaka + isim soyisim**.
+- Eşleştirmeyi **program yapar** (bekleme listesi/rezervasyondaki isimle).
+- **Hesap istendiği anda vale'ye bildirim** → araba müşteri kapıya gelmeden hazır.
+- Açık uç: ismini vermeden gelen müşteride eşleşme tutmaz, elle seçim gerekecek.
+
+### O5) Servis sırası (coursing) — Gökhan'ın tasarımı
+
+- Menüde başlangıç varsa **önce başlangıçlar** gider.
+- Garsonun masa ekranında **"Ana yemekler" / "Tatlılar" butonları** durur.
+- Garson müşteriye sorar: *"ana yemekler de çıksın mı?"* Çıksın derse hemen tıklar;
+  "önce başlangıç" derse, başlangıç gelince tekrar sorup ona göre tıklar.
+- **Karar müşterinin, tetik garsonun elinde** — program araya girip kendi göndermiyor.
+- Sıra **kategoriden** gelir (Başlangıçlar 1, Ana 2, Tatlı 3); garson uğraşmaz.
+- **İçecekler sıraya girmez**, bar siparişi hep anında gider.
+- Mutfakta bekleyen servis **soluk** görünür (hazırlık için), işlem yapılamaz.
+- **Mutfağa sesli bildirim** — yeni servis düşünce sesle haber verir. Detayı sonra.
+- Komple kapatılabilir (dönerci modu).
+- Servisler arası süre ölçülür ("başlangıçtan anaya ortalama 18 dk").
+
+### O6) Sipariş kararları
+
+- **Kişi bazlı sipariş YOK.** Hesap kalem kalem bölünmeye devam. Uzun iş ama nadir;
+  çok bölen bir işletme çıkarsa o zaman bakılır.
+- Kişi sayısı sonradan değiştirilebiliyor (mevcut, çalışıyor).
+- Masa taşıma çalışıyor.
+
+### O7) Ürün bitti (86)
+
+- **Program otomatik yapacak.** Stoktan hesaplayıp **son 3 siparişe yetecek kadar
+  kaldığında uyarmaya başlar**, bitince ürünü kapatır.
+- Kapanan ürün garson ekranında ve QR menüde kapalı görünür, sipariş verilemez.
+- Gün kapanınca kendiliğinden geri açılır (kalıcı `is_active` ile karıştırılmayacak).
+- Stokta görünmeyen durumlar (bozulma, hazırlanan ürünün tükenmesi) için elle "bitti" de kalır.
+
+### O8) Mutfak → garson bildirimi
+
+- Yemek hazır olunca garson ekranında **renk değişir** + **sesli/titreşimli bildirim**.
+- **Not:** garsonlara kulaklık verilip programın sesli konuşması fikri (Gökhan) — ileride.
+- Kazanılacak ölçü: **yemek hazır olduktan kaç dakika sonra masaya gitti** — mutfak mı
+  yavaş, servis mi yavaş, şu an ayrılamıyor.
+
+### O9) Programın izleyeceği aksaklıklar → ŞEFE
+
+Uyarılar **şefe** gider. Ayrıca bir **aksaklık raporu** tutulur — ama **fişleme aracı
+değil**: amaç "kim suçlu" değil "hangi görevde tıkanma var". İşletmeci isterse bakar.
+Mevcut sistemlerde bu ya hiç yok ya da uzun rapor incelemeleriyle sonradan anlaşılıyor.
+
+İzlenecekler:
+- Müşteri oturdu, sipariş alınmadı
+- Yemek hazır, pastada bekliyor
+- Hesap istendi, kimse gitmedi
+- Başlangıç teslim edildi, ana yemek gönderilmedi
+- Masa kalktı, toplanmadı (bekleme listesinde insan varken)
+- Uygun masa hazır ama karşılama fark etmemiş
+- Garson molada, masaları sahipsiz
+- Kalem kendi pişirme süresini aştı
+
+### O10) Hesap zinciri
+
+Hesap istendiği anda program aynı anda:
+- **Vale'ye bildirim** (araba kapıya)
+- **Kasaya hesap düşer**
+- **Süre sayacı başlar** → kimse gitmediyse şefe uyarı
+
+*(Mutfağa haber ve bekleme listesine sinyal GEREKMİYOR — Gökhan düzeltti: sipariş
+tamamlanınca adisyon zaten geriye düşüyor; bekleme listesine sinyal masa "hazır"a
+düşünce gider.)*
+
+### O11) KASA ENTEGRASYONU — en kritik yeni kural
+
+> **Garson parayı kasaya teslim etmeden masa kapanmaz.**
+
+Zincir: açık → garson ödemeyi aldı → **KASA ONAYLADI** → kapandı. Masa ancak kasa
+onayından sonra "toplanacak"a düşer.
+
+**Neden (Gökhan):** *"müşteri gitmeden gidip kasadan da kapattırması gerekli ki yanlış
+almışsa ortaya çıksın. Dalgınlık oluyor, yanlış sayılıyor, yanlış çekiliyor."* Hem nakitte
+hem kartta. Bu, gün sonu mutabakatını **masa masa** yapmak demek — hata müşteri hâlâ
+masadayken çıkar, gece kasa sayımında değil.
+
+Ek: masa bu arada **"müşteri gitti, kasa bekliyor"** diye ayrı görünür (karşılama
+birazdan boşalacağını bilir). Program garsonun üstünde bekleyen parayı gösterir:
+*"Ahmet'te 2 adisyon, 1.240 ₺ teslim edilmedi."*
+
+### O12) Bahşiş — puan-saat kuralı
+
+İşletmeler genelde karışmaz, ama özellik duracak; isteyen kullanır.
+
+**Kural:**
+1. Bahşiş **günlük** havuzlanır (haftalık değil).
+2. Ayarlanmışsa **mutfak yüzdesi** önce ayrılır (bazı yerler verir, bazısı vermez).
+3. Kalan, o gün çalışanların **puan × çalışma saati** toplamına bölünür.
+4. Herkes kendi puan-saati kadar alır.
+
+Puan **göreve göre** tanımlanır (garson 3, komi 2, bulaşık 1 gibi), işletme kendi
+rakamını girer.
+
+**Neden günlük ve saatli:** gelmediğin gün havuzda yoksun — "kesilsin mi" tartışması
+kendiliğinden bitiyor. Yarım gün çalışan yarım pay alıyor. Vardiya kaydı zaten var,
+ekstra giriş yok.
+
+*Örnek:* Gün bahşişi 3.000 ₺, mutfak %20 → 600 ₺ mutfağa, 2.400 ₺ salona.
+2 garson (3 puan) 8'er saat = 48, 1 komi (2 puan) 8 saat = 16 → 64 puan-saat.
+Puan-saat = 37,5 ₺. Garsonlar 900'er ₺, komi 600 ₺.
+
+Herkes kendi profilinde günlük/aylık bahşişini **hesabın nasıl çıktığıyla** görür.
+
+### O13) Henüz konuşulmadı — simülasyonun kalanı
+
+- Çıkış sonrası ve gün sonu akışı
+- Paket servis / gel-al
+- Personel yemeğinin **mutfaktan** girişi (Gökhan: *"personel yemeğinin masada ne işi var,
+  mutfaktan girilir"* — akış tasarlanmadı)
+- Karşılama–garson bildirim detayları
+- Diğer sektörlere uyarlama
