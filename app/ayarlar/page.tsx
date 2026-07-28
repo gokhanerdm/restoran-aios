@@ -17,6 +17,10 @@ type Settings = {
   // Masa durumu zinciri (ROADMAP §O1). basit: hesap kapanınca masa direkt boş.
   // garson_takipli: toplanacak->hazır, karşılama yok. karsilamali: tam zincir.
   table_flow_mode: "basit" | "garson_takipli" | "karsilamali";
+  // Bahşiş puan-saat dağıtımı (ROADMAP §O12). Rol -> puan haritası; mutfak yüzdesi
+  // önce ayrılır, kalan salon rollerine puan×saat oranıyla dağılır.
+  tip_points: Record<string, number>;
+  kitchen_tip_percent: number;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -28,7 +32,19 @@ const DEFAULT_SETTINGS: Settings = {
   staff_comparison_enabled: false,
   purchase_approval_roles: ["yonetici"],
   table_flow_mode: "basit",
+  tip_points: {},
+  kitchen_tip_percent: 0,
 };
+
+// Personel ekranındaki ROLES ile aynı liste — bahşiş puanı da rol bazında tanımlanıyor.
+const TIP_ROLES: { v: string; l: string }[] = [
+  { v: "garson", l: "Garson" },
+  { v: "mutfak", l: "Mutfak" },
+  { v: "bar", l: "Bar" },
+  { v: "kasa", l: "Kasa" },
+  { v: "sef", l: "Şef" },
+  { v: "yonetici", l: "Yönetici" },
+];
 
 const TABLE_FLOW_MODES: { v: Settings["table_flow_mode"]; l: string; d: string }[] = [
   { v: "basit", l: "Basit", d: "Hesap kapanınca masa direkt boşalır. Hızlı işleyen yerler için." },
@@ -140,7 +156,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
@@ -359,6 +375,42 @@ export default function Ayarlar() {
                   <span style={{ display: "block", fontSize: 11.5, color: "var(--muted-2)", lineHeight: 1.5 }}>{m.d}</span>
                 </span>
               </label>
+            ))}
+
+            {/* Bahşiş puan-saat dağıtımı (ROADMAP §O12). Boş bırakılan rol 0 puan sayılır,
+                pay almaz — özellik varsayılan kapalı gibi çalışır, puan girilmeden hiçbir
+                dağıtım yapılmaz. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 6 }}>Bahşiş dağıtımı</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
+              Günlük bahşiş, o gün çalışanların puan × çalışma saatine göre bölünür. Rol puanı
+              boş bırakılırsa o rol pay almaz.
+            </div>
+            <label style={lbl}>Mutfak payı (toplam bahşişin yüzdesi)</label>
+            <input
+              value={String(settings.kitchen_tip_percent)}
+              onChange={(e) => setSettings((s) => ({ ...s, kitchen_tip_percent: Math.max(0, Math.min(100, parseFloat(e.target.value.replace(",", ".")) || 0)) }))}
+              inputMode="decimal" className="tnum" style={{ ...inp, width: "100%", marginBottom: 10 }}
+            />
+            <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 5px", borderBottom: "1px solid var(--line)" }}>
+              <span style={{ flex: 1 }}>Rol</span>
+              <span style={{ width: 70, textAlign: "right" }}>Puan</span>
+            </div>
+            {TIP_ROLES.map((r) => (
+              <div key={r.v} style={{ display: "flex", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}>
+                <span style={{ flex: 1, color: "var(--ink)" }}>{r.l}{r.v === "mutfak" && <span style={{ fontSize: 10.5, color: "var(--muted-2)", marginLeft: 6 }}>mutfak payından</span>}</span>
+                <input
+                  value={settings.tip_points[r.v] != null ? String(settings.tip_points[r.v]) : ""}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^\d.]/g, "");
+                    setSettings((s) => {
+                      const next = { ...s.tip_points };
+                      if (v === "") delete next[r.v]; else next[r.v] = parseFloat(v) || 0;
+                      return { ...s, tip_points: next };
+                    });
+                  }}
+                  placeholder="—" inputMode="decimal" className="tnum" style={{ ...inp, width: 70, textAlign: "right" }}
+                />
+              </div>
             ))}
 
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 6 }}>Kart ve yemek kartı sağlayıcıları</div>

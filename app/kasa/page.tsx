@@ -35,6 +35,9 @@ type Receipt = { id: string; provider_id: string; amount: number; note: string |
 // get_or_create_staff_meal_order) — hiç kapanmadığı için closedOrders'ın ids listesine
 // GİRMEZ, o yüzden günün items'ından değil ayrı bir RPC'den okunur.
 type StaffMeal = { staff_id: string | null; full_name: string; adet: number; menu_tutari: number; maliyet: number };
+// Bahşiş puan-saat dağıtımı (ROADMAP §O12) — günlük, şeffaf: herkes hesabın nasıl
+// çıktığını (puan × saat) görsün diye.
+type TipShare = { staff_id: string; full_name: string; role: string; points: number; hours_worked: number; point_hours: number; pool: string; share_amount: number };
 // Garson parayı aldı ama kasa henüz onaylamadı (ROADMAP §O11 — "garson parayı kasaya
 // teslim etmeden masa kapanmaz"). Bu liste boşalana kadar o para hâlâ garsonun elinde sayılır.
 type PendingCashier = {
@@ -73,6 +76,7 @@ export default function Kasa() {
   const [pendingCashier, setPendingCashier] = useState<PendingCashier[]>([]);
   const [confirmBusy, setConfirmBusy] = useState<string | null>(null);
   const [staffMeals, setStaffMeals] = useState<StaffMeal[]>([]);
+  const [tipShares, setTipShares] = useState<TipShare[]>([]);
 
   const [closeStep, setCloseStep] = useState(false);
   const [countedInput, setCountedInput] = useState("");
@@ -91,7 +95,7 @@ export default function Kasa() {
     setRestaurantId(restId);
     const { start, end } = gunSiniri(tarih);
 
-    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }, { data: setl }, { data: rcps }, { data: meals }] = await Promise.all([
+    const [{ data: ords }, { data: st }, { data: rec }, { data: pays }, { data: cms }, { data: cls }, { data: prevCls }, { data: opens }, { data: usage }, { data: setl }, { data: rcps }, { data: meals }, { data: tips }] = await Promise.all([
       supabase.from("orders").select("id, total_amount, party_size, channel").eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
       supabase.from("restaurant_settings").select("default_variable_cost_per_cover, default_fixed_cost_share_percent").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("recipe_items").select("menu_item_id, quantity, ingredients(current_unit_cost)").eq("restaurant_id", restId),
@@ -104,6 +108,7 @@ export default function Kasa() {
       supabase.rpc("settlement_status", { p_restaurant: restId, p_day: tarih }),
       supabase.from("settlement_receipts").select("id, provider_id, amount, note").eq("restaurant_id", restId).eq("received_date", tarih),
       supabase.rpc("staff_meal_cost", { p_restaurant: restId, p_from: start, p_to: end }),
+      supabase.rpc("tip_pool_distribution", { p_restaurant: restId, p_day: tarih }),
     ]);
 
     const orderRows = (ords as ClosedOrder[]) ?? [];
@@ -118,6 +123,7 @@ export default function Kasa() {
     setSettlements((setl as Settlement[]) ?? []);
     setReceipts((rcps as Receipt[]) ?? []);
     setStaffMeals((meals as StaffMeal[]) ?? []);
+    setTipShares((tips as TipShare[]) ?? []);
 
     const costMap: Record<string, number> = {};
     ((rec as unknown as { menu_item_id: string; quantity: number; ingredients: { current_unit_cost: number } | null }[]) ?? []).forEach((r) => {
@@ -368,7 +374,7 @@ export default function Kasa() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0, overflowX: "auto" }}>
         {/* SORU 1 — Gerçek kâr */}
         <div style={{ flex: 1, minWidth: 250, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>1 · Gerçek kâr</SectionLabel>
@@ -525,6 +531,44 @@ export default function Kasa() {
               Komisyon ve valör (kaç gün sonra yattığı) sağlayıcı bazında Ayarlar'dan girilir.
               Eşleştirme cari hesap mantığıyla yapılır: para sırayla yattığı için beklenen toplamdan
               yatan toplam düşülür.
+            </div>
+          </div>
+        </div>
+
+        {/* Bahşiş dağılımı (ROADMAP §O12) — günlük, şeffaf: hesap nasıl çıktı görünsün. */}
+        <div style={{ flex: 1, minWidth: 250, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <SectionLabel>4 · Bahşiş dağılımı</SectionLabel>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            {tipShares.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: "var(--muted-2)", padding: "4px 0", lineHeight: 1.6 }}>
+                Bugün dağıtılacak bahşiş yok ya da rol puanları Ayarlar&apos;dan girilmemiş.
+              </div>
+            ) : (
+              <>
+                {(["salon", "mutfak"] as const).map((havuz) => {
+                  const grup = tipShares.filter((t) => t.pool === havuz);
+                  if (grup.length === 0) return null;
+                  const toplam = grup.reduce((s, t) => s + Number(t.share_amount), 0);
+                  return (
+                    <div key={havuz} style={{ marginBottom: 12 }}>
+                      <MiniBaslik>{havuz === "salon" ? "Salon" : "Mutfak"} · {money(toplam)}</MiniBaslik>
+                      {grup.map((t) => (
+                        <div key={t.staff_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid var(--line)", fontSize: 13 }}>
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {t.full_name}
+                            <span className="tnum" style={{ fontSize: 11, color: "var(--muted-2)", marginLeft: 6 }}>{t.points}p × {t.hours_worked}sa</span>
+                          </span>
+                          <span className="tnum" style={{ fontWeight: 600, flexShrink: 0 }}>{money(Number(t.share_amount))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+            <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 10, lineHeight: 1.5 }}>
+              Günlük havuz: önce mutfak payı ayrılır, kalan salona puan × o günkü çalışma saatine
+              göre bölünür. Rol puanları Ayarlar&apos;dan girilir; puanı olmayan rol pay almaz.
             </div>
           </div>
         </div>
