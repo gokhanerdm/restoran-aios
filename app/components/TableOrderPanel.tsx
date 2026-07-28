@@ -19,6 +19,7 @@ type OrderItem = {
   sent_at: string | null;
   ready_at: string | null;
   served_at: string | null;
+  course_no: number | null;
 };
 type Order = { id: string; table_id: string | null; party_size: number; order_items: OrderItem[] };
 type Payment = { id: string; amount: number; method: string; tip_amount: number };
@@ -41,7 +42,10 @@ type MenuItem = { id: string; name: string; sale_price: number; category_id: str
 // Ürün bitti (86) — canlı hesaplanır, stoktan çıkan porsiyon sayısına göre (ROADMAP §O7).
 // Reçetesi olmayan ürün bu haritada hiç yer almaz (sınırsız satılır, bugüne kadar olduğu gibi).
 type StockStatus = { servings_left: number | null; is_86d: boolean; low_stock: boolean };
-type Category = { id: string; name: string };
+// course_no — ROADMAP §O5 servis sırası: null = sıraya girmez (içecekler, ayarlanmamış
+// kategoriler), 1 = ilk servis (Başlangıçlar, normal "Gönder" ile gider), 2+ = garsonun ayrı
+// "X gönder" butonuyla elle serbest bıraktığı sonraki servisler.
+type Category = { id: string; name: string; course_no: number | null };
 type CfgVariant = { id: string; name: string; sale_price: number };
 type CfgMod = { id: string; name: string; price_delta: number };
 type CfgGroup = { id: string; name: string; required: boolean; min_select: number; max_select: number; modifiers: CfgMod[] };
@@ -78,6 +82,7 @@ export default function TableOrderPanel({
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [courseSeqEnabled, setCourseSeqEnabled] = useState(false);
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
   // Menü katmanı açıkken arkadaki sayfa kaymasın/zıplamasın diye body scroll'u kilitlenir —
@@ -135,11 +140,12 @@ export default function TableOrderPanel({
 
   const loadMenu = useCallback(async () => {
     if (!restaurantId) return;
-    const [{ data: c }, { data: m }, { data: pv }, { data: ss }] = await Promise.all([
-      supabase.from("menu_categories").select("id, name").eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
+    const [{ data: c }, { data: m }, { data: pv }, { data: ss }, { data: rs }] = await Promise.all([
+      supabase.from("menu_categories").select("id, name, course_no").eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
       supabase.from("menu_items").select("id, name, sale_price, category_id, vat_rate").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("name"),
       supabase.from("payment_providers").select("id, name, method, is_default").eq("restaurant_id", restaurantId).eq("is_active", true).is("deleted_at", null).order("sort_order"),
       supabase.rpc("menu_items_stock_status", { p_restaurant: restaurantId }),
+      supabase.from("restaurant_settings").select("course_sequencing_enabled").eq("restaurant_id", restaurantId).maybeSingle(),
     ]);
     setCategories((c as Category[]) ?? []);
     setMenuItems((m as MenuItem[]) ?? []);
@@ -147,6 +153,7 @@ export default function TableOrderPanel({
     const stockMap: Record<string, StockStatus> = {};
     ((ss as (StockStatus & { menu_item_id: string })[]) ?? []).forEach((s) => { stockMap[s.menu_item_id] = s; });
     setStockStatus(stockMap);
+    setCourseSeqEnabled(!!(rs as { course_sequencing_enabled: boolean } | null)?.course_sequencing_enabled);
   }, [restaurantId]);
 
   const toggleCat = (id: string) => {
@@ -166,7 +173,7 @@ export default function TableOrderPanel({
     setErr(null);
     const { data, error } = await supabase
       .from("orders")
-      .select("id, table_id, party_size, order_items(id, quantity, unit_price, vat_rate, status, menu_item_id, variant_id, created_at, sent_at, ready_at, served_at, menu_items(name))")
+      .select("id, table_id, party_size, order_items(id, quantity, unit_price, vat_rate, status, menu_item_id, variant_id, created_at, sent_at, ready_at, served_at, course_no, menu_items(name))")
       .eq("table_id", table.id).eq("status", "open")
       // Kalemler her zaman eklenme sırasına göre listelensin — adet değiştirince satır yerinden oynamasın.
       .order("created_at", { referencedTable: "order_items" })
@@ -378,6 +385,13 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
+  // Servis sırası kapalıysa (courseSeqEnabled=false) her zaman null döner — basit/dönerci
+  // modundaki restoranlar bu özelliğin varlığından hiç etkilenmez.
+  const courseNoFor = (categoryId: string | null): number | null => {
+    if (!courseSeqEnabled || !categoryId) return null;
+    return categories.find((c) => c.id === categoryId)?.course_no ?? null;
+  };
+
   const addItem = async (item: MenuItem) => {
     if (!restaurantId || !order) return;
     setBusy(true);
@@ -396,6 +410,7 @@ export default function TableOrderPanel({
       await supabase.from("order_items").insert({
         restaurant_id: restaurantId, order_id: order.id, menu_item_id: item.id,
         quantity: 1, unit_price: item.sale_price, vat_rate: item.vat_rate, status: "active",
+        course_no: courseNoFor(item.category_id),
       });
     }
     await loadOrder(); onChanged();
@@ -435,6 +450,7 @@ export default function TableOrderPanel({
     const { data } = await supabase.from("order_items").insert({
       restaurant_id: restaurantId, order_id: order.id, menu_item_id: config.id,
       variant_id: chosenVariant, quantity: 1, unit_price: price, vat_rate: config.vat_rate, status: "active",
+      course_no: courseNoFor(config.category_id),
     }).select("id").single();
     if (data && mods.length) {
       await supabase.from("order_item_modifiers").insert(mods.map((m) => ({
@@ -446,10 +462,13 @@ export default function TableOrderPanel({
     setBusy(false);
   };
 
-  // Henüz gönderilmemiş (sent_at boş) aktif kalemleri mutfak/bar ekranına düşürür.
+  // Henüz gönderilmemiş (sent_at boş) aktif kalemleri mutfak/bar ekranına düşürür. course_no
+  // 2+ olan kalemler (Ana/Tatlı gibi bekletilebilir servisler) burada BİLEREK dışarıda
+  // bırakılır — onlar ancak garsonun ayrı "X gönder" butonuna basmasıyla (releaseCourse) gider.
+  // course_no null (içecek/ayarlanmamış) ya da 1 (Başlangıç) her zaman normal Gönder'le gider.
   const sendOrder = async () => {
     if (!order) return;
-    const unsent = order.order_items.filter((i) => i.status === "active" && !i.sent_at);
+    const unsent = order.order_items.filter((i) => i.status === "active" && !i.sent_at && (i.course_no == null || i.course_no === 1));
     if (unsent.length === 0) return;
     setBusy(true);
     await supabase.from("order_items").update({
@@ -458,6 +477,32 @@ export default function TableOrderPanel({
     }).in("id", unsent.map((i) => i.id));
     await loadOrder(); onChanged();
     setBusy(false);
+  };
+
+  // Garson "Ana yemekleri gönder" / "Tatlıları gönder" derse — Gökhan: "karar müşterinin,
+  // tetik garsonun elinde, program araya girip kendi göndermiyor". Sırayı zorlamıyoruz;
+  // garson isterse ana yemeği başlangıçtan önce de serbest bırakabilir.
+  const releaseCourse = async (courseNo: number) => {
+    if (!order) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("release_order_course", { p_order_id: order.id, p_course_no: courseNo, p_staff_id: staffSession?.id ?? null });
+    if (error) setErr(error.message);
+    await loadOrder(); onChanged();
+    setBusy(false);
+  };
+
+  // "Gönder"in dışında bekletilen (course_no>=2, henüz gönderilmemiş) kalemleri servise göre
+  // gruplar — her grup için ayrı bir "X gönder" butonu çıkar. Etiket kategori adından gelir
+  // (aynı course_no'ya birden çok kategori bağlanmışsa " / " ile birleşir).
+  const pendingCourses = (): { courseNo: number; label: string }[] => {
+    if (!order) return [];
+    const nos = new Set(
+      order.order_items.filter((i) => i.status === "active" && !i.sent_at && i.course_no != null && i.course_no >= 2).map((i) => i.course_no as number)
+    );
+    return Array.from(nos).sort((a, b) => a - b).map((courseNo) => {
+      const names = categories.filter((c) => c.course_no === courseNo).map((c) => c.name);
+      return { courseNo, label: names.length ? `${names.join(" / ")} gönder` : `${courseNo}. servisi gönder` };
+    });
   };
 
   // Garson ödemeyi tamamladı — ama masa/adisyon henüz KAPANMIYOR (ROADMAP §O11,
@@ -919,9 +964,15 @@ export default function TableOrderPanel({
 
           {!payStep ? (
             <div style={{ marginTop: menuOpen ? 12 : "auto", paddingTop: 12, flexShrink: 0 }}>
-              {order.order_items.some((i) => i.status === "active" && !i.sent_at) ? (
+              {/* course_no>=2 kalemler (Ana/Tatlı) Gönder'in dışında — garson müşteriye sorup
+                  kendi kararıyla ayrı butona basar (ROADMAP §O5). */}
+              {pendingCourses().map((pc) => (
+                <button key={pc.courseNo} onClick={() => releaseCourse(pc.courseNo)} disabled={busy}
+                  style={{ ...pillSecondary, width: "100%", marginBottom: 8 }}>{pc.label}</button>
+              ))}
+              {order.order_items.some((i) => i.status === "active" && !i.sent_at && (i.course_no == null || i.course_no === 1)) ? (
                 <button onClick={sendOrder} disabled={busy} style={{ ...pillPrimary, width: "100%" }}>Gönder</button>
-              ) : (
+              ) : order.order_items.some((i) => i.status === "active" && !i.sent_at) ? null : (
                 <button
                   onClick={() => {
                     const remaining = orderTotal(order) - payments.reduce((s, p) => s + Number(p.amount), 0);

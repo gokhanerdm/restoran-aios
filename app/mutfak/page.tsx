@@ -21,6 +21,10 @@ type Card = {
   stationId: string | null; sentAt: string; preparingAt: string | null; readyAt: string | null;
   servedAt: string | null; prepMinutes: number | null;
 };
+// Servis sırası (ROADMAP §O5): course_no'su olup henüz garson tarafından serbest bırakılmamış
+// (sent_at boş) kalemler — mutfak bunları SOLUK, işlem yapılamaz halde görür (hazırlığa
+// başlayabilsinler diye, ör. salata kesmeye), gerçek "Hazır/Teslim" akışına giremezler.
+type PendingCourseItem = { id: string; tableId: string | null; name: string; quantity: number; courseNo: number };
 // Personel yemeği — masada değil mutfaktan girilir (Gökhan: "personel yemeğinin masada
 // ne işi var"). Stoktan aynı anda düşer (mark_item_ready), satışa değil gidere yazılır
 // (bkz. Kasa ekranı "Personel yemeği (maliyet)" satırı).
@@ -45,6 +49,7 @@ function MutfakInner() {
   const [tables, setTables] = useState<TableRow[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
+  const [pendingCourse, setPendingCourse] = useState<PendingCourseItem[]>([]);
   const [selectedStation, setSelectedStation] = useState<string>(ALL);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -74,7 +79,7 @@ function MutfakInner() {
         supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
         supabase.from("menu_categories").select("id, default_station_id").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("menu_items").select("id, name, category_id, station_override_id, prep_minutes, sale_price, is_active").eq("restaurant_id", restId).is("deleted_at", null),
-        supabase.from("orders").select("id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at)").eq("restaurant_id", restId).eq("status", "open"),
+        supabase.from("orders").select("id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at, course_no)").eq("restaurant_id", restId).eq("status", "open"),
         supabase.from("staff_members").select("id, full_name").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null).order("full_name"),
       ]);
       const anyErr = tErr ?? stErr ?? cErr ?? iErr ?? oErr;
@@ -98,12 +103,21 @@ function MutfakInner() {
         itemInfo.set(m.id, { name: m.name, stationId, prepMinutes: m.prep_minutes });
       });
 
-      type OI = { id: string; quantity: number; menu_item_id: string; status: string; sent_at: string | null; preparing_at: string | null; ready_at: string | null; served_at: string | null };
+      type OI = { id: string; quantity: number; menu_item_id: string; status: string; sent_at: string | null; preparing_at: string | null; ready_at: string | null; served_at: string | null; course_no: number | null };
       type OrderRow = { id: string; table_id: string | null; order_items: OI[] };
       const list: Card[] = [];
+      const pending: PendingCourseItem[] = [];
       ((orders as unknown as OrderRow[]) ?? []).forEach((o) => {
         o.order_items.forEach((oi) => {
-          if (!(oi.status === "active" || oi.status === "ikram") || !oi.sent_at) return;
+          if (!(oi.status === "active" || oi.status === "ikram")) return;
+          if (!oi.sent_at) {
+            // Henüz garson serbest bırakmamış (course_no'lu) kalem — soluk önizleme.
+            if (oi.course_no != null) {
+              const info = itemInfo.get(oi.menu_item_id);
+              pending.push({ id: oi.id, tableId: o.table_id, name: info?.name ?? "?", quantity: oi.quantity, courseNo: oi.course_no });
+            }
+            return;
+          }
           const info = itemInfo.get(oi.menu_item_id);
           list.push({
             id: oi.id, tableId: o.table_id, name: info?.name ?? "?", quantity: oi.quantity,
@@ -112,6 +126,7 @@ function MutfakInner() {
           });
         });
       });
+      setPendingCourse(pending);
       // Teslim edilenler ekrandan silinmiyor artık — süre/işlem bilgisi için arşiv gibi kalıyor.
       // İşlemdeki kalemler hep önde (en eski önce); teslim edilenler arkada, en son teslim en önde
       // olacak şekilde sıralanır ("yeni fiş geldikçe eskiler arkaya kayar").
@@ -327,6 +342,16 @@ function MutfakInner() {
                     </div>
                   );
                 })}
+                {pendingCourse.filter((p) => p.tableId === (g.tableId === "__yok__" ? null : g.tableId)).length > 0 && (
+                  <div style={{ marginTop: 4, paddingTop: 8, borderTop: "1px dashed var(--line)" }}>
+                    <div style={{ fontSize: 10.5, color: "var(--muted-2)", marginBottom: 4 }}>Sırada — henüz gönderilmedi</div>
+                    {pendingCourse.filter((p) => p.tableId === (g.tableId === "__yok__" ? null : g.tableId)).map((p) => (
+                      <div key={p.id} style={{ fontSize: 13, opacity: 0.45, padding: "4px 0" }}>
+                        <span className="tnum">{p.quantity}×</span> {p.name}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 </div>
               </div>
             );

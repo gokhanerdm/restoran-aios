@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 
-type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null };
+type Category = { id: string; name: string; parent_id: string | null; vat_rate: number | null; target_food_cost_percent: number | null; course_no: number | null };
 type RoleVisibility = { garson?: { cost_visible?: boolean }; sef?: { cost_visible?: boolean } };
 type Settings = {
   default_vat_rate: number;
@@ -21,6 +21,9 @@ type Settings = {
   // önce ayrılır, kalan salon rollerine puan×saat oranıyla dağılır.
   tip_points: Record<string, number>;
   kitchen_tip_percent: number;
+  // Servis sırası (ROADMAP §O5). Kapalıyken kategorilere course_no atansa bile hiçbir
+  // etkisi olmaz — dönerci/basit modu tamamen etkilenmez.
+  course_sequencing_enabled: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +37,7 @@ const DEFAULT_SETTINGS: Settings = {
   table_flow_mode: "basit",
   tip_points: {},
   kitchen_tip_percent: 0,
+  course_sequencing_enabled: false,
 };
 
 // Personel ekranındaki ROLES ile aynı liste — bahşiş puanı da rol bazında tanımlanıyor.
@@ -129,7 +133,7 @@ export default function Ayarlar() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [catDrafts, setCatDrafts] = useState<Record<string, { vat: string; food: string }>>({});
+  const [catDrafts, setCatDrafts] = useState<Record<string, { vat: string; food: string; course: string }>>({});
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -156,8 +160,8 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent").eq("restaurant_id", restId).maybeSingle(),
-      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent, course_sequencing_enabled").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent, course_no").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
     if (s) setSettings(s as Settings);
@@ -171,6 +175,7 @@ export default function Ayarlar() {
     setCatDrafts(Object.fromEntries(cats.map((cat) => [cat.id, {
       vat: cat.vat_rate != null ? String(cat.vat_rate) : "",
       food: cat.target_food_cost_percent != null ? String(cat.target_food_cost_percent) : "",
+      course: cat.course_no != null ? String(cat.course_no) : "",
     }])));
   }, []);
 
@@ -197,6 +202,7 @@ export default function Ayarlar() {
       return supabase.from("menu_categories").update({
         vat_rate: d?.vat ? parseFloat(d.vat) || 0 : null,
         target_food_cost_percent: d?.food ? parseFloat(d.food) || 0 : null,
+        course_no: d?.course ? parseInt(d.course, 10) || null : null,
       }).eq("id", c.id);
     }));
     const firstError = results.find((r) => r.error)?.error;
@@ -377,6 +383,19 @@ export default function Ayarlar() {
               </label>
             ))}
 
+            {/* Servis sırası (ROADMAP §O5) — komple kapatılabilir (dönerci modu). Kapalıyken
+                kategorilerdeki servis numarası ayarlanmış olsa bile garson ekranı hiç etkilenmez. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Servis sırası</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={settings.course_sequencing_enabled} onChange={() => setSettings((s) => ({ ...s, course_sequencing_enabled: !s.course_sequencing_enabled }))} /> Ana yemek / tatlı garsonun ayrı butonuyla gönderilsin
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>
+              Açıkken solda &quot;Servis #&quot; ataması yapılmış kategoriler (Ana, Tatlı gibi) adisyona
+              eklenince otomatik gönderilmez — garson masa ekranında ayrı bir &quot;X gönder&quot; butonuna
+              basana kadar mutfağa düşmez. Başlangıç (servis 1) ve servis numarası olmayan
+              kategoriler (içecekler) her zaman olduğu gibi normal Gönder ile anında gider.
+            </div>
+
             {/* Bahşiş puan-saat dağıtımı (ROADMAP §O12). Boş bırakılan rol 0 puan sayılır,
                 pay almaz — özellik varsayılan kapalı gibi çalışır, puan girilmeden hiçbir
                 dağıtım yapılmaz. */}
@@ -452,13 +471,19 @@ export default function Ayarlar() {
         </div>
 
         <div style={{ flex: 1, minWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6, flexShrink: 0 }}>Kategori bazlı KDV / hedef food cost</div>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, flexShrink: 0 }}>Boş bırakılırsa varsayılan KDV / hedef food cost kullanılır.</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6, flexShrink: 0 }}>Kategori bazlı KDV / hedef food cost / servis sırası</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 4, flexShrink: 0 }}>Boş bırakılırsa varsayılan KDV / hedef food cost kullanılır.</div>
+          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, flexShrink: 0, lineHeight: 1.6 }}>
+            <b>Servis sırası</b> (ROADMAP §O5): Başlangıçlar 1, Ana yemek 2, Tatlı 3 gibi — boş
+            bırakılan kategoriler (içecekler) sıraya girmez, her zaman anında gider. Aşağıdaki
+            genel ayardan açılmadıkça bu sütunun hiçbir etkisi olmaz.
+          </div>
 
           <div style={{ display: "flex", fontSize: 11, color: "var(--muted-2)", padding: "0 0 6px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
             <span style={{ flex: 1.4 }}>Kategori</span>
             <span style={{ flex: 1, textAlign: "right" }}>KDV %</span>
             <span style={{ flex: 1, textAlign: "right", marginLeft: 8 }}>Hedef food cost %</span>
+            <span style={{ width: 70, textAlign: "right", marginLeft: 8 }}>Servis #</span>
           </div>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             {flatCats.map((c) => (
@@ -466,6 +491,7 @@ export default function Ayarlar() {
                 <span style={{ flex: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.label}</span>
                 <input value={catDrafts[c.id]?.vat ?? ""} onChange={(e) => setCatDrafts((d) => ({ ...d, [c.id]: { ...d[c.id], vat: e.target.value } }))} placeholder={String(settings.default_vat_rate)} inputMode="decimal" style={{ ...inp, flex: 1, textAlign: "right" }} />
                 <input value={catDrafts[c.id]?.food ?? ""} onChange={(e) => setCatDrafts((d) => ({ ...d, [c.id]: { ...d[c.id], food: e.target.value } }))} placeholder="—" inputMode="decimal" style={{ ...inp, flex: 1, marginLeft: 8, textAlign: "right" }} />
+                <input value={catDrafts[c.id]?.course ?? ""} onChange={(e) => setCatDrafts((d) => ({ ...d, [c.id]: { ...d[c.id], course: e.target.value.replace(/[^\d]/g, "") } }))} placeholder="—" inputMode="numeric" style={{ ...inp, width: 70, marginLeft: 8, textAlign: "right" }} />
               </div>
             ))}
             {flatCats.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Henüz kategori yok — önce Menü sayfasından ekle.</div>}
