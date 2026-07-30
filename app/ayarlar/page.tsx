@@ -48,6 +48,9 @@ const TIP_ROLES: { v: string; l: string }[] = [
   { v: "kasa", l: "Kasa" },
   { v: "sef", l: "Şef" },
   { v: "yonetici", l: "Yönetici" },
+  { v: "karsilama", l: "Karşılama" },
+  { v: "vale", l: "Vale" },
+  { v: "bulasik", l: "Bulaşık" },
 ];
 
 const TABLE_FLOW_MODES: { v: Settings["table_flow_mode"]; l: string; d: string }[] = [
@@ -64,6 +67,9 @@ const PURCHASE_ROLES: { v: string; l: string }[] = [
   { v: "kasa", l: "Kasa" },
   { v: "sef", l: "Şef" },
   { v: "yonetici", l: "Yönetici" },
+  { v: "karsilama", l: "Karşılama" },
+  { v: "vale", l: "Vale" },
+  { v: "bulasik", l: "Bulaşık" },
 ];
 
 // --- İşletme bilgileri / çalışma saatleri / arka plan (20260727100300_restaurant_info.sql) ---

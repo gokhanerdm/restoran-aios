@@ -20,6 +20,9 @@ const ROLES = [
   { v: "kasa", l: "Kasa" },
   { v: "sef", l: "Şef" },
   { v: "yonetici", l: "Yönetici" },
+  { v: "karsilama", l: "Karşılama" },
+  { v: "vale", l: "Vale" },
+  { v: "bulasik", l: "Bulaşık" },
 ] as const;
 const roleLabel = (v: string) => ROLES.find((r) => r.v === v)?.l ?? v;
 

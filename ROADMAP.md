@@ -586,7 +586,8 @@ Herkes kendi profilinde günlük/aylık bahşişini **hesabın nasıl çıktığ
 
 - Çıkış sonrası ve gün sonu akışı
 - Paket servis / gel-al
-- Personel yemeğinin **mutfaktan** girişi (Gökhan: *"personel yemeğinin masada ne işi var,
-  mutfaktan girilir"* — akış tasarlanmadı)
 - Karşılama–garson bildirim detayları
 - Diğer sektörlere uyarlama
+
+*(Personel yemeğinin mutfaktan girişi karara bağlandı ve Faz 2'de uygulandı — bkz.
+app/mutfak/page.tsx "Personel yemeği ekle".)*

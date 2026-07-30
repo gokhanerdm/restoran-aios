@@ -75,6 +75,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 const ROLES: Record<string, string> = {
   garson: "Garson", mutfak: "Mutfak", bar: "Bar", kasa: "Kasa", sef: "Şef", yonetici: "Yönetici",
+  karsilama: "Karşılama", vale: "Vale", bulasik: "Bulaşık",
 };
 const roleLabel = (v: string) => ROLES[v] ?? v;
 
