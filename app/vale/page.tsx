@@ -17,6 +17,9 @@ import { Plus } from "lucide-react";
 
 type Valet = { id: string; guest_name: string; plate_no: string; status: string; matched_table_id: string | null; parked_at: string; called_at: string | null };
 type TableRow = { id: string; name: string };
+// Bugünün beklenen rezervasyonları — vale'nin isim yazınca eşleşmenin arka planda olup
+// olmadığını GÖREBİLMESİ için (Gökhan: "eklenen rezervasyon valeye de görünmeli").
+type Beklenen = { id: string; guest_name: string; party_size: number; reserved_at: string; status: string };
 
 const STATUS_INFO: Record<string, { label: string; renk: string }> = {
   bekliyor: { label: "Bekliyor", renk: "var(--muted)" },
@@ -28,10 +31,21 @@ const sureFmt = (from: string, now: number) => {
   const dk = Math.max(0, Math.round((now - Date.parse(from)) / 60000));
   return dk < 60 ? `${dk} dk` : `${Math.floor(dk / 60)}s ${dk % 60}dk`;
 };
+const saatFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Europe/Istanbul" });
+const saat = (iso: string) => saatFmt.format(new Date(iso));
+const bugunSiniri = () => {
+  const bugun = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+  const start = `${bugun}T00:00:00+03:00`;
+  const d = new Date(`${bugun}T12:00:00+03:00`);
+  d.setDate(d.getDate() + 1);
+  const end = `${new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(d)}T00:00:00+03:00`;
+  return { start, end };
+};
 
 export default function ValePaneli() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Valet[]>([]);
+  const [beklenenler, setBeklenenler] = useState<Beklenen[]>([]);
   const [occupiedTables, setOccupiedTables] = useState<TableRow[]>([]);
   const [now, setNow] = useState(0);
   const [err, setErr] = useState<string | null>(null);
@@ -46,14 +60,19 @@ export default function ValePaneli() {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: v }, { data: t }] = await Promise.all([
+    const { start, end } = bugunSiniri();
+    const [{ data: v }, { data: t }, { data: b }] = await Promise.all([
       supabase.from("valet_entries").select("id, guest_name, plate_no, status, matched_table_id, parked_at, called_at")
         .eq("restaurant_id", restId).neq("status", "teslim_edildi").order("parked_at"),
       supabase.from("restaurant_tables").select("id, name")
         .eq("restaurant_id", restId).eq("status", "occupied").is("deleted_at", null).order("sort_order"),
+      supabase.from("reservations").select("id, guest_name, party_size, reserved_at, status")
+        .eq("restaurant_id", restId).is("deleted_at", null).in("status", ["bekleniyor", "geldi"])
+        .gte("reserved_at", start).lt("reserved_at", end).order("reserved_at"),
     ]);
     setEntries((v as Valet[]) ?? []);
     setOccupiedTables((t as TableRow[]) ?? []);
+    setBeklenenler((b as Beklenen[]) ?? []);
   }, []);
 
   useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, [load]);
@@ -88,6 +107,25 @@ export default function ValePaneli() {
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1, marginBottom: 14, flexShrink: 0 }}>Vale</div>
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
+
+      {beklenenler.length > 0 && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 14, flexShrink: 0 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>Bugün beklenenler</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {beklenenler.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }}
+                title="İsim ve kişi sayısını araç kaydı formuna doldurur"
+                style={{ ...btnSecondary, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "8px 14px" }}
+              >
+                <span className="tnum" style={{ fontSize: 11, color: "var(--muted)" }}>{saat(b.reserved_at)} · {b.party_size} kişi{b.status === "geldi" ? " · geldi" : ""}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 14, flexShrink: 0 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>Araç kaydı ekle</div>
