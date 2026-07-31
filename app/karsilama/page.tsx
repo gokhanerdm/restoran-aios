@@ -28,7 +28,7 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 type Rez = {
   id: string; guest_name: string; guest_phone: string | null; party_size: number;
   reserved_at: string; status: string; note: string | null; table_id: string | null;
-  arrived_at: string | null;
+  arrived_at: string | null; created_at: string;
 };
 type TableRow = { id: string; name: string; seat_count: number; status: string };
 
@@ -108,6 +108,14 @@ export default function KarsilamaPage() {
   const [kvkkNotice, setKvkkNotice] = useState("");
   const [kvkkAcik, setKvkkAcik] = useState(false);
   const [aksamBaslangic, setAksamBaslangic] = useState(17);
+  // Kapasite tam bu kayıtla dolduğunda gösterilen, kendiliğinden kapanan bilgi notu (Gökhan:
+  // "kapasite bu rezervasyonla doluyor, alacağınız rezervasyonlar yedek olarak kaydedilecektir
+  // demeli"). Yedek olan tek bir kayıt içinse onay penceresi (confirm) kullanılıyor.
+  const [capacityNotice, setCapacityNotice] = useState<string | null>(null);
+  const bildirCapacityNotice = (msg: string) => {
+    setCapacityNotice(msg);
+    setTimeout(() => setCapacityNotice(null), 7000);
+  };
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Yeni rezervasyon formu — buton tıklanınca açılan katman (Gökhan: satır her zaman açık
@@ -141,7 +149,7 @@ export default function KarsilamaPage() {
     setRestaurantId(restId);
     const { start, end } = gunSiniri(targetGun);
     const [{ data: r, error }, { data: t }, { data: s }] = await Promise.all([
-      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at")
+      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, created_at")
         .eq("restaurant_id", restId).is("deleted_at", null)
         .gte("reserved_at", start).lt("reserved_at", end)
         .order("reserved_at"),
@@ -202,7 +210,20 @@ export default function KarsilamaPage() {
       setErr("Misafir adı, tarih, saat ve kişi sayısı gerekli.");
       return;
     }
-    setErr(null); setBusy(true);
+    setErr(null);
+
+    // Kapasite kontrolü — sadece şu an görüntülenen gün için (elimizde başka günün verisi yok).
+    // Bu rezervasyon kapasiteyi aşıyorsa Yedek olacağını GİRİŞ ANINDA söyleriz (Gökhan).
+    let mevcut = 0;
+    if (fDate === gun) {
+      mevcut = donemDoluPax(new Date(`${fDate}T${fTime}:00+03:00`).toISOString());
+      if (mevcut + kisi > toplamKapasite) {
+        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu rezervasyon Yedek olarak kaydedilecek. Devam edilsin mi?`);
+        if (!ok) return;
+      }
+    }
+
+    setBusy(true);
     const { error } = await supabase.from("reservations").insert({
       restaurant_id: restaurantId,
       guest_name: toTitleTr(fName),
@@ -215,17 +236,34 @@ export default function KarsilamaPage() {
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setNewResOpen(false);
+    if (fDate === gun && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
+      bildirCapacityNotice(`Kapasite bu rezervasyonla doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);
+    }
     if (fDate !== gun) gunDegistir(fDate); else await load(gun);
   };
 
   const dogrudanGir = async () => {
     if (!restaurantId || !wName.trim()) return;
     const kisi = Math.max(1, parseInt(wParty, 10) || 1);
-    setBusy(true); setErr(null);
+    setErr(null);
+
+    let mevcut = 0;
+    if (bugunMu) {
+      mevcut = donemDoluPax(new Date().toISOString());
+      if (mevcut + kisi > toplamKapasite) {
+        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu misafir Yedek olarak kaydedilecek. Devam edilsin mi?`);
+        if (!ok) return;
+      }
+    }
+
+    setBusy(true);
     const { error } = await supabase.rpc("check_in_arrival", { p_restaurant: restaurantId, p_guest_name: toTitleTr(wName), p_party_size: kisi });
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setWName(""); setWParty("2"); setWalkInOpen(false);
+    if (bugunMu && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
+      bildirCapacityNotice(`Kapasite bu misafirle doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);
+    }
     if (gun !== bugunIstanbul()) gunDegistir(bugunIstanbul()); else await load(gun);
   };
 
@@ -298,17 +336,30 @@ export default function KarsilamaPage() {
 
   // Kapasite/Yedek — günü tek havuz değil öğle/akşam diye iki dönem sayar. Sadece gerçekten
   // yer kaplayan durumlar (bekleniyor/geldi/oturdu) kapasiteye girer; gelmedi/iptal saymaz.
+  // Öncelik SAAT sırasına göre değil, KAYIT sırasına (created_at) göre — "kim önce rezervasyon
+  // yaptırdıysa o avantajlı" (Gökhan). Saat sırasına göre sıralasaydık, sonradan aranıp erken
+  // saate rezervasyon yaptıran biri, önceden aranıp geç saate rezervasyon yaptıranın önüne
+  // geçerdi — bu yanlış, gerçek hayatta ilk arayan ilk kazanır.
   const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
   const kapasiteliRows = rows.filter((r) => r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu");
   const yedekIds = new Set<string>();
   (["ogle", "aksam"] as const).forEach((d) => {
     let toplam = 0;
-    kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).forEach((r) => {
-      toplam += r.party_size;
-      if (toplam > toplamKapasite) yedekIds.add(r.id);
-    });
+    kapasiteliRows
+      .filter((r) => donem(r.reserved_at, aksamBaslangic) === d)
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      .forEach((r) => {
+        toplam += r.party_size;
+        if (toplam > toplamKapasite) yedekIds.add(r.id);
+      });
   });
   const donemPax = (d: "ogle" | "aksam") => kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).reduce((s, r) => s + r.party_size, 0);
+  // Bugün + o dönem için, YENİ bir rezervasyon eklenecek olsa şu an kaç pax dolu — ekleme
+  // formlarında "bu rezervasyon Yedek olacak" uyarısı için (sadece bugünü görüntülerken anlamlı).
+  const donemDoluPax = (iso: string) => {
+    const d = donem(iso, aksamBaslangic);
+    return donemPax(d);
+  };
 
   // 17:00'i (ya da ayarlanan saati) geçtiyse ve akşam rezervasyonu olan bir masaya önceden
   // masa atanmışsa ama o masa hâlâ "occupied" ise (hesap kapanmadı) — Karşılama'ya uyarı
@@ -329,6 +380,11 @@ export default function KarsilamaPage() {
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
+      {capacityNotice && (
+        <div style={{ fontSize: 12.5, color: "var(--gold-text)", background: "var(--recede)", border: "1px solid var(--gold)", borderRadius: 10, padding: "8px 12px", marginBottom: 10, flexShrink: 0 }}>
+          {capacityNotice}
+        </div>
+      )}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         {/* Tarih gezinmesi + ekleme yolları burada, listenin hemen üstünde — sayfa başlığından
@@ -347,16 +403,21 @@ export default function KarsilamaPage() {
           )}
         </div>
         {/* Kapasite özeti — gün tek havuz değil öğle/akşam diye iki dönem (Gökhan). Biz sadece
-            bilgilendiririz, engellemeyiz; kapasiteyi aşan noktadan sonrakiler "Yedek" sayılır. */}
+            bilgilendiririz, engellemeyiz. Sayaç kapasitede DURUR, kapasite üstü "Yedek" olarak
+            ayrı sayılır (Gökhan: "kapasite dolduğunda dursun, yanına yedek olarak saymaya başlasın"). */}
         <div style={{ display: "flex", gap: 18, marginBottom: 10, flexShrink: 0, fontSize: 12.5 }}>
-          <span style={{ color: donemPax("ogle") > toplamKapasite ? "var(--gold-text)" : inkSoft }}>
-            Öğle: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{donemPax("ogle")}</span> / <span className="tnum">{toplamKapasite}</span> pax
-            {donemPax("ogle") > toplamKapasite && ` · ${donemPax("ogle") - toplamKapasite} pax kapasite üstü`}
-          </span>
-          <span style={{ color: donemPax("aksam") > toplamKapasite ? "var(--gold-text)" : inkSoft }}>
-            Akşam: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{donemPax("aksam")}</span> / <span className="tnum">{toplamKapasite}</span> pax
-            {donemPax("aksam") > toplamKapasite && ` · ${donemPax("aksam") - toplamKapasite} pax kapasite üstü`}
-          </span>
+          {(["ogle", "aksam"] as const).map((d) => {
+            const toplam = donemPax(d);
+            const onayli = Math.min(toplam, toplamKapasite);
+            const yedekPax = Math.max(0, toplam - toplamKapasite);
+            return (
+              <span key={d} style={{ color: yedekPax > 0 ? "var(--gold-text)" : inkSoft }}>
+                {d === "ogle" ? "Öğle" : "Akşam"}: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{onayli}</span> / <span className="tnum">{toplamKapasite}</span> pax
+                {onayli >= toplamKapasite && <span style={{ fontWeight: 600 }}> (dolu)</span>}
+                {yedekPax > 0 && ` · ${yedekPax} pax Yedek`}
+              </span>
+            );
+          })}
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
