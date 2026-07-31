@@ -51,6 +51,10 @@ const bekleyenSure = (from: string, now: number) => {
   const dk = Math.max(0, Math.round((now - Date.parse(from)) / 60000));
   return dk < 60 ? `${dk} dk` : `${Math.floor(dk / 60)}s ${dk % 60}dk`;
 };
+// Kapasite/Yedek hesabı gün tek havuz değil, öğle/akşam diye iki ayrı dönem sayar (Gökhan:
+// "akşam 17 sonrası bir dönem, öncesi bir dönem" — sınır Ayarlar'dan değiştirilebilir).
+const saatIstanbul = (iso: string) => parseInt(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" }).format(new Date(iso)), 10);
+const donem = (iso: string, aksamBaslangic: number): "ogle" | "aksam" => (saatIstanbul(iso) >= aksamBaslangic ? "aksam" : "ogle");
 
 const DURUM_INFO: Record<string, { label: string; color: string }> = {
   bekleniyor: { label: "Bekleniyor", color: "var(--ink)" },
@@ -103,6 +107,7 @@ export default function KarsilamaPage() {
   const [busy, setBusy] = useState(false);
   const [kvkkNotice, setKvkkNotice] = useState("");
   const [kvkkAcik, setKvkkAcik] = useState(false);
+  const [aksamBaslangic, setAksamBaslangic] = useState(17);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   // Yeni rezervasyon formu — buton tıklanınca açılan katman (Gökhan: satır her zaman açık
@@ -141,13 +146,15 @@ export default function KarsilamaPage() {
         .gte("reserved_at", start).lt("reserved_at", end)
         .order("reserved_at"),
       supabase.from("restaurant_tables").select("id, name, seat_count, status").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("kvkk_notice").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("kvkk_notice, evening_start_hour").eq("restaurant_id", restId).maybeSingle(),
     ]);
     if (error) { setErr(error.message); return; }
     const list = (r as Rez[]) ?? [];
     setRows(list);
     setTables((t as TableRow[]) ?? []);
-    setKvkkNotice((s as { kvkk_notice: string | null } | null)?.kvkk_notice ?? "");
+    const settingsRow = s as { kvkk_notice: string | null; evening_start_hour: number } | null;
+    setKvkkNotice(settingsRow?.kvkk_notice ?? "");
+    setAksamBaslangic(settingsRow?.evening_start_hour ?? 17);
     setErr(null);
 
     if (targetGun === bugunIstanbul()) {
@@ -284,9 +291,34 @@ export default function KarsilamaPage() {
   const bosMasalar = tables.filter((t) => t.status === "empty");
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? null;
   const bugunMu = gun === bugunIstanbul();
-  // İptal edilenler ana listede görünmez, ayrı bir arşiv penceresinde durur.
-  const visibleRows = rows.filter((r) => r.status !== "iptal");
-  const iptalRows = rows.filter((r) => r.status === "iptal");
+  // İptal ve Gelmedi ana listede görünmez, ayrı bir arşiv penceresinde durur (Gökhan:
+  // "gelmedileri de iptal edilenlerin yanına koyalım, listeden çıksın").
+  const visibleRows = rows.filter((r) => r.status !== "iptal" && r.status !== "gelmedi");
+  const arsivRows = rows.filter((r) => r.status === "iptal" || r.status === "gelmedi");
+
+  // Kapasite/Yedek — günü tek havuz değil öğle/akşam diye iki dönem sayar. Sadece gerçekten
+  // yer kaplayan durumlar (bekleniyor/geldi/oturdu) kapasiteye girer; gelmedi/iptal saymaz.
+  const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
+  const kapasiteliRows = rows.filter((r) => r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu");
+  const yedekIds = new Set<string>();
+  (["ogle", "aksam"] as const).forEach((d) => {
+    let toplam = 0;
+    kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).forEach((r) => {
+      toplam += r.party_size;
+      if (toplam > toplamKapasite) yedekIds.add(r.id);
+    });
+  });
+  const donemPax = (d: "ogle" | "aksam") => kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).reduce((s, r) => s + r.party_size, 0);
+
+  // 17:00'i (ya da ayarlanan saati) geçtiyse ve akşam rezervasyonu olan bir masaya önceden
+  // masa atanmışsa ama o masa hâlâ "occupied" ise (hesap kapanmadı) — Karşılama'ya uyarı
+  // (Gökhan: "saat 5 olduğunda akşam rezervasyonu olan masada hâlâ birileri oturuyorsa
+  // hesap kapanmamışsa uyarı gider karşılamaya").
+  const suAnSaat = bugunMu ? saatIstanbul(new Date().toISOString()) : -1;
+  const masaHalaDolu = (r: Rez) =>
+    bugunMu && suAnSaat >= aksamBaslangic && donem(r.reserved_at, aksamBaslangic) === "aksam"
+    && !!r.table_id && (r.status === "bekleniyor" || r.status === "geldi")
+    && tables.find((t) => t.id === r.table_id)?.status === "occupied";
 
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
@@ -310,9 +342,21 @@ export default function KarsilamaPage() {
           </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
           <button onClick={() => setWalkInOpen(true)} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
-          {iptalRows.length > 0 && (
-            <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal edilenler ({iptalRows.length})</button>
+          {arsivRows.length > 0 && (
+            <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal / Gelmedi ({arsivRows.length})</button>
           )}
+        </div>
+        {/* Kapasite özeti — gün tek havuz değil öğle/akşam diye iki dönem (Gökhan). Biz sadece
+            bilgilendiririz, engellemeyiz; kapasiteyi aşan noktadan sonrakiler "Yedek" sayılır. */}
+        <div style={{ display: "flex", gap: 18, marginBottom: 10, flexShrink: 0, fontSize: 12.5 }}>
+          <span style={{ color: donemPax("ogle") > toplamKapasite ? "var(--gold-text)" : inkSoft }}>
+            Öğle: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{donemPax("ogle")}</span> / <span className="tnum">{toplamKapasite}</span> pax
+            {donemPax("ogle") > toplamKapasite && ` · ${donemPax("ogle") - toplamKapasite} pax kapasite üstü`}
+          </span>
+          <span style={{ color: donemPax("aksam") > toplamKapasite ? "var(--gold-text)" : inkSoft }}>
+            Akşam: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{donemPax("aksam")}</span> / <span className="tnum">{toplamKapasite}</span> pax
+            {donemPax("aksam") > toplamKapasite && ` · ${donemPax("aksam") - toplamKapasite} pax kapasite üstü`}
+          </span>
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
@@ -336,18 +380,26 @@ export default function KarsilamaPage() {
             const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
             const canli = r.status === "geldi";
             const aktif = r.status === "bekleniyor" || r.status === "geldi";
+            const yedek = yedekIds.has(r.id);
+            const doluUyari = masaHalaDolu(r);
             return (
-              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi"}>
+              <ListRow key={r.id} highlight={canli}>
                 <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
                 <RowSep />
                 <Cell width={170} marginLeft={14}>
-                  <EditableText
-                    value={r.guest_name}
-                    onSave={(next) => updateField(r, { guest_name: toTitleTr(next) })}
-                    style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  />
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <EditableText
+                      value={r.guest_name}
+                      onSave={(next) => updateField(r, { guest_name: toTitleTr(next) })}
+                      style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    />
+                    {yedek && <span title="Kapasite dolduktan sonra alınmış" style={{ fontSize: 9.5, fontWeight: 700, color: "var(--gold-text)", border: "1px solid var(--gold)", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>YEDEK</span>}
+                  </div>
                   {canli && r.arrived_at && (
                     <div style={{ fontSize: 11, color: inkSoft }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
+                  )}
+                  {doluUyari && (
+                    <div style={{ fontSize: 11, color: "var(--danger)", fontWeight: 600 }}>⚠ Masa hâlâ dolu</div>
                   )}
                 </Cell>
                 <RowSep />
@@ -509,20 +561,21 @@ export default function KarsilamaPage() {
         </div>
       )}
 
-      {/* İPTAL ARŞİVİ */}
+      {/* İPTAL / GELMEDİ ARŞİVİ */}
       {arsivOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setArsivOpen(false)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 360, maxWidth: 440, maxHeight: "70vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>İptal edilenler</div>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>İptal / Gelmedi</div>
             <div style={{ overflowY: "auto", flex: 1 }}>
-              {iptalRows.map((r) => (
+              {arsivRows.map((r) => (
                 <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
                   <span className="tnum" style={{ fontSize: 12.5, fontWeight: 600, color: inkSoft, width: 42, flexShrink: 0 }}>{saat(r.reserved_at)}</span>
                   <span style={{ flex: 1, fontSize: 13, color: inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
                   <span className="tnum" style={{ fontSize: 12, color: inkSoft, flexShrink: 0 }}>{r.party_size} pax</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: DURUM_INFO[r.status]?.color ?? inkSoft, flexShrink: 0, width: 55, textAlign: "right" }}>{DURUM_INFO[r.status]?.label ?? r.status}</span>
                 </div>
               ))}
-              {iptalRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>İptal edilen yok.</div>}
+              {arsivRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Kayıt yok.</div>}
             </div>
             <button onClick={() => setArsivOpen(false)} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: "var(--muted)", marginTop: 14, display: "block", flexShrink: 0 }}>Kapat</button>
           </div>

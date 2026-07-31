@@ -24,6 +24,9 @@ type Settings = {
   // Servis sırası (ROADMAP §O5). Kapalıyken kategorilere course_no atansa bile hiçbir
   // etkisi olmaz — dönerci/basit modu tamamen etkilenmez.
   course_sequencing_enabled: boolean;
+  // Karşılama'nın kapasite/Yedek hesabı bu saatten önceki/sonraki rezervasyonları ayrı
+  // dönem sayar (ROADMAP §O2 — "gün olarak değil dönem olarak takip edeceğiz").
+  evening_start_hour: number;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -38,6 +41,7 @@ const DEFAULT_SETTINGS: Settings = {
   tip_points: {},
   kitchen_tip_percent: 0,
   course_sequencing_enabled: false,
+  evening_start_hour: 17,
 };
 
 // Personel ekranındaki ROLES ile aynı liste — bahşiş puanı da rol bazında tanımlanıyor.
@@ -166,7 +170,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent, course_sequencing_enabled").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent, course_sequencing_enabled, evening_start_hour").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent, course_no").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
@@ -400,6 +404,24 @@ export default function Ayarlar() {
               eklenince otomatik gönderilmez — garson masa ekranında ayrı bir &quot;X gönder&quot; butonuna
               basana kadar mutfağa düşmez. Başlangıç (servis 1) ve servis numarası olmayan
               kategoriler (içecekler) her zaman olduğu gibi normal Gönder ile anında gider.
+            </div>
+
+            {/* Karşılama'nın kapasite/Yedek hesabı — gün tek havuz değil, öğle/akşam diye iki
+                ayrı dönem sayılır (Gökhan: "akşam 17 sonrası bir dönem, öncesi bir dönem"). */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Karşılama — akşam dönemi</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }}>Akşam dönemi şu saatte başlar:</span>
+              <input
+                value={String(settings.evening_start_hour)}
+                onChange={(e) => setSettings((s) => ({ ...s, evening_start_hour: Math.max(0, Math.min(23, parseInt(e.target.value.replace(/\D/g, ""), 10) || 0)) }))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 50, textAlign: "right" }}
+              />
+              <span style={{ fontSize: 13.5 }}>:00</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>
+              Karşılama&apos;daki kapasite/&quot;Yedek&quot; hesabı günü tek havuzda değil, bu saatten önceki
+              (öğle) ve sonraki (akşam) diye iki ayrı dönemde sayar — öğlenin dolu olması akşamı
+              &quot;dolu&quot; göstermesin diye.
             </div>
 
             {/* Bahşiş puan-saat dağıtımı (ROADMAP §O12). Boş bırakılan rol 0 puan sayılır,
