@@ -231,10 +231,14 @@ function MutfakInner() {
       const firstSentAt = Math.min(...items.map((i) => Date.parse(i.sentAt)));
       return { tableId, items, pendingCount: pending.length, oldestPendingAt, firstSentAt, maxPrep: preps.length ? Math.max(...preps) : null };
     })
-    // Masa, ilk siparişin geldiği andaki sırada sabit kalır: tüm kalemler teslim edilse bile
-    // (hesap gerçekten kapanana kadar) yeri değişmez, listenin sonuna atlamaz — mutfak "az önce
-    // baktığım masa nerede" diye aramasın. Yeni masa her zaman en sona eklenir.
-    .sort((a, b) => a.firstSentAt - b.firstSentAt);
+    // Tüm kalemleri teslim edilen masa listenin arkasına düşer — aktif (bekleyen kalemi olan)
+    // masalar hep önde kalır, mutfak/bar önce onlara baksın (Gökhan). Aktifler kendi aralarında,
+    // kapananlar da kendi aralarında ilk siparişin geldiği sıradadır.
+    .sort((a, b) => {
+      const aDone = a.pendingCount === 0, bDone = b.pendingCount === 0;
+      if (aDone !== bDone) return aDone ? 1 : -1;
+      return a.firstSentAt - b.firstSentAt;
+    });
   // Mutfak açısından "kapanmış" = tüm kalemleri teslim edilmiş adisyon. Hesabı gerçekten
   // kapanan adisyon bu ekrana zaten hiç düşmez (sorgu yalnızca status='open' çekiyor),
   // o yüzden buradaki ayrım "işim bitti mi" ayrımıdır.
