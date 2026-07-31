@@ -297,6 +297,7 @@ export default function KarsilamaPage() {
           <HeaderCell width={110}>Telefon</HeaderCell>
           <HeaderCell width={40} align="right">Pax</HeaderCell>
           <HeaderCell width={150}>Masa</HeaderCell>
+          <HeaderCell width={160}>Not</HeaderCell>
           <HeaderCell width={210} align="right">İşlem</HeaderCell>
         </ListHeader>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
@@ -310,10 +311,8 @@ export default function KarsilamaPage() {
                 <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
                 <Cell flex>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
-                  {(r.note || (canli && r.arrived_at)) && (
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                      {r.note}{r.note && canli && r.arrived_at ? " · " : ""}{canli && r.arrived_at ? `${bekleyenSure(r.arrived_at, now)} önce geldi` : ""}
-                    </div>
+                  {canli && r.arrived_at && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
                   )}
                 </Cell>
                 <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
@@ -334,6 +333,11 @@ export default function KarsilamaPage() {
                     <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>—</span>
                   )}
                 </Cell>
+                <Cell width={160}>
+                  <span style={{ fontSize: 12, color: "var(--muted)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.note ?? undefined}>
+                    {r.note || "—"}
+                  </span>
+                </Cell>
                 <ActionsCell width={210}>
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
@@ -345,7 +349,7 @@ export default function KarsilamaPage() {
                     <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
                   )}
                   {aktif ? (
-                    <button onClick={() => iptalEt(r)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted-2)" }}>İptal</button>
+                    <button onClick={() => iptalEt(r)} style={btnGhost}>İptal</button>
                   ) : (
                     <span style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
                   )}
