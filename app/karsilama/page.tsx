@@ -344,9 +344,15 @@ export default function KarsilamaPage() {
                 <RowSep />
                 <Spacer />
                 <ActionsCell width={210} align="center">
+                  {/* Karşılama "geldi" dedikten sonra iş bitmiş olmalı — ayrı bir "Oturt"
+                      adımı çıkmasın (Gökhan: "geldi dedikten sonra işi bitmeli, müşteriyi
+                      garsona yönlendirdikten ya da yerine oturttuktan sonra zaten geldi
+                      diyecek"). "Geldi" tıklanınca doğrudan masa seçip oturtur — tek adım.
+                      "geldi" durumu sadece vale/kapıdan otomatik eşleşmede ayrı görünür
+                      (orada arrival host'un elinden bağımsız gerçekleşiyor). */}
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
-                      <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
+                      <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
                       <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
                     </>
                   )}
