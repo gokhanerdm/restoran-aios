@@ -23,7 +23,7 @@ export function HeaderCell({ width, flex, align = "left", marginLeft, children }
   return (
     <span style={{
       width: flex ? undefined : width, flex: flex ? 1 : undefined, flexShrink: 0, minWidth: 0, marginLeft,
-      textAlign: align, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)",
+      textAlign: align, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--ink)",
     }}>
       {children}
     </span>
