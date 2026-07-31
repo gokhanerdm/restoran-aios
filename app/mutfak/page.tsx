@@ -208,6 +208,10 @@ function MutfakInner() {
     setTimeout(() => setMealDone(null), 3000);
   };
 
+  // İstasyon linkle kilitliyse (ör. ?istasyon=Bar) sekme şeridi hiç gösterilmez — bar
+  // ekranından mutfağa, mutfak ekranından bara geçiş yapılamaz (Gökhan: "bar mutfağı,
+  // mutfak barı seçemesin"). Parametre yoksa (genel /mutfak) hepsi görünür, sekmeyle geçilebilir.
+  const kilitliIstasyon = istasyonParam ? stations.find((s) => s.name.toLocaleLowerCase("tr") === istasyonParam.toLocaleLowerCase("tr")) : null;
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? "?";
   const visible = selectedStation === ALL ? cards : cards.filter((c) => c.stationId === selectedStation);
   const screenTitle = selectedStation === ALL ? "Sipariş Ekranı" : stations.find((s) => s.id === selectedStation)?.name ?? "Sipariş Ekranı";
@@ -280,7 +284,7 @@ function MutfakInner() {
         )}
         {err && <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 12, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13, flexShrink: 0 }}>{err}</div>}
 
-        {stations.length > 0 && (
+        {stations.length > 0 && !kilitliIstasyon && (
           <div style={{ display: "flex", gap: 8, overflowX: "auto", marginTop: 14, paddingBottom: 2, flexShrink: 0 }}>
             <button onClick={() => setSelectedStation(ALL)} style={tabBtn(selectedStation === ALL)}>Tümü</button>
             {stations.map((s) => (
