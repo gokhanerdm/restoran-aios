@@ -219,11 +219,11 @@ export default function KarsilamaPage() {
     if (gun !== bugunIstanbul()) gunDegistir(bugunIstanbul()); else await load(gun);
   };
 
+  // Durum değişikliği (Geldi/Gelmedi/İptal) RPC üzerinden — Gelmedi/İptal olunca atanmış
+  // masa hâlâ "reserved" ise (henüz oturtulmadıysa) otomatik boşa çıkar (set_reservation_status).
   const durumDegistir = async (r: Rez, next: string) => {
     setErr(null);
-    const patch: Record<string, unknown> = { status: next };
-    if (next === "geldi") patch.arrived_at = new Date().toISOString();
-    const { error } = await supabase.from("reservations").update(patch).eq("id", r.id);
+    const { error } = await supabase.rpc("set_reservation_status", { p_reservation_id: r.id, p_status: next });
     if (error) { setErr(error.message); return; }
     await load(gun);
   };
@@ -234,9 +234,12 @@ export default function KarsilamaPage() {
     await durumDegistir(r, "iptal");
   };
 
+  // Masa ata — SADECE bugün için anlamlı (Gökhan: "işletme masa planını aynı gün yapar,
+  // ileri tarihli rezervasyona masa atamaz"). Atanan masa hemen "rezerve" görünür görünmez
+  // (assign_reservation_table RPC'si restaurant_tables.status/reservation_note'u da günceller).
   const masaAta = async (r: Rez, tableId: string) => {
     setErr(null);
-    const { error } = await supabase.from("reservations").update({ table_id: tableId || null }).eq("id", r.id);
+    const { error } = await supabase.rpc("assign_reservation_table", { p_reservation_id: r.id, p_table_id: tableId });
     setAssigningId(null);
     if (error) { setErr(error.message); return; }
     await load(gun);
@@ -305,19 +308,21 @@ export default function KarsilamaPage() {
                     {assigningId === r.id && (
                       <select autoFocus onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, marginTop: 6, width: 180 }}>
                         <option value="" disabled>Masa seç…</option>
-                        {tables.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
+                        {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
                       </select>
                     )}
                   </div>
                   <span style={{ fontSize: 11, fontWeight: 700, color: info.color, flexShrink: 0, width: 68, textAlign: "right" }}>{info.label}</span>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {(r.status === "bekleniyor" || r.status === "geldi") && (
-                      <button onClick={() => setAssigningId(assigningId === r.id ? null : r.id)} style={btnGhost}>Masa ata</button>
+                    {/* Masa ata/Geldi/Oturt SADECE bugün için — masa planı günlük iş (Gökhan).
+                        İleri/geçmiş bir günü görüntülerken sadece İptal kalır. */}
+                    {bugunMu && (r.status === "bekleniyor" || r.status === "geldi") && (
+                      <button onClick={() => setAssigningId(assigningId === r.id ? null : r.id)} disabled={bosMasalar.length === 0 && !r.table_id} style={btnGhost}>Masa ata</button>
                     )}
-                    {r.status === "bekleniyor" && (
+                    {bugunMu && r.status === "bekleniyor" && (
                       <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
                     )}
-                    {r.status === "geldi" && (
+                    {bugunMu && r.status === "geldi" && (
                       <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
                     )}
                     {(r.status === "bekleniyor" || r.status === "geldi") && (
