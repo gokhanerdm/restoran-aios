@@ -202,7 +202,7 @@ export default function KasaPage() {
   // kaydı oluşturur (aynı reservations tablosu, tek doğru kaynak). Sadece isim+kişi+saat
   // ister, telefon/not sormaz — hızlı olsun diye (Karşılama'nın tam formu ayrı duruyor).
   const openReserve = (tableId: string) => {
-    setRName(""); setRParty("2"); setRTime("");
+    setRName(""); setRParty("2"); setRTime("19:00");
     setErr(null);
     setReserveFor({ tableId });
   };

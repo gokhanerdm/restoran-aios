@@ -190,7 +190,7 @@ export default function KarsilamaPage() {
   // GÖRÜNÜYOR ama gerçek değeri boştu, Ekle'ye basınca sessizce reddediliyordu. Artık pencere
   // açılırken fDate gerçekten görünen güne eşitleniyor.
   const openNewRes = () => {
-    setFName(""); setFPhone(""); setFParty("2"); setFDate(gun); setFTime(""); setFNote("");
+    setFName(""); setFPhone(""); setFParty("2"); setFDate(gun); setFTime("19:00"); setFNote("");
     setErr(null);
     setNewResOpen(true);
   };
