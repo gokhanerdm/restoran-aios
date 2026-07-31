@@ -19,8 +19,11 @@ import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../component
 type Valet = { id: string; guest_name: string; plate_no: string; status: string; matched_table_id: string | null; parked_at: string; called_at: string | null };
 type TableRow = { id: string; name: string };
 // Bugünün beklenen rezervasyonları — vale'nin isim yazınca eşleşmenin arka planda olup
-// olmadığını GÖREBİLMESİ için (Gökhan: "eklenen rezervasyon valeye de görünmeli").
-type Beklenen = { id: string; guest_name: string; party_size: number; reserved_at: string; status: string };
+// olmadığını GÖREBİLMESİ için (Gökhan: "eklenen rezervasyon valeye de görünmeli"). Sadece
+// henüz gelmemiş ("bekleniyor") olanlar — geldiği an listeden düşer: valeden geldiyse zaten
+// aşağıdaki araç listesinde görünüyor, valeye uğramadan geldiyse arabası yok demektir, vale
+// ekranıyla artık işi yok (Gökhan: "valeye uğramadan gelenlerin arabası yok demektir").
+type Beklenen = { id: string; guest_name: string; party_size: number; reserved_at: string };
 
 const STATUS_INFO: Record<string, { label: string; renk: string }> = {
   bekliyor: { label: "Bekliyor", renk: "var(--muted)" },
@@ -67,8 +70,8 @@ export default function ValePaneli() {
         .eq("restaurant_id", restId).neq("status", "teslim_edildi").order("parked_at"),
       supabase.from("restaurant_tables").select("id, name")
         .eq("restaurant_id", restId).eq("status", "occupied").is("deleted_at", null).order("sort_order"),
-      supabase.from("reservations").select("id, guest_name, party_size, reserved_at, status")
-        .eq("restaurant_id", restId).is("deleted_at", null).in("status", ["bekleniyor", "geldi"])
+      supabase.from("reservations").select("id, guest_name, party_size, reserved_at")
+        .eq("restaurant_id", restId).is("deleted_at", null).eq("status", "bekleniyor")
         .gte("reserved_at", start).lt("reserved_at", end).order("reserved_at"),
     ]);
     setEntries((v as Valet[]) ?? []);
@@ -119,7 +122,7 @@ export default function ValePaneli() {
             <HeaderCell width={120} align="right">İşlem</HeaderCell>
           </ListHeader>
           {beklenenler.map((b) => (
-            <ListRow key={b.id} highlight={b.status === "geldi"}>
+            <ListRow key={b.id}>
               <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(b.reserved_at)}</span></Cell>
               <Cell flex><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span></Cell>
               <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{b.party_size}</span></Cell>
