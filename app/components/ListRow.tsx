@@ -7,7 +7,7 @@
 
 export function ListHeader({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
       {children}
     </div>
   );
@@ -27,7 +27,7 @@ export function HeaderCell({ width, flex, align = "left", children }: { width?: 
 export function ListRow({ highlight, muted, children }: { highlight?: boolean; muted?: boolean; children: React.ReactNode }) {
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)",
+      display: "flex", alignItems: "center", gap: 18, padding: "10px 0", borderBottom: "1px solid var(--line)",
       opacity: muted ? 0.5 : 1,
       background: highlight ? "var(--danger-bg)" : "transparent",
       borderRadius: highlight ? 10 : 0, paddingLeft: highlight ? 10 : 0, paddingRight: highlight ? 10 : 0,

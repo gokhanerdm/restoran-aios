@@ -117,7 +117,8 @@ export default function KarsilamaPage() {
   const [fTime, setFTime] = useState("");
   const [fNote, setFNote] = useState("");
 
-  // Kayıtsız doğrudan gir (rezervasyonsuz, kapıdan)
+  // Kayıtsız doğrudan gir (rezervasyonsuz, kapıdan) — küçük bir pencere, ayrı panel değil.
+  const [walkInOpen, setWalkInOpen] = useState(false);
   const [wName, setWName] = useState("");
   const [wParty, setWParty] = useState("2");
 
@@ -216,7 +217,7 @@ export default function KarsilamaPage() {
     const { error } = await supabase.rpc("check_in_arrival", { p_restaurant: restaurantId, p_guest_name: toTitleTr(wName), p_party_size: kisi });
     setBusy(false);
     if (error) { setErr(error.message); return; }
-    setWName(""); setWParty("2");
+    setWName(""); setWParty("2"); setWalkInOpen(false);
     if (gun !== bugunIstanbul()) gunDegistir(bugunIstanbul()); else await load(gun);
   };
 
@@ -271,7 +272,6 @@ export default function KarsilamaPage() {
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{gun ? uzunTarih(gun) : "…"}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <button onClick={openNewRes} style={{ ...btnPrimary, marginRight: 8 }}><Plus size={14} /> Yeni rezervasyon</button>
           {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
           <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
           <DatePicker value={gun} onChange={gunDegistir} />
@@ -281,103 +281,78 @@ export default function KarsilamaPage() {
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
-      <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0 }}>
-        {/* LİSTE */}
-        <div style={{ flex: 1.5, minWidth: 380, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexShrink: 0 }}>
           <SectionLabel>{bugunMu ? "Bugün beklenenler" : "Rezervasyonlar"}</SectionLabel>
-          <ListHeader>
-            <HeaderCell width={46}>Zaman</HeaderCell>
-            <HeaderCell flex>Misafir</HeaderCell>
-            <HeaderCell width={110}>Telefon</HeaderCell>
-            <HeaderCell width={40} align="right">Pax</HeaderCell>
-            <HeaderCell width={130}>Masa</HeaderCell>
-            <HeaderCell width={200} align="right">İşlem</HeaderCell>
-          </ListHeader>
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
-            {rows.map((r) => {
-              const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
-              const canli = r.status === "geldi";
-              const aktif = r.status === "bekleniyor" || r.status === "geldi";
-              return (
-                <div key={r.id}>
-                  <ListRow highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
-                    <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
-                    <Cell flex>
-                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
-                      {(r.note || (canli && r.arrived_at)) && (
-                        <div style={{ fontSize: 11, color: "var(--muted)" }}>
-                          {r.note}{r.note && canli && r.arrived_at ? " · " : ""}{canli && r.arrived_at ? `${bekleyenSure(r.arrived_at, now)} önce geldi` : ""}
-                        </div>
-                      )}
-                    </Cell>
-                    <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
-                    <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
-                    <Cell width={130}>
-                      {tableName(r.table_id) ? (
-                        <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
-                      ) : bugunMu && aktif ? (
-                        <button onClick={() => setAssigningId(assigningId === r.id ? null : r.id)} style={btnGhost}>Masa ata</button>
-                      ) : (
-                        <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>—</span>
-                      )}
-                    </Cell>
-                    <ActionsCell width={200}>
-                      {bugunMu && r.status === "bekleniyor" && (
-                        <>
-                          <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
-                          <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
-                        </>
-                      )}
-                      {bugunMu && r.status === "geldi" && (
-                        <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
-                      )}
-                      {aktif ? (
-                        <button onClick={() => iptalEt(r)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted-2)" }}>İptal</button>
-                      ) : (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
-                      )}
-                    </ActionsCell>
-                  </ListRow>
-                  {/* Masa ata akordiyonu — satırın hemen altında, tam genişlik açılır. */}
-                  {assigningId === r.id && (
-                    <div style={{ padding: "0 0 10px 56px" }}>
-                      <select autoFocus onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: 220 }}>
-                        <option value="" disabled>Masa seç…</option>
-                        {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
-                      </select>
+          {/* İki ekleme yolu da burada, listenin hemen üstünde (Gökhan: "rezervasyon ekle
+              listenin üstünde olmalı") — sağda ayrı, işlevsiz bir panel yerine. */}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyonsuz gir</button>
+            <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
+          </div>
+        </div>
+        <ListHeader>
+          <HeaderCell width={46}>Zaman</HeaderCell>
+          <HeaderCell flex>Misafir</HeaderCell>
+          <HeaderCell width={110}>Telefon</HeaderCell>
+          <HeaderCell width={40} align="right">Pax</HeaderCell>
+          <HeaderCell width={150}>Masa</HeaderCell>
+          <HeaderCell width={210} align="right">İşlem</HeaderCell>
+        </ListHeader>
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
+          {rows.map((r) => {
+            const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
+            const canli = r.status === "geldi";
+            const aktif = r.status === "bekleniyor" || r.status === "geldi";
+            return (
+              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
+                <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
+                <Cell flex>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
+                  {(r.note || (canli && r.arrived_at)) && (
+                    <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                      {r.note}{r.note && canli && r.arrived_at ? " · " : ""}{canli && r.arrived_at ? `${bekleyenSure(r.arrived_at, now)} önce geldi` : ""}
                     </div>
                   )}
-                </div>
-              );
-            })}
-          </div>
-
-        </div>
-
-        {/* KAPIDAN DOĞRUDAN GİRİŞ */}
-        <div style={{ flex: 1, minWidth: 280, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <SectionLabel>Rezervasyonsuz, kapıdan geldi</SectionLabel>
-          <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12, lineHeight: 1.6 }}>
-            Kayıt zorunlu değil — istersen misafiri buradan hiç kaydetmeden de &quot;Hazır masalar&quot;dan
-            doğrudan oturtabilirsin. Kaydedersen bugünün listesinde &quot;Geldi&quot; olarak görünür.
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14, flexShrink: 0 }}>
-            <input value={wName} onChange={(e) => setWName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="İsim soyisim" style={{ ...inp, flex: "1 1 140px" }} />
-            <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 62 }} />
-            <button onClick={dogrudanGir} disabled={busy || !wName.trim()} style={{ ...btnPrimary, opacity: !wName.trim() ? 0.5 : 1 }}><Plus size={14} /></button>
-          </div>
-
-          <SectionLabel>Hazır masalar</SectionLabel>
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            {bosMasalar.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Hazır masa yok.</div>}
-            {bosMasalar.map((t) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
-                <span style={{ fontSize: 13.5, color: "var(--ink)" }}>{t.name}</span>
-                <span className="tnum" style={{ fontSize: 12, color: "var(--muted)" }}>{t.seat_count} koltuk</span>
-              </div>
-            ))}
-          </div>
+                </Cell>
+                <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
+                <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
+                <Cell width={150}>
+                  {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
+                      yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası). */}
+                  {assigningId === r.id ? (
+                    <select autoFocus onBlur={() => setAssigningId(null)} onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: "100%", padding: "5px 8px", fontSize: 12.5 }}>
+                      <option value="" disabled>Masa seç…</option>
+                      {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
+                    </select>
+                  ) : tableName(r.table_id) ? (
+                    <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
+                  ) : bugunMu && aktif ? (
+                    <button onClick={() => setAssigningId(r.id)} style={btnGhost}>Masa ata</button>
+                  ) : (
+                    <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>—</span>
+                  )}
+                </Cell>
+                <ActionsCell width={210}>
+                  {bugunMu && r.status === "bekleniyor" && (
+                    <>
+                      <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
+                      <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
+                    </>
+                  )}
+                  {bugunMu && r.status === "geldi" && (
+                    <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
+                  )}
+                  {aktif ? (
+                    <button onClick={() => iptalEt(r)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted-2)" }}>İptal</button>
+                  ) : (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
+                  )}
+                </ActionsCell>
+              </ListRow>
+            );
+          })}
         </div>
       </div>
 
@@ -416,6 +391,28 @@ export default function KarsilamaPage() {
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setNewResOpen(false)} style={btnSecondary}>Vazgeç</button>
               <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}>Ekle</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REZERVASYONSUZ GİR KATMANI */}
+      {walkInOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setWalkInOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Rezervasyonsuz gir</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
+              Kayıt zorunlu değil — hiç kaydetmeden de bir masaya doğrudan oturtabilirsin. Buradan
+              girersen bugünün listesinde &quot;Geldi&quot; olarak görünür.
+            </div>
+            {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input autoFocus value={wName} onChange={(e) => setWName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="İsim soyisim" style={{ ...inp, flex: 1 }} />
+              <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setWalkInOpen(false)} style={btnSecondary}>Vazgeç</button>
+              <button onClick={dogrudanGir} disabled={busy || !wName.trim()} style={{ ...btnPrimary, opacity: !wName.trim() ? 0.5 : 1 }}>Ekle</button>
             </div>
           </div>
         </div>
