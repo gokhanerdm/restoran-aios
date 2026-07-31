@@ -8,6 +8,12 @@ import { getStaffSession, setStaffSession, clearStaffSession, type StaffSession 
 // geçmez — orası zaten gerçek sahip girişiyle korunuyor (Shell.tsx). Burada amaç "bu cihazda
 // şu an hangi personel var" bilgisini yakalayıp işlemlere (sipariş gönder, hesap kapat)
 // etiketlemek, gerçek bir yetkilendirme/güvenlik katmanı değil.
+// Gökhan (2026-07-31): "modül girişlerindeki pinleri de kaldır, şimdilik engelden başka bir
+// işe yaramıyor, sonra geri koyarız" — simülasyon/test döneminde PIN ekranı akışı yavaşlatıyor.
+// Geri açmak için PIN_ZORUNLU'yu true yap; PIN doğrulama mantığının kendisi (submitPin,
+// verify_staff_pin) DOKUNULMADAN duruyor, sadece kapı bu bayrakla es geçiliyor.
+const PIN_ZORUNLU = false;
+
 const StaffSessionContext = createContext<StaffSession | null>(null);
 export const useStaffSession = () => useContext(StaffSessionContext);
 // Çıkış fonksiyonu ayrı bir context'te — StaffProfileBadge (rozet+profil+çıkış) sabit/fixed
@@ -53,6 +59,8 @@ export default function StaffLoginGate({
   };
 
   const logout = () => { clearStaffSession(); setSession(null); };
+
+  if (!PIN_ZORUNLU) return <>{children}</>;
 
   if (session === undefined) return null; // localStorage kontrolü bitene kadar hiçbir şey gösterme (flaş olmasın)
 

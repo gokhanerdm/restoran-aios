@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import { toTitleTr, toUpperTr } from "@/lib/text";
 import { Plus } from "lucide-react";
 import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../components/ListRow";
+import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate";
 
 // Vale — ROADMAP §O4. Gökhan: "vale plaka ile kayıt girsin, isim soyisim alsın, sonra
 // eşleşmeyi program yapar. Hesap istendiğinde vale'ye bildirim gitsin, araba kapıya
@@ -15,6 +17,10 @@ import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../component
 // 2026-07-31: vale artık GİRİŞTE de devrede — "müşteri geldi, vale anahtarı aldı, bilgileri
 // girdi, rezervasyon karşısına çıktı, geldi işaretlendi, karşılama ekranına düştü" (Gökhan).
 // Kişi sayısı da alınıyor ki Karşılama'da bilgi tam düşsün, misafire tekrar sorulmasın.
+//
+// Aynı gün: "bence de öyle, ikisi de olabilir" (kulübede sabit tablet ya da elde telefon) —
+// Vale, Garson/Mutfak gibi girişsiz link+PIN modeline geçti (önceden tam hesap girişi
+// gerektiren bir yönetici ekranıydı, telefonla paylaşılan bir link olarak açılamıyordu).
 
 type Valet = { id: string; guest_name: string; plate_no: string; status: string; matched_table_id: string | null; parked_at: string; called_at: string | null };
 type TableRow = { id: string; name: string };
@@ -47,6 +53,15 @@ const bugunSiniri = () => {
 };
 
 export default function ValePaneli() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--canvas)" }} />}>
+      <ValeInner />
+    </Suspense>
+  );
+}
+
+function ValeInner() {
+  const rSlug = useSearchParams().get("r");
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Valet[]>([]);
   const [beklenenler, setBeklenenler] = useState<Beklenen[]>([]);
@@ -59,10 +74,23 @@ export default function ValePaneli() {
   const [fPlate, setFPlate] = useState("");
   const [fParty, setFParty] = useState("");
   const [linkingId, setLinkingId] = useState<string | null>(null);
+  // İşletmenin kararı: vale kulübede sabit bir tabletle de çalışabilir, elde telefonla dolaşarak
+  // da (Gökhan: "ikisi de olabilir"). Cihaz türü yerine gerçek ekran genişliğine bakılır — Adisyon
+  // ile aynı eşik (860px) — hangi cihazdan açılırsa açılsın doğru düzen otomatik gelir.
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const load = useCallback(async () => {
-    const restId = await getMyRestaurantId();
-    if (!restId) return;
+    const rest = await resolveRestaurantIdBySlug(rSlug);
+    if ("error" in rest) { setErr(rest.error); return; }
+    setErr(null);
+    const restId = rest.id;
     setRestaurantId(restId);
     const { start, end } = bugunSiniri();
     const [{ data: v }, { data: t }, { data: b }] = await Promise.all([
@@ -77,7 +105,7 @@ export default function ValePaneli() {
     setEntries((v as Valet[]) ?? []);
     setOccupiedTables((t as TableRow[]) ?? []);
     setBeklenenler((b as Beklenen[]) ?? []);
-  }, []);
+  }, [rSlug]);
 
   useEffect(() => { load(); const id = setInterval(load, 10000); return () => clearInterval(id); }, [load]);
   useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
@@ -108,40 +136,67 @@ export default function ValePaneli() {
   const tableName = (id: string | null) => occupiedTables.find((t) => t.id === id)?.name ?? null;
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1, marginBottom: 14, flexShrink: 0 }}>Vale</div>
+    <StaffLoginGate restaurantId={restaurantId} roles={["vale"]}>
+    <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexShrink: 0 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Vale</div>
+        <StaffProfileBadge restaurantId={restaurantId} />
+      </div>
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
       {beklenenler.length > 0 && (
         <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 14, flexShrink: 0 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>Bugün beklenenler</div>
-          <ListHeader>
-            <HeaderCell width={46}>Zaman</HeaderCell>
-            <HeaderCell flex>Misafir</HeaderCell>
-            <HeaderCell width={40} align="right">Pax</HeaderCell>
-            <HeaderCell width={120} align="right">İşlem</HeaderCell>
-          </ListHeader>
-          {beklenenler.map((b) => (
-            <ListRow key={b.id}>
-              <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(b.reserved_at)}</span></Cell>
-              <Cell flex><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span></Cell>
-              <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{b.party_size}</span></Cell>
-              <ActionsCell width={120}>
-                <button onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }} title="İsim ve kişi sayısını araç kaydı formuna doldurur" style={btnGhost}>Formu doldur</button>
-              </ActionsCell>
-            </ListRow>
-          ))}
+          {isMobile ? (
+            beklenenler.map((b) => (
+              <div key={b.id} style={{ padding: "12px 0", borderBottom: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span>
+                  <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", flexShrink: 0 }}>{saat(b.reserved_at)} · {b.party_size} kişi</span>
+                </div>
+                <button onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }} style={btnGhostMobile}>Formu doldur</button>
+              </div>
+            ))
+          ) : (
+            <>
+              <ListHeader>
+                <HeaderCell width={46}>Zaman</HeaderCell>
+                <HeaderCell flex>Misafir</HeaderCell>
+                <HeaderCell width={40} align="right">Pax</HeaderCell>
+                <HeaderCell width={120} align="right">İşlem</HeaderCell>
+              </ListHeader>
+              {beklenenler.map((b) => (
+                <ListRow key={b.id}>
+                  <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(b.reserved_at)}</span></Cell>
+                  <Cell flex><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span></Cell>
+                  <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{b.party_size}</span></Cell>
+                  <ActionsCell width={120}>
+                    <button onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }} title="İsim ve kişi sayısını araç kaydı formuna doldurur" style={btnGhost}>Formu doldur</button>
+                  </ActionsCell>
+                </ListRow>
+              ))}
+            </>
+          )}
         </div>
       )}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 14, flexShrink: 0 }}>
         <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>Araç kaydı ekle</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Misafir isim soyisim" style={{ ...inp, flex: "1 1 200px" }} />
-          <input value={fPlate} onChange={(e) => setFPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Plaka" className="tnum" style={{ ...inp, width: 140 }} />
-          <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} title="Kişi sayısı — Karşılama'ya düşecek bilgi" />
-          <button onClick={addEntry} disabled={busy || !fName.trim() || !fPlate.trim()} style={{ ...btnPrimary, opacity: !fName.trim() || !fPlate.trim() ? 0.5 : 1 }}><Plus size={14} /> Ekle</button>
-        </div>
+        {isMobile ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Misafir isim soyisim" style={inpMobile} />
+            <input value={fPlate} onChange={(e) => setFPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Plaka" className="tnum" style={inpMobile} />
+            <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Kişi sayısı" inputMode="numeric" style={inpMobile} title="Kişi sayısı — Karşılama'ya düşecek bilgi" />
+            <button onClick={addEntry} disabled={busy || !fName.trim() || !fPlate.trim()} style={{ ...btnPrimaryMobile, opacity: !fName.trim() || !fPlate.trim() ? 0.5 : 1 }}><Plus size={16} /> Ekle</button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Misafir isim soyisim" style={{ ...inp, flex: "1 1 200px" }} />
+            <input value={fPlate} onChange={(e) => setFPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Plaka" className="tnum" style={{ ...inp, width: 140 }} />
+            <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} title="Kişi sayısı — Karşılama'ya düşecek bilgi" />
+            <button onClick={addEntry} disabled={busy || !fName.trim() || !fPlate.trim()} style={{ ...btnPrimary, opacity: !fName.trim() || !fPlate.trim() ? 0.5 : 1 }}><Plus size={14} /> Ekle</button>
+          </div>
+        )}
         <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8 }}>
           Kişi sayısı girilirse sistem bugünün rezervasyonlarıyla ismine göre eşleştirmeyi dener — bulursa
           o rezervasyonu &quot;geldi&quot; yapar, bulamazsa Karşılama&apos;ya rezervasyonsuz yeni bir kayıt düşürür.
@@ -149,16 +204,43 @@ export default function ValePaneli() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 }}>
-        <ListHeader>
-          <HeaderCell flex>Misafir</HeaderCell>
-          <HeaderCell width={220}>Durum</HeaderCell>
-          <HeaderCell width={200} align="right">İşlem</HeaderCell>
-        </ListHeader>
+        {!isMobile && (
+          <ListHeader>
+            <HeaderCell flex>Misafir</HeaderCell>
+            <HeaderCell width={220}>Durum</HeaderCell>
+            <HeaderCell width={200} align="right">İşlem</HeaderCell>
+          </ListHeader>
+        )}
         {entries.length === 0 ? (
           <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bekleyen araç yok.</div>
         ) : entries.map((v) => {
           const info = STATUS_INFO[v.status] ?? STATUS_INFO.bekliyor;
           const eslesikMasa = tableName(v.matched_table_id);
+          if (isMobile) {
+            return (
+              <div key={v.id} style={{ padding: "14px 0", borderBottom: "1px solid var(--line)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>{v.guest_name}</span>
+                  <span className="tnum" style={{ fontSize: 13, fontWeight: 500, color: "var(--muted)", flexShrink: 0 }}>{v.plate_no}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: info.renk, fontWeight: v.status === "cagrildi" ? 700 : 400, marginBottom: 10 }}>
+                  {info.label} · {sureFmt(v.parked_at, now)}
+                  {eslesikMasa && <span style={{ color: "var(--muted-2)", fontWeight: 400 }}> · {eslesikMasa}</span>}
+                  {!v.matched_table_id && <span style={{ color: "var(--gold-text)", fontWeight: 400 }}> · masa eşleşmedi</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setLinkingId(linkingId === v.id ? null : v.id)} style={{ ...btnSecondaryMobile, flex: 1 }}>{eslesikMasa ? "Değiştir" : "Masaya bağla"}</button>
+                  <button onClick={() => markDelivered(v.id)} style={{ ...btnSmallMobile, flex: 1 }}>Teslim edildi</button>
+                </div>
+                {linkingId === v.id && (
+                  <select autoFocus onChange={(e) => linkTable(v.id, e.target.value)} defaultValue="" style={{ ...inpMobile, marginTop: 10 }}>
+                    <option value="" disabled>Masa seç…</option>
+                    {occupiedTables.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
+              </div>
+            );
+          }
           return (
             <div key={v.id}>
               <ListRow>
@@ -188,6 +270,7 @@ export default function ValePaneli() {
         })}
       </div>
     </div>
+    </StaffLoginGate>
   );
 }
 
@@ -196,3 +279,11 @@ const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "c
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
+
+// Mobil (dışarıda, tek elle, dokunarak kullanım) — daha büyük yazı ve dokunma alanı, aynı
+// desen genişte de var ama burada parmak ucu hedefleri (min ~44px) gözetilir.
+const inpMobile: React.CSSProperties = { ...inp, fontSize: 15, padding: "12px 14px", width: "100%", boxSizing: "border-box" };
+const btnPrimaryMobile: React.CSSProperties = { ...btnPrimary, fontSize: 15, padding: "13px 16px", justifyContent: "center", width: "100%" };
+const btnSecondaryMobile: React.CSSProperties = { ...btnSecondary, fontSize: 13.5, padding: "12px 14px", textAlign: "center" };
+const btnSmallMobile: React.CSSProperties = { ...btnSmall, fontSize: 13.5, padding: "12px 14px", textAlign: "center" };
+const btnGhostMobile: React.CSSProperties = { ...btnGhost, fontSize: 13, padding: "11px 14px", width: "100%", textAlign: "center" };
