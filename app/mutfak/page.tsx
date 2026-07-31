@@ -32,6 +32,20 @@ type MealItem = { id: string; name: string; sale_price: number };
 type StaffOpt = { id: string; full_name: string };
 
 const ALL = "__all__";
+// Gökhan: "kapanan hesaplar ekrandan gidiyor, gün kapatılana kadar bu siparişler ekranda
+// kalacak, akşama kadar kaç masa kaç sipariş çıktı bilinecek" — hesabı ödenip kapanan
+// (status='closed') masalar önceden sorguya hiç girmiyordu (sadece status='open' çekiliyordu).
+// Artık bugün kapanan hesaplar da dahil ediliyor (Kasa'daki günlük toplamla aynı sınır) — masa
+// zaten pendingCount=0 olduğu için listenin arkasına düşüyor, ama ekrandan tamamen kaybolmuyor.
+const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+const bugunSiniri = () => {
+  const gun = bugunIstanbul();
+  const start = `${gun}T00:00:00+03:00`;
+  const d = new Date(`${gun}T12:00:00+03:00`);
+  d.setDate(d.getDate() + 1);
+  const end = `${new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(d)}T00:00:00+03:00`;
+  return { start, end };
+};
 
 export default function MutfakPage() {
   return (
@@ -74,15 +88,19 @@ function MutfakInner() {
       const restId = rest.id;
       setRestaurantId(restId);
 
-      const [{ data: t, error: tErr }, { data: st, error: stErr }, { data: cats, error: cErr }, { data: items, error: iErr }, { data: orders, error: oErr }, { data: staffRows }] = await Promise.all([
+      const { start, end } = bugunSiniri();
+      const ordersSelect = "id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at, course_no)";
+      const [{ data: t, error: tErr }, { data: st, error: stErr }, { data: cats, error: cErr }, { data: items, error: iErr }, { data: openOrders, error: oErr }, { data: closedOrders, error: ocErr }, { data: staffRows }] = await Promise.all([
         supabase.from("restaurant_tables").select("id, name").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("stations").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
         supabase.from("menu_categories").select("id, default_station_id").eq("restaurant_id", restId).is("deleted_at", null),
         supabase.from("menu_items").select("id, name, category_id, station_override_id, prep_minutes, sale_price, is_active").eq("restaurant_id", restId).is("deleted_at", null),
-        supabase.from("orders").select("id, table_id, order_items(id, quantity, menu_item_id, status, sent_at, preparing_at, ready_at, served_at, course_no)").eq("restaurant_id", restId).eq("status", "open"),
+        supabase.from("orders").select(ordersSelect).eq("restaurant_id", restId).eq("status", "open"),
+        supabase.from("orders").select(ordersSelect).eq("restaurant_id", restId).eq("status", "closed").gte("closed_at", start).lt("closed_at", end),
         supabase.from("staff_members").select("id, full_name").eq("restaurant_id", restId).eq("active", true).is("deleted_at", null).order("full_name"),
       ]);
-      const anyErr = tErr ?? stErr ?? cErr ?? iErr ?? oErr;
+      const orders = [...(openOrders ?? []), ...(closedOrders ?? [])];
+      const anyErr = tErr ?? stErr ?? cErr ?? iErr ?? oErr ?? ocErr;
       if (anyErr) { setErr(anyErr.message); setLoading(false); return; }
       setStaffOpts((staffRows as StaffOpt[]) ?? []);
       setMealItems((((items as { id: string; name: string; sale_price: number; is_active: boolean }[]) ?? []).filter((m) => m.is_active)).map((m) => ({ id: m.id, name: m.name, sale_price: m.sale_price })));
