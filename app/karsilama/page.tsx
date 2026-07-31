@@ -52,11 +52,11 @@ const bekleyenSure = (from: string, now: number) => {
 };
 
 const DURUM_INFO: Record<string, { label: string; color: string }> = {
-  bekleniyor: { label: "Bekleniyor", color: "var(--muted)" },
+  bekleniyor: { label: "Bekleniyor", color: "var(--ink)" },
   geldi: { label: "Geldi", color: "var(--danger)" },
   oturdu: { label: "Oturdu", color: "var(--brand)" },
   gelmedi: { label: "Gelmedi", color: "var(--gold-text)" },
-  iptal: { label: "İptal", color: "var(--muted-2)" },
+  iptal: { label: "İptal", color: "var(--ink)" },
 };
 
 // Yeni "geldi" olan kaydı fark edince kısa bir bip — mutfak/garson bildirimiyle (Faz 10) aynı
@@ -304,11 +304,11 @@ export default function KarsilamaPage() {
                 <Cell width={170}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</div>
                   {canli && r.arrived_at && (
-                    <div style={{ fontSize: 11, color: "var(--muted)" }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
+                    <div style={{ fontSize: 11, color: inkSoft }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
                   )}
                 </Cell>
-                <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
-                <Cell width={40} align="center"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
+                <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.guest_phone || "—"}</span></Cell>
+                <Cell width={40} align="center"><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.party_size}</span></Cell>
                 <Cell width={150} align="center" marginLeft={76}>
                   {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
                       yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası). */}
@@ -322,11 +322,11 @@ export default function KarsilamaPage() {
                   ) : bugunMu && aktif ? (
                     <button onClick={() => setAssigningId(r.id)} style={btnGhost}>Masa ata</button>
                   ) : (
-                    <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>—</span>
+                    <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
                 </Cell>
                 <Cell width={160}>
-                  <span style={{ fontSize: 12, color: "var(--muted)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.note ?? undefined}>
+                  <span style={{ fontSize: 12, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.note ?? undefined}>
                     {r.note || "—"}
                   </span>
                 </Cell>
@@ -441,5 +441,8 @@ const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadi
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 980, padding: "9px 14px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
-const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
+const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--ink)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
+// Soluk yeşilimsi gri (var(--muted)) yerine — Gökhan: "siyah ve tonlarını kullan." Sadece
+// gerçekten ikincil (tarih/boş yer tutucu gibi) küçük bilgiler için, ana metin var(--ink).
+const inkSoft = "#5c5c58";
 const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };
