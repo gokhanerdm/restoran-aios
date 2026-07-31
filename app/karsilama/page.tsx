@@ -32,7 +32,8 @@ type Rez = {
 };
 type TableRow = { id: string; name: string; seat_count: number; status: string };
 
-const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+const gunIstanbul = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date(iso));
+const bugunIstanbul = () => gunIstanbul(new Date().toISOString());
 const gunKaydir = (gun: string, delta: number) => {
   const d = new Date(`${gun}T12:00:00+03:00`);
   d.setDate(d.getDate() + delta);
@@ -152,7 +153,7 @@ export default function KarsilamaPage() {
       supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, created_at")
         .eq("restaurant_id", restId).is("deleted_at", null)
         .gte("reserved_at", start).lt("reserved_at", end)
-        .order("reserved_at"),
+        .order("created_at"),
       supabase.from("restaurant_tables").select("id, name, seat_count, status").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_settings").select("kvkk_notice, evening_start_hour").eq("restaurant_id", restId).maybeSingle(),
     ]);
@@ -318,8 +319,8 @@ export default function KarsilamaPage() {
   };
 
   // Kayıt sonrası düzenleme — yanlışlık yapılmış olabilir (Gökhan). Çift tıkla düzenleme
-  // (PAGE_STANDARDS #5, EditableText) isim/telefon/kişi/not için.
-  const updateField = async (r: Rez, patch: Partial<Pick<Rez, "guest_name" | "guest_phone" | "party_size" | "note">>) => {
+  // (PAGE_STANDARDS #5, EditableText) isim/telefon/kişi/not/saat için.
+  const updateField = async (r: Rez, patch: Partial<Pick<Rez, "guest_name" | "guest_phone" | "party_size" | "note" | "reserved_at">>) => {
     setErr(null);
     const { error } = await supabase.from("reservations").update(patch).eq("id", r.id);
     if (error) { setErr(error.message); return; }
@@ -445,7 +446,18 @@ export default function KarsilamaPage() {
             const doluUyari = masaHalaDolu(r);
             return (
               <ListRow key={r.id} highlight={canli}>
-                <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
+                <Cell width={46}>
+                  <EditableText
+                    value={saat(r.reserved_at)}
+                    onSave={(next) => {
+                      const m = next.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+                      if (!m) return;
+                      const yeniIso = new Date(`${gunIstanbul(r.reserved_at)}T${m[1].padStart(2, "0")}:${m[2]}:00+03:00`).toISOString();
+                      updateField(r, { reserved_at: yeniIso });
+                    }}
+                    style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", fontVariantNumeric: "tabular-nums" }}
+                  />
+                </Cell>
                 <RowSep />
                 <Cell width={170} marginLeft={14}>
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
@@ -506,7 +518,8 @@ export default function KarsilamaPage() {
                 <Cell width={160}>
                   <EditableText
                     value={r.note || "—"}
-                    onSave={(next) => updateField(r, { note: next === "—" ? null : next })}
+                    allowEmpty
+                    onSave={(next) => updateField(r, { note: !next || next === "—" ? null : next })}
                     style={{ fontSize: 12, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   />
                 </Cell>

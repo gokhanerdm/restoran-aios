@@ -7,11 +7,17 @@ export default function EditableText({
   onSave,
   style,
   inputWidth,
+  allowEmpty,
 }: {
   value: string;
   onSave: (next: string) => void;
   style?: React.CSSProperties;
   inputWidth?: number | string;
+  // Varsayılan: boş bırakılınca kaydetmeden eski değere döner (yanlışlıkla her şeyi silip
+  // çift tıklamayı kaçırma durumuna karşı). Notlar gibi gerçekten temizlenebilmesi gereken
+  // alanlarda allowEmpty ile boş kayda izin verilir (Gökhan: "sonradan eklenen notları
+  // silemiyoruz").
+  allowEmpty?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -21,7 +27,7 @@ export default function EditableText({
   const commit = () => {
     setEditing(false);
     const trimmed = draft.trim();
-    if (trimmed && trimmed !== value) onSave(trimmed);
+    if (trimmed !== value && (trimmed || allowEmpty)) onSave(trimmed);
     else setDraft(value);
   };
 
