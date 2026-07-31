@@ -8,6 +8,7 @@ import { toTitleTr } from "@/lib/text";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
+import EditableText from "../components/EditableText";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../components/ListRow";
 
 // Karşılama — ROADMAP §O2, birleşik akış (2026-07-31, Gökhan onayı).
@@ -123,6 +124,9 @@ export default function KarsilamaPage() {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   // Oturt katmanı (masa seçimi — sadece boş masalar)
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
+  // İptal edilenler ana listeden çıkıp arşive düşer (Gökhan: "iptal olanları listeden çıkar,
+  // arşiv olarak başka yerde tut") — silinmiyor, sadece ayrı bir pencerede tutuluyor.
+  const [arsivOpen, setArsivOpen] = useState(false);
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
 
@@ -255,9 +259,34 @@ export default function KarsilamaPage() {
     await load(gun);
   };
 
+  // Rezervasyona zaten bir masa atanmışsa Geldi/Oturt tek tıkla o masaya oturtur — pratiklik
+  // için varsayılan "rezerve edilen masaya oturdu" (Gökhan). Misafir başka masa isterse
+  // personel Masa hücresine tıklayıp ataması değiştirir, sonra Geldi/Oturt YENİ masaya oturtur.
+  const oturtDirekt = async (r: Rez) => {
+    if (!r.table_id) return;
+    setBusy(true); setErr(null);
+    const staff = getStaffSession();
+    const { error } = await supabase.rpc("seat_reservation", { p_reservation_id: r.id, p_table_id: r.table_id, p_staff_id: staff?.id ?? null });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await load(gun);
+  };
+
+  // Kayıt sonrası düzenleme — yanlışlık yapılmış olabilir (Gökhan). Çift tıkla düzenleme
+  // (PAGE_STANDARDS #5, EditableText) isim/telefon/kişi/not için.
+  const updateField = async (r: Rez, patch: Partial<Pick<Rez, "guest_name" | "guest_phone" | "party_size" | "note">>) => {
+    setErr(null);
+    const { error } = await supabase.from("reservations").update(patch).eq("id", r.id);
+    if (error) { setErr(error.message); return; }
+    await load(gun);
+  };
+
   const bosMasalar = tables.filter((t) => t.status === "empty");
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? null;
   const bugunMu = gun === bugunIstanbul();
+  // İptal edilenler ana listede görünmez, ayrı bir arşiv penceresinde durur.
+  const visibleRows = rows.filter((r) => r.status !== "iptal");
+  const iptalRows = rows.filter((r) => r.status === "iptal");
 
   return (
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
@@ -281,17 +310,20 @@ export default function KarsilamaPage() {
           </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
           <button onClick={() => setWalkInOpen(true)} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
+          {iptalRows.length > 0 && (
+            <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal edilenler ({iptalRows.length})</button>
+          )}
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
           <HeaderSep />
           <HeaderCell width={170} marginLeft={14}>Misafir</HeaderCell>
           <HeaderSep />
-          <HeaderCell width={110}>Telefon</HeaderCell>
+          <HeaderCell width={110} align="center">Telefon</HeaderCell>
           <HeaderSep />
           <HeaderCell width={40} align="center">Pax</HeaderCell>
           <HeaderSep />
-          <HeaderCell width={150} align="center" marginLeft={76}>Masa</HeaderCell>
+          <HeaderCell width={150} align="center" marginLeft={38}>Masa</HeaderCell>
           <HeaderSep />
           <HeaderCell width={160}>Not</HeaderCell>
           <HeaderSep />
@@ -299,36 +331,58 @@ export default function KarsilamaPage() {
           <HeaderCell width={210} align="center">Rezervasyon durumu</HeaderCell>
         </ListHeader>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
-          {rows.map((r) => {
+          {visibleRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
+          {visibleRows.map((r) => {
             const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
             const canli = r.status === "geldi";
             const aktif = r.status === "bekleniyor" || r.status === "geldi";
             return (
-              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
+              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi"}>
                 <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
                 <RowSep />
                 <Cell width={170} marginLeft={14}>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</div>
+                  <EditableText
+                    value={r.guest_name}
+                    onSave={(next) => updateField(r, { guest_name: toTitleTr(next) })}
+                    style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  />
                   {canli && r.arrived_at && (
                     <div style={{ fontSize: 11, color: inkSoft }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
                   )}
                 </Cell>
                 <RowSep />
-                <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.guest_phone || "—"}</span></Cell>
+                <Cell width={110} align="center">
+                  <EditableText
+                    value={r.guest_phone || "—"}
+                    onSave={(next) => updateField(r, { guest_phone: next.replace(/[^\d+ ]/g, "").trim() || null })}
+                    style={{ fontSize: 12.5, color: "var(--ink)" }}
+                  />
+                </Cell>
                 <RowSep />
-                <Cell width={40} align="center"><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.party_size}</span></Cell>
+                <Cell width={40} align="center">
+                  <EditableText
+                    value={String(r.party_size)}
+                    onSave={(next) => { const n = parseInt(next.replace(/\D/g, ""), 10); if (n > 0) updateField(r, { party_size: n }); }}
+                    style={{ fontSize: 12.5, color: "var(--ink)" }}
+                  />
+                </Cell>
                 <RowSep />
-                <Cell width={150} align="center" marginLeft={76}>
+                <Cell width={150} align="center" marginLeft={38}>
                   {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
-                      yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası). */}
+                      yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası).
+                      Atanmış olsa bile bugün+aktifken tıklanabilir — misafir rezerve edilen
+                      masayı istemezse personel buradan değiştirir. */}
                   {assigningId === r.id ? (
                     <select autoFocus onBlur={() => setAssigningId(null)} onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: "100%", padding: "5px 8px", fontSize: 12.5 }}>
                       <option value="" disabled>Masa seç…</option>
-                      {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
+                      {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} pax)</option>)}
                     </select>
                   ) : tableName(r.table_id) ? (
-                    <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
+                    bugunMu && aktif ? (
+                      <button onClick={() => setAssigningId(r.id)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{tableName(r.table_id)}</button>
+                    ) : (
+                      <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
+                    )
                   ) : bugunMu && aktif ? (
                     <button onClick={() => setAssigningId(r.id)} style={btnGhost}>Masa ata</button>
                   ) : (
@@ -337,9 +391,11 @@ export default function KarsilamaPage() {
                 </Cell>
                 <RowSep />
                 <Cell width={160}>
-                  <span style={{ fontSize: 12, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.note ?? undefined}>
-                    {r.note || "—"}
-                  </span>
+                  <EditableText
+                    value={r.note || "—"}
+                    onSave={(next) => updateField(r, { note: next === "—" ? null : next })}
+                    style={{ fontSize: 12, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  />
                 </Cell>
                 <RowSep />
                 <Spacer />
@@ -347,17 +403,18 @@ export default function KarsilamaPage() {
                   {/* Karşılama "geldi" dedikten sonra iş bitmiş olmalı — ayrı bir "Oturt"
                       adımı çıkmasın (Gökhan: "geldi dedikten sonra işi bitmeli, müşteriyi
                       garsona yönlendirdikten ya da yerine oturttuktan sonra zaten geldi
-                      diyecek"). "Geldi" tıklanınca doğrudan masa seçip oturtur — tek adım.
-                      "geldi" durumu sadece vale/kapıdan otomatik eşleşmede ayrı görünür
-                      (orada arrival host'un elinden bağımsız gerçekleşiyor). */}
+                      diyecek"). Masa zaten atanmışsa Geldi/Oturt tek tıkla o masaya oturtur
+                      (pratiklik); atanmamışsa masa seçim penceresi açılır. "geldi" durumu
+                      sadece vale/kapıdan otomatik eşleşmede ayrı görünür (orada arrival
+                      host'un elinden bağımsız gerçekleşiyor). */}
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
-                      <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
+                      <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
                       <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
                     </>
                   )}
                   {bugunMu && r.status === "geldi" && (
-                    <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
+                    <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
                   )}
                   {aktif ? (
                     <button onClick={() => iptalEt(r)} style={btnGhost}>İptal</button>
@@ -443,11 +500,31 @@ export default function KarsilamaPage() {
               {bosMasalar.map((t) => (
                 <button key={t.id} onClick={() => oturt(t.id)} disabled={busy} style={{ ...btnSecondary, justifyContent: "space-between", display: "flex" }}>
                   <span>{t.name}</span>
-                  <span className="tnum" style={{ color: "var(--muted)" }}>{t.seat_count} koltuk</span>
+                  <span className="tnum" style={{ color: "var(--muted)" }}>{t.seat_count} pax</span>
                 </button>
               ))}
             </div>
             <button onClick={() => setSeatingFor(null)} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: "var(--muted)", marginTop: 14, display: "block" }}>Vazgeç</button>
+          </div>
+        </div>
+      )}
+
+      {/* İPTAL ARŞİVİ */}
+      {arsivOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setArsivOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 360, maxWidth: 440, maxHeight: "70vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>İptal edilenler</div>
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {iptalRows.map((r) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                  <span className="tnum" style={{ fontSize: 12.5, fontWeight: 600, color: inkSoft, width: 42, flexShrink: 0 }}>{saat(r.reserved_at)}</span>
+                  <span style={{ flex: 1, fontSize: 13, color: inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
+                  <span className="tnum" style={{ fontSize: 12, color: inkSoft, flexShrink: 0 }}>{r.party_size} pax</span>
+                </div>
+              ))}
+              {iptalRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>İptal edilen yok.</div>}
+            </div>
+            <button onClick={() => setArsivOpen(false)} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: "var(--muted)", marginTop: 14, display: "block", flexShrink: 0 }}>Kapat</button>
           </div>
         </div>
       )}
