@@ -130,9 +130,13 @@ export default function KarsilamaPage() {
   const [fNote, setFNote] = useState("");
 
   // Kayıtsız doğrudan gir (rezervasyonsuz, kapıdan) — küçük bir pencere, ayrı panel değil.
+  // Rezervasyon formuyla aynı bilgileri toplar (telefon, not) — sadece tarih/saat yok, "şimdi"
+  // (Gökhan: "rezervasyon dışı kayıt ekranı da rezervasyonda alınan bilgileri almalı").
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [wName, setWName] = useState("");
+  const [wPhone, setWPhone] = useState("");
   const [wParty, setWParty] = useState("2");
+  const [wNote, setWNote] = useState("");
 
   // Masa ata (satır bazlı, inline seçim — Vale ekranındaki "Masaya bağla" ile aynı desen)
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -258,10 +262,13 @@ export default function KarsilamaPage() {
     }
 
     setBusy(true);
-    const { error } = await supabase.rpc("check_in_arrival", { p_restaurant: restaurantId, p_guest_name: toTitleTr(wName), p_party_size: kisi });
+    const { error } = await supabase.rpc("check_in_arrival", {
+      p_restaurant: restaurantId, p_guest_name: toTitleTr(wName), p_party_size: kisi,
+      p_guest_phone: wPhone.trim() || null, p_note: wNote.trim() || null,
+    });
     setBusy(false);
     if (error) { setErr(error.message); return; }
-    setWName(""); setWParty("2"); setWalkInOpen(false);
+    setWName(""); setWPhone(""); setWParty("2"); setWNote(""); setWalkInOpen(false);
     if (bugunMu && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
       bildirCapacityNotice(`Kapasite bu misafirle doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);
     }
@@ -398,7 +405,7 @@ export default function KarsilamaPage() {
             <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
           </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
-          <button onClick={() => setWalkInOpen(true)} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
+          <button onClick={() => { setWName(""); setWPhone(""); setWParty("2"); setWNote(""); setErr(null); setWalkInOpen(true); }} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
           {arsivRows.length > 0 && (
             <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal / Gelmedi ({arsivRows.length})</button>
           )}
@@ -604,10 +611,30 @@ export default function KarsilamaPage() {
               girersen bugünün listesinde &quot;Geldi&quot; olarak görünür.
             </div>
             {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <input autoFocus value={wName} onChange={(e) => setWName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="İsim soyisim" style={{ ...inp, flex: 1 }} />
-              <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input autoFocus value={wName} onChange={(e) => setWName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="İsim soyisim" style={{ ...inp, flex: 1 }} />
+                <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
+              </div>
+              <input value={wPhone} onChange={(e) => setWPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
+              <input value={wNote} onChange={(e) => setWNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Özel not (opsiyonel)" style={inp} />
             </div>
+
+            <div style={{ marginTop: 10 }}>
+              {kvkkNotice.trim() ? (
+                <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
+                  {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
+                </button>
+              ) : (
+                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.</span>
+              )}
+              {kvkkAcik && kvkkNotice.trim() && (
+                <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
+                  {kvkkNotice}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setWalkInOpen(false)} style={btnSecondary}>Vazgeç</button>
               <button onClick={dogrudanGir} disabled={busy || !wName.trim()} style={{ ...btnPrimary, opacity: !wName.trim() ? 0.5 : 1 }}>Ekle</button>
