@@ -9,7 +9,11 @@ import { Plus } from "lucide-react";
 // Vale — ROADMAP §O4. Gökhan: "vale plaka ile kayıt girsin, isim soyisim alsın, sonra
 // eşleşmeyi program yapar. Hesap istendiğinde vale'ye bildirim gitsin, araba kapıya
 // çekilsin." Eşleştirme add_valet_entry RPC'sinde otomatik denenir (aynı isimde oturmuş
-// bekleme kaydı varsa); tutmazsa burada elle "Masaya bağla" ile kapatılır.
+// bir kayıt varsa); tutmazsa burada elle "Masaya bağla" ile kapatılır.
+//
+// 2026-07-31: vale artık GİRİŞTE de devrede — "müşteri geldi, vale anahtarı aldı, bilgileri
+// girdi, rezervasyon karşısına çıktı, geldi işaretlendi, karşılama ekranına düştü" (Gökhan).
+// Kişi sayısı da alınıyor ki Karşılama'da bilgi tam düşsün, misafire tekrar sorulmasın.
 
 type Valet = { id: string; guest_name: string; plate_no: string; status: string; matched_table_id: string | null; parked_at: string; called_at: string | null };
 type TableRow = { id: string; name: string };
@@ -35,6 +39,7 @@ export default function ValePaneli() {
 
   const [fName, setFName] = useState("");
   const [fPlate, setFPlate] = useState("");
+  const [fParty, setFParty] = useState("");
   const [linkingId, setLinkingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -57,11 +62,12 @@ export default function ValePaneli() {
   const addEntry = async () => {
     if (!restaurantId || !fName.trim() || !fPlate.trim()) return;
     setBusy(true); setErr(null);
+    const kisi = fParty.trim() ? Math.max(1, parseInt(fParty, 10) || 1) : null;
     const { error } = await supabase.rpc("add_valet_entry", {
-      p_restaurant: restaurantId, p_guest_name: toTitleTr(fName), p_plate_no: toUpperTr(fPlate.trim()),
+      p_restaurant: restaurantId, p_guest_name: toTitleTr(fName), p_plate_no: toUpperTr(fPlate.trim()), p_party_size: kisi,
     });
     if (error) { setErr(error.message); setBusy(false); return; }
-    setFName(""); setFPlate(""); setBusy(false);
+    setFName(""); setFPlate(""); setFParty(""); setBusy(false);
     await load();
   };
 
@@ -88,7 +94,12 @@ export default function ValePaneli() {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Misafir isim soyisim" style={{ ...inp, flex: "1 1 200px" }} />
           <input value={fPlate} onChange={(e) => setFPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Plaka" className="tnum" style={{ ...inp, width: 140 }} />
+          <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && addEntry()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} title="Kişi sayısı — Karşılama'ya düşecek bilgi" />
           <button onClick={addEntry} disabled={busy || !fName.trim() || !fPlate.trim()} style={{ ...btnPrimary, opacity: !fName.trim() || !fPlate.trim() ? 0.5 : 1 }}><Plus size={14} /> Ekle</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8 }}>
+          Kişi sayısı girilirse sistem bugünün rezervasyonlarıyla ismine göre eşleştirmeyi dener — bulursa
+          o rezervasyonu &quot;geldi&quot; yapar, bulamazsa Karşılama&apos;ya rezervasyonsuz yeni bir kayıt düşürür.
         </div>
       </div>
 

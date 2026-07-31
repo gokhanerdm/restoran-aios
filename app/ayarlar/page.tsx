@@ -575,7 +575,7 @@ export default function Ayarlar() {
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }}>KVKK — kişisel veri</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 10, lineHeight: 1.6 }}>
               Rezervasyonda isim ve telefon topladığınız için işletmeniz veri sorumlusudur.
-              Aşağıdaki metin rezervasyon ekranında ve QR menüde müşteriye gösterilir.
+              Aşağıdaki metin Karşılama ekranında ve QR menüde müşteriye gösterilir.
             </div>
 
             {!kvkkNotice.trim() && (
