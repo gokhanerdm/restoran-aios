@@ -6,6 +6,7 @@ import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { useConfirm } from "../components/useConfirm";
 import { toTitleTr } from "@/lib/text";
 import EditableText from "../components/EditableText";
+import DatePicker from "../components/DatePicker";
 import { Plus, Trash2, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
 
 // Rezervasyon takvimi — "kim, kaç kişi, ne zaman geliyor" tek ekranda.
@@ -246,12 +247,7 @@ export default function Rezervasyon() {
             <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>
           )}
           <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" title="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
-          <input
-            type="date"
-            value={gun}
-            onChange={(e) => e.target.value && gunDegistir(e.target.value)}
-            style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 12px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" }}
-          />
+          <DatePicker value={gun} onChange={(v) => gunDegistir(v)} />
           <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" title="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
         </div>
       </div>
@@ -370,7 +366,7 @@ export default function Rezervasyon() {
             <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Misafir adı" style={{ ...inp, flex: "1 1 150px" }} />
             <input value={fPhone} onChange={(e) => setFPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon" inputMode="tel" style={{ ...inp, width: 130 }} />
             <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 62 }} />
-            <input type="date" value={fDate} onChange={(e) => setFDate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: 148 }} />
+            <DatePicker value={fDate} onChange={setFDate} style={{ width: 148 }} />
             <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: 108 }} />
             <input value={fDur} onChange={(e) => setFDur(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Süre" inputMode="numeric" style={{ ...inp, width: 70 }} title="Süre (dakika)" />
             <select value={fTable} onChange={(e) => setFTable(e.target.value)} style={{ ...inp, width: 150 }}>

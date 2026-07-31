@@ -8,6 +8,7 @@ import EditableText from "./components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import TableOrderPanel from "./components/TableOrderPanel";
 import { useConfirm } from "./components/useConfirm";
+import { usePrompt } from "./components/usePrompt";
 
 // Kasa — masa/sipariş ekranı. Eskiden Kasa (düz masa listesi) ve Salonlar (görsel kat planı)
 // ayrı sekmelerdi; aynı işi iki farklı görünümde yapıyorlardı. Artık tek ekran: kat planı +
@@ -62,6 +63,7 @@ export default function KasaPage() {
   const [koltukInput, setKoltukInput] = useState("");
   const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([]);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  const { promptFor, dialog: promptDialog } = usePrompt();
 
   // Nakit giriş/çıkış artık burada değil, Kasa sayfasında (/kasa) — bu ekran
   // yalnızca servis tarafı: salon, masa, açık adisyon, hesap alma (Gökhan kararı, 2026-07-27).
@@ -189,7 +191,7 @@ export default function KasaPage() {
     if (error) setErr(error.message);
   };
   const reserveTable = async (id: string) => {
-    const note = window.prompt("Rezervasyon notu (isim, saat vb. — opsiyonel):", "");
+    const note = await promptFor("Rezervasyon notu (isim, saat vb. — opsiyonel):", "");
     if (note == null) return; // Vazgeç'e basıldı
     setErr(null);
     const { error } = await supabase.from("restaurant_tables").update({ status: "reserved", reservation_note: note || null }).eq("id", id);
@@ -260,6 +262,7 @@ export default function KasaPage() {
   return (
     <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden" }}>
       {confirmDialog}
+      {promptDialog}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 20, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Adisyon</div>
