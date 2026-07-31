@@ -8,6 +8,7 @@ import { toTitleTr } from "@/lib/text";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
+import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../components/ListRow";
 
 // Karşılama — ROADMAP §O2, birleşik akış (2026-07-31, Gökhan onayı).
 // Eskiden Rezervasyon (ileri tarih, isim/telefon/saat) ve Karşılama (bekleme listesi, "şimdi")
@@ -284,51 +285,69 @@ export default function KarsilamaPage() {
         {/* LİSTE */}
         <div style={{ flex: 1.5, minWidth: 380, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>{bugunMu ? "Bugün beklenenler" : "Rezervasyonlar"}</SectionLabel>
+          <ListHeader>
+            <HeaderCell width={46}>Zaman</HeaderCell>
+            <HeaderCell flex>Misafir</HeaderCell>
+            <HeaderCell width={110}>Telefon</HeaderCell>
+            <HeaderCell width={40} align="right">Pax</HeaderCell>
+            <HeaderCell width={130}>Masa</HeaderCell>
+            <HeaderCell width={200} align="right">İşlem</HeaderCell>
+          </ListHeader>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
             {rows.map((r) => {
               const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
               const canli = r.status === "geldi";
+              const aktif = r.status === "bekleniyor" || r.status === "geldi";
               return (
-                <div key={r.id} style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)",
-                  opacity: r.status === "gelmedi" || r.status === "iptal" ? 0.5 : 1,
-                  background: canli ? "var(--danger-bg)" : "transparent",
-                  borderRadius: canli ? 10 : 0, paddingLeft: canli ? 10 : 0, paddingRight: canli ? 10 : 0,
-                }}>
-                  <span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", width: 42, flexShrink: 0 }}>{saat(r.reserved_at)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
-                    <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-                      {r.party_size} kişi{r.guest_phone ? ` · ${r.guest_phone}` : ""}
-                      {tableName(r.table_id) ? ` · ${tableName(r.table_id)}` : ""}
-                      {r.note ? ` · ${r.note}` : ""}
-                      {canli && r.arrived_at ? ` · ${bekleyenSure(r.arrived_at, now)} önce geldi` : ""}
-                    </div>
-                    {assigningId === r.id && (
-                      <select autoFocus onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, marginTop: 6, width: 180 }}>
+                <div key={r.id}>
+                  <ListRow highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
+                    <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
+                    <Cell flex>
+                      <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
+                      {(r.note || (canli && r.arrived_at)) && (
+                        <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                          {r.note}{r.note && canli && r.arrived_at ? " · " : ""}{canli && r.arrived_at ? `${bekleyenSure(r.arrived_at, now)} önce geldi` : ""}
+                        </div>
+                      )}
+                    </Cell>
+                    <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
+                    <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
+                    <Cell width={130}>
+                      {tableName(r.table_id) ? (
+                        <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
+                      ) : bugunMu && aktif ? (
+                        <button onClick={() => setAssigningId(assigningId === r.id ? null : r.id)} style={btnGhost}>Masa ata</button>
+                      ) : (
+                        <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>—</span>
+                      )}
+                    </Cell>
+                    <ActionsCell width={200}>
+                      {bugunMu && r.status === "bekleniyor" && (
+                        <>
+                          <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
+                          <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
+                        </>
+                      )}
+                      {bugunMu && r.status === "geldi" && (
+                        <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
+                      )}
+                      {aktif ? (
+                        <button onClick={() => iptalEt(r)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted-2)" }}>İptal</button>
+                      ) : (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
+                      )}
+                    </ActionsCell>
+                  </ListRow>
+                  {/* Masa ata akordiyonu — satırın hemen altında, tam genişlik açılır. */}
+                  {assigningId === r.id && (
+                    <div style={{ padding: "0 0 10px 56px" }}>
+                      <select autoFocus onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: 220 }}>
                         <option value="" disabled>Masa seç…</option>
                         {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} koltuk)</option>)}
                       </select>
-                    )}
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: info.color, flexShrink: 0, width: 68, textAlign: "right" }}>{info.label}</span>
-                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    {/* Masa ata/Geldi/Oturt SADECE bugün için — masa planı günlük iş (Gökhan).
-                        İleri/geçmiş bir günü görüntülerken sadece İptal kalır. */}
-                    {bugunMu && (r.status === "bekleniyor" || r.status === "geldi") && (
-                      <button onClick={() => setAssigningId(assigningId === r.id ? null : r.id)} disabled={bosMasalar.length === 0 && !r.table_id} style={btnGhost}>Masa ata</button>
-                    )}
-                    {bugunMu && r.status === "bekleniyor" && (
-                      <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
-                    )}
-                    {bugunMu && r.status === "geldi" && (
-                      <button onClick={() => setSeatingFor(r)} disabled={bosMasalar.length === 0} style={{ ...btnSmall, opacity: bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
-                    )}
-                    {(r.status === "bekleniyor" || r.status === "geldi") && (
-                      <button onClick={() => iptalEt(r)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted-2)" }}>İptal</button>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { toTitleTr, toUpperTr } from "@/lib/text";
 import { Plus } from "lucide-react";
+import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../components/ListRow";
 
 // Vale — ROADMAP §O4. Gökhan: "vale plaka ile kayıt girsin, isim soyisim alsın, sonra
 // eşleşmeyi program yapar. Hesap istendiğinde vale'ye bildirim gitsin, araba kapıya
@@ -111,19 +112,22 @@ export default function ValePaneli() {
       {beklenenler.length > 0 && (
         <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, marginBottom: 14, flexShrink: 0 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10 }}>Bugün beklenenler</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {beklenenler.map((b) => (
-              <button
-                key={b.id}
-                onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }}
-                title="İsim ve kişi sayısını araç kaydı formuna doldurur"
-                style={{ ...btnSecondary, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, padding: "8px 14px" }}
-              >
-                <span className="tnum" style={{ fontSize: 11, color: "var(--muted)" }}>{saat(b.reserved_at)} · {b.party_size} kişi{b.status === "geldi" ? " · geldi" : ""}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span>
-              </button>
-            ))}
-          </div>
+          <ListHeader>
+            <HeaderCell width={46}>Zaman</HeaderCell>
+            <HeaderCell flex>Misafir</HeaderCell>
+            <HeaderCell width={40} align="right">Pax</HeaderCell>
+            <HeaderCell width={120} align="right">İşlem</HeaderCell>
+          </ListHeader>
+          {beklenenler.map((b) => (
+            <ListRow key={b.id} highlight={b.status === "geldi"}>
+              <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(b.reserved_at)}</span></Cell>
+              <Cell flex><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{b.guest_name}</span></Cell>
+              <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{b.party_size}</span></Cell>
+              <ActionsCell width={120}>
+                <button onClick={() => { setFName(b.guest_name); setFParty(String(b.party_size)); }} title="İsim ve kişi sayısını araç kaydı formuna doldurur" style={btnGhost}>Formu doldur</button>
+              </ActionsCell>
+            </ListRow>
+          ))}
         </div>
       )}
 
@@ -142,31 +146,40 @@ export default function ValePaneli() {
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 }}>
+        <ListHeader>
+          <HeaderCell flex>Misafir</HeaderCell>
+          <HeaderCell width={220}>Durum</HeaderCell>
+          <HeaderCell width={200} align="right">İşlem</HeaderCell>
+        </ListHeader>
         {entries.length === 0 ? (
           <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bekleyen araç yok.</div>
         ) : entries.map((v) => {
           const info = STATUS_INFO[v.status] ?? STATUS_INFO.bekliyor;
           const eslesikMasa = tableName(v.matched_table_id);
           return (
-            <div key={v.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: "1px solid var(--line)" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{v.guest_name} <span className="tnum" style={{ fontWeight: 400, color: "var(--muted)" }}>· {v.plate_no}</span></div>
-                <div style={{ fontSize: 11.5, color: info.renk, fontWeight: v.status === "cagrildi" ? 700 : 400 }}>
-                  {info.label} · {sureFmt(v.parked_at, now)}
-                  {eslesikMasa && <span style={{ color: "var(--muted-2)", fontWeight: 400 }}> · {eslesikMasa}</span>}
-                  {!v.matched_table_id && <span style={{ color: "var(--gold-text)", fontWeight: 400 }}> · masa eşleşmedi</span>}
+            <div key={v.id}>
+              <ListRow>
+                <Cell flex><span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{v.guest_name}</span> <span className="tnum" style={{ fontSize: 12.5, fontWeight: 400, color: "var(--muted)" }}>· {v.plate_no}</span></Cell>
+                <Cell width={220}>
+                  <span style={{ fontSize: 11.5, color: info.renk, fontWeight: v.status === "cagrildi" ? 700 : 400 }}>
+                    {info.label} · {sureFmt(v.parked_at, now)}
+                    {eslesikMasa && <span style={{ color: "var(--muted-2)", fontWeight: 400 }}> · {eslesikMasa}</span>}
+                    {!v.matched_table_id && <span style={{ color: "var(--gold-text)", fontWeight: 400 }}> · masa eşleşmedi</span>}
+                  </span>
+                </Cell>
+                <ActionsCell width={200}>
+                  <button onClick={() => setLinkingId(linkingId === v.id ? null : v.id)} style={btnSecondary}>{eslesikMasa ? "Değiştir" : "Masaya bağla"}</button>
+                  <button onClick={() => markDelivered(v.id)} style={btnSmall}>Teslim edildi</button>
+                </ActionsCell>
+              </ListRow>
+              {linkingId === v.id && (
+                <div style={{ padding: "0 0 10px" }}>
+                  <select autoFocus onChange={(e) => linkTable(v.id, e.target.value)} defaultValue="" style={{ ...inp, width: 220 }}>
+                    <option value="" disabled>Masa seç…</option>
+                    {occupiedTables.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
                 </div>
-              </div>
-
-              {linkingId === v.id ? (
-                <select autoFocus onChange={(e) => linkTable(v.id, e.target.value)} defaultValue="" style={{ ...inp, width: 160 }}>
-                  <option value="" disabled>Masa seç…</option>
-                  {occupiedTables.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              ) : (
-                <button onClick={() => setLinkingId(v.id)} style={btnSecondary}>{eslesikMasa ? "Değiştir" : "Masaya bağla"}</button>
               )}
-              <button onClick={() => markDelivered(v.id)} style={btnSmall}>Teslim edildi</button>
             </div>
           );
         })}
@@ -179,3 +192,4 @@ const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadi
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "none", borderRadius: 980, padding: "9px 16px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
+const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
