@@ -280,7 +280,7 @@ export default function KarsilamaPage() {
             <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
           </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
-          <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyon dışı</button>
+          <button onClick={() => setWalkInOpen(true)} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
