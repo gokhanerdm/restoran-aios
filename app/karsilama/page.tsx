@@ -46,9 +46,6 @@ const gunSiniri = (gun: string) => {
 };
 const saatFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Europe/Istanbul" });
 const saat = (iso: string) => saatFmt.format(new Date(iso));
-const uzunTarih = (gun: string) =>
-  new Intl.DateTimeFormat("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Istanbul" })
-    .format(new Date(`${gun}T12:00:00+03:00`));
 const bekleyenSure = (from: string, now: number) => {
   const dk = Math.max(0, Math.round((now - Date.parse(from)) / 60000));
   return dk < 60 ? `${dk} dk` : `${Math.floor(dk / 60)}s ${dk % 60}dk`;
@@ -266,29 +263,25 @@ export default function KarsilamaPage() {
     <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 16, flexShrink: 0 }}>
-        <div>
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Karşılama</div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{gun ? uzunTarih(gun) : "…"}</div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
-          <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
-          <DatePicker value={gun} onChange={gunDegistir} />
-          <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
-        </div>
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyonlar</div>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {/* Tarih gezinmesi + ekleme yolları burada, listenin hemen üstünde — sayfa başlığından
+            ayrı, doğrudan listenin kontrolleri (Gökhan: "tarihi buraya al"). */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexShrink: 0 }}>
-          <SectionLabel>{bugunMu ? "Bugün beklenenler" : "Rezervasyonlar"}</SectionLabel>
-          {/* İki ekleme yolu da burada, listenin hemen üstünde (Gökhan: "rezervasyon ekle
-              listenin üstünde olmalı") — sağda ayrı, işlevsiz bir panel yerine. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
+            <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
+            <DatePicker value={gun} onChange={gunDegistir} />
+            <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyonsuz gir</button>
             <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
+            <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyon dışı</button>
           </div>
         </div>
         <ListHeader>
@@ -404,7 +397,7 @@ export default function KarsilamaPage() {
       {walkInOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setWalkInOpen(false)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Rezervasyonsuz gir</div>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Rezervasyon dışı</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
               Kayıt zorunlu değil — hiç kaydetmeden de bir masaya doğrudan oturtabilirsin. Buradan
               girersen bugünün listesinde &quot;Geldi&quot; olarak görünür.
@@ -444,9 +437,6 @@ export default function KarsilamaPage() {
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10, flexShrink: 0 }}>{children}</div>;
-}
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 980, padding: "9px 14px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
