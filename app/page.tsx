@@ -8,7 +8,6 @@ import EditableText from "./components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import TableOrderPanel from "./components/TableOrderPanel";
 import { useConfirm } from "./components/useConfirm";
-import { usePrompt } from "./components/usePrompt";
 
 // Kasa — masa/sipariş ekranı. Eskiden Kasa (düz masa listesi) ve Salonlar (görsel kat planı)
 // ayrı sekmelerdi; aynı işi iki farklı görünümde yapıyorlardı. Artık tek ekran: kat planı +
@@ -63,7 +62,14 @@ export default function KasaPage() {
   const [koltukInput, setKoltukInput] = useState("");
   const [staffOpts, setStaffOpts] = useState<StaffOpt[]>([]);
   const { confirm, dialog: confirmDialog } = useConfirm();
-  const { promptFor, dialog: promptDialog } = usePrompt();
+  // Masa planından hızlı "Rzv" — sadece karsilamali OLMAYAN modda gösterilir (Gökhan:
+  // "karşılama olan sistemlerde çalışmasın" — o modda tek kapı Karşılama olsun).
+  const [tableFlowMode, setTableFlowMode] = useState<string>("basit");
+  const [reserveFor, setReserveFor] = useState<{ tableId: string } | null>(null);
+  const [rName, setRName] = useState("");
+  const [rParty, setRParty] = useState("2");
+  const [rTime, setRTime] = useState("");
+  const [reserveBusy, setReserveBusy] = useState(false);
 
   // Nakit giriş/çıkış artık burada değil, Kasa sayfasında (/kasa) — bu ekran
   // yalnızca servis tarafı: salon, masa, açık adisyon, hesap alma (Gökhan kararı, 2026-07-27).
@@ -80,19 +86,21 @@ export default function KasaPage() {
     const restId = await getMyRestaurantId();
     if (!restId) return;
     setRestaurantId(restId);
-    const [{ data: a }, { data: t }, { data: o }, { data: staffRows }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: o }, { data: staffRows }, { data: settings }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, reservation_note, merged_into_table_id, seat_count, assigned_staff_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       // pending_cashier da dahil: kasa onayı bekleyen masada tutar/süre hâlâ görünsün diye
       // (ROADMAP §O11) — sipariş artık 'open' değil ama masa üzerindeki hesap hâlâ canlı.
       supabase.from("orders").select("id, table_id, opened_at, party_size, order_items(id, quantity, unit_price, status, sent_at)").eq("restaurant_id", restId).in("status", ["open", "pending_cashier"]),
       supabase.from("staff_members").select("id, full_name, on_break").eq("restaurant_id", restId).eq("role", "garson").eq("active", true).is("deleted_at", null).order("full_name"),
+      supabase.from("restaurant_settings").select("table_flow_mode").eq("restaurant_id", restId).maybeSingle(),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
     setTables((t as TableRow[]) ?? []);
     setOrders((o as unknown as OrderRow[]) ?? []);
     setStaffOpts((staffRows as StaffOpt[]) ?? []);
+    setTableFlowMode((settings as { table_flow_mode: string } | null)?.table_flow_mode ?? "basit");
     setSelectedAreaId((prev) => prev ?? (areaRows.length ? areaRows[0].id : null));
   }, []);
 
@@ -190,17 +198,30 @@ export default function KasaPage() {
     const { error } = await supabase.from("restaurant_tables").update({ position_x: x, position_y: y }).eq("id", id);
     if (error) setErr(error.message);
   };
-  const reserveTable = async (id: string) => {
-    const note = await promptFor("Rezervasyon notu (isim, saat vb. — opsiyonel):", "");
-    if (note == null) return; // Vazgeç'e basıldı
+  // Masa planından hızlı rezervasyon — Karşılama'yı hiç açmadan da gerçek bir rezervasyon
+  // kaydı oluşturur (aynı reservations tablosu, tek doğru kaynak). Sadece isim+kişi+saat
+  // ister, telefon/not sormaz — hızlı olsun diye (Karşılama'nın tam formu ayrı duruyor).
+  const openReserve = (tableId: string) => {
+    setRName(""); setRParty("2"); setRTime("");
     setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ status: "reserved", reservation_note: note || null }).eq("id", id);
+    setReserveFor({ tableId });
+  };
+  const reserveSubmit = async () => {
+    if (!restaurantId || !reserveFor || !rName.trim() || !rTime) return;
+    setReserveBusy(true); setErr(null);
+    const bugun = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+    const { error } = await supabase.rpc("quick_reserve_table", {
+      p_restaurant: restaurantId, p_table_id: reserveFor.tableId, p_guest_name: toTitleTr(rName),
+      p_party_size: parseInt(rParty, 10) || 1, p_reserved_at: new Date(`${bugun}T${rTime}:00+03:00`).toISOString(),
+    });
+    setReserveBusy(false);
     if (error) { setErr(error.message); return; }
+    setReserveFor(null);
     await load();
   };
   const unreserveTable = async (id: string) => {
     setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ status: "empty", reservation_note: null }).eq("id", id);
+    const { error } = await supabase.rpc("clear_table_reservation", { p_table_id: id });
     if (error) { setErr(error.message); return; }
     await load();
   };
@@ -262,7 +283,6 @@ export default function KasaPage() {
   return (
     <div style={{ padding: isMobile ? "16px 14px" : "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden" }}>
       {confirmDialog}
-      {promptDialog}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: isMobile ? 16 : 20, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Adisyon</div>
@@ -342,7 +362,8 @@ export default function KasaPage() {
                   onMove={moveTable}
                   onDelete={() => deleteTable(t)}
                   onRename={(v) => renameTable(t.id, v)}
-                  onReserve={() => reserveTable(t.id)}
+                  canQuickReserve={tableFlowMode !== "karsilamali"}
+                  onReserve={() => openReserve(t.id)}
                   onUnreserve={() => unreserveTable(t.id)}
                   onUnmerge={() => unmergeTable(t.id)}
                   onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
@@ -506,17 +527,42 @@ export default function KasaPage() {
           </div>
         </div>
       )}
+
+      {/* Masa planından hızlı rezervasyon — Karşılama'yı hiç açmadan gerçek bir rezervasyon
+          kaydı oluşturur (aynı reservations tablosu). Sadece isim+kişi+saat, hızlı olsun diye. */}
+      {reserveFor && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(30,25,15,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setReserveFor(null)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 300, maxWidth: 360 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14 }}>Masayı rezerve et</div>
+            {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <input autoFocus value={rName} onChange={(e) => setRName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="İsim soyisim" style={inp} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={rParty} onChange={(e) => setRParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...inp, flex: 1 }} />
+                <input type="time" value={rTime} onChange={(e) => setRTime(e.target.value)} style={{ ...inp, flex: 1 }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setReserveFor(null)} style={{ ...btnSecondary, width: "auto" }}>Vazgeç</button>
+              <button onClick={reserveSubmit} disabled={reserveBusy || !rName.trim() || !rTime} style={{ ...btnPrimary, opacity: !rName.trim() || !rTime ? 0.5 : 1 }}>Rezerve et</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function TableBox({
-  table, x, y, order, targetName, selected, mergeSelected, mergeMode, durationLabel, total, assignedStaff,
+  table, x, y, order, targetName, selected, mergeSelected, mergeMode, durationLabel, total, assignedStaff, canQuickReserve,
   onClick, onMove, onDelete, onRename, onReserve, onUnreserve, onUnmerge, onContextMenu,
 }: {
   table: TableRow; x: number; y: number; order: OrderRow | null; targetName: string | null;
   selected: boolean; mergeSelected: boolean; mergeMode: boolean; durationLabel: string | null; total: number;
   assignedStaff: StaffOpt | null;
+  // Karşılamalı modda masa planından hızlı rezervasyon kapalı — tek kapı Karşılama olsun
+  // (Gökhan: "karşılama olan sistemlerde çalışmasın").
+  canQuickReserve: boolean;
   onClick: () => void; onMove: (id: string, x: number, y: number) => void; onDelete: () => void; onRename: (v: string) => void;
   onReserve: () => void; onUnreserve: () => void; onUnmerge: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
@@ -619,7 +665,7 @@ function TableBox({
         <div style={{ position: "absolute", bottom: 6, right: 6, display: "flex", gap: 4 }} onPointerDown={(e) => e.stopPropagation()}>
           {merged && <button onClick={onUnmerge} title="Ayır" style={miniBtn}>Ayır</button>}
           {/* toplanacak masa temizlenmeden rezerve edilemez/silinemez — henüz "hazır" değil. */}
-          {!merged && !occupied && !reserved && !toplanacak && <button onClick={onReserve} title="Rezerve et" style={miniBtn}>Rzv</button>}
+          {!merged && !occupied && !reserved && !toplanacak && canQuickReserve && <button onClick={onReserve} title="Rezerve et" style={miniBtn}>Rzv</button>}
           {!merged && reserved && <button onClick={onUnreserve} title="Rezervasyonu kaldır" style={miniBtn}>Kaldır</button>}
           {!merged && !occupied && !toplanacak && <button onClick={onDelete} title="Sil" style={miniBtn}><Trash2 size={11} /></button>}
         </div>
