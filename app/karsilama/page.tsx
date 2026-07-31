@@ -8,7 +8,7 @@ import { toTitleTr } from "@/lib/text";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
-import { ListHeader, HeaderCell, ListRow, Cell, ActionsCell } from "../components/ListRow";
+import { ListHeader, HeaderCell, ListRow, Cell, Spacer, ActionsCell } from "../components/ListRow";
 
 // Karşılama — ROADMAP §O2, birleşik akış (2026-07-31, Gökhan onayı).
 // Eskiden Rezervasyon (ileri tarih, isim/telefon/saat) ve Karşılama (bekleme listesi, "şimdi")
@@ -272,26 +272,25 @@ export default function KarsilamaPage() {
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         {/* Tarih gezinmesi + ekleme yolları burada, listenin hemen üstünde — sayfa başlığından
             ayrı, doğrudan listenin kontrolleri (Gökhan: "tarihi buraya al"). */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
             <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
             <DatePicker value={gun} onChange={gunDegistir} />
             <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
-            <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyon dışı</button>
-          </div>
+          <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
+          <button onClick={() => setWalkInOpen(true)} style={btnGhost}><Plus size={13} /> Rezervasyon dışı</button>
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
-          <HeaderCell flex>Misafir</HeaderCell>
+          <HeaderCell width={170}>Misafir</HeaderCell>
           <HeaderCell width={110}>Telefon</HeaderCell>
-          <HeaderCell width={40} align="right">Pax</HeaderCell>
-          <HeaderCell width={150}>Masa</HeaderCell>
+          <HeaderCell width={40} align="center">Pax</HeaderCell>
+          <HeaderCell width={150} align="center" marginLeft={76}>Masa</HeaderCell>
           <HeaderCell width={160}>Not</HeaderCell>
-          <HeaderCell width={210} align="right">İşlem</HeaderCell>
+          <Spacer />
+          <HeaderCell width={210} align="center">Rezervasyon durumu</HeaderCell>
         </ListHeader>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
@@ -302,15 +301,15 @@ export default function KarsilamaPage() {
             return (
               <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
                 <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
-                <Cell flex>
-                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)" }}>{r.guest_name}</div>
+                <Cell width={170}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</div>
                   {canli && r.arrived_at && (
                     <div style={{ fontSize: 11, color: "var(--muted)" }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
                   )}
                 </Cell>
                 <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.guest_phone || "—"}</span></Cell>
-                <Cell width={40} align="right"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
-                <Cell width={150}>
+                <Cell width={40} align="center"><span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)" }}>{r.party_size}</span></Cell>
+                <Cell width={150} align="center" marginLeft={76}>
                   {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
                       yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası). */}
                   {assigningId === r.id ? (
@@ -331,7 +330,8 @@ export default function KarsilamaPage() {
                     {r.note || "—"}
                   </span>
                 </Cell>
-                <ActionsCell width={210}>
+                <Spacer />
+                <ActionsCell width={210} align="center">
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
                       <button onClick={() => durumDegistir(r, "geldi")} style={btnSmall}>Geldi</button>
