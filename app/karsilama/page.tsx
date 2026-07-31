@@ -106,7 +106,9 @@ export default function KarsilamaPage() {
   const [kvkkAcik, setKvkkAcik] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Yeni rezervasyon formu
+  // Yeni rezervasyon formu — buton tıklanınca açılan katman (Gökhan: satır her zaman açık
+  // durmasın, "Yeni rezervasyon" butonu üstte olsun, Ekle ile kayıt gerçekleşsin).
+  const [newResOpen, setNewResOpen] = useState(false);
   const [fName, setFName] = useState("");
   const [fPhone, setFPhone] = useState("");
   const [fParty, setFParty] = useState("2");
@@ -174,6 +176,15 @@ export default function KarsilamaPage() {
 
   const gunDegistir = (g: string) => setGun(g);
 
+  // DatePicker eskiden sadece görünüşte "gün"ü gösterip fDate'i boş bırakıyordu — kutu dolu
+  // GÖRÜNÜYOR ama gerçek değeri boştu, Ekle'ye basınca sessizce reddediliyordu. Artık pencere
+  // açılırken fDate gerçekten görünen güne eşitleniyor.
+  const openNewRes = () => {
+    setFName(""); setFPhone(""); setFParty("2"); setFDate(gun); setFTime(""); setFNote("");
+    setErr(null);
+    setNewResOpen(true);
+  };
+
   const submit = async () => {
     if (!restaurantId) return;
     const kisi = parseInt(fParty, 10);
@@ -193,7 +204,7 @@ export default function KarsilamaPage() {
     });
     setBusy(false);
     if (error) { setErr(error.message); return; }
-    setFName(""); setFPhone(""); setFParty("2"); setFNote("");
+    setNewResOpen(false);
     if (fDate !== gun) gunDegistir(fDate); else await load(gun);
   };
 
@@ -256,6 +267,7 @@ export default function KarsilamaPage() {
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{gun ? uzunTarih(gun) : "…"}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={openNewRes} style={{ ...btnPrimary, marginRight: 8 }}><Plus size={14} /> Yeni rezervasyon</button>
           {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
           <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
           <DatePicker value={gun} onChange={gunDegistir} />
@@ -317,32 +329,6 @@ export default function KarsilamaPage() {
             })}
           </div>
 
-          <div style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 12, flexShrink: 0 }}>
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 8 }}>Yeni rezervasyon (telefondan geldi)</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              <input value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={{ ...inp, flex: "1 1 140px" }} />
-              <input value={fPhone} onChange={(e) => setFPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon" inputMode="tel" style={{ ...inp, width: 130 }} />
-              <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 55 }} />
-              <DatePicker value={fDate || gun} onChange={setFDate} style={{ width: 128 }} />
-              <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: 96 }} />
-              <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Not (opsiyonel)" style={{ ...inp, flex: "1 1 120px" }} />
-              <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}><Plus size={14} /></button>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              {kvkkNotice.trim() ? (
-                <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
-                  {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
-                </button>
-              ) : (
-                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.</span>
-              )}
-              {kvkkAcik && kvkkNotice.trim() && (
-                <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 160, overflowY: "auto" }}>
-                  {kvkkNotice}
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         {/* KAPIDAN DOĞRUDAN GİRİŞ */}
@@ -370,6 +356,46 @@ export default function KarsilamaPage() {
           </div>
         </div>
       </div>
+
+      {/* YENİ REZERVASYON KATMANI */}
+      {newResOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setNewResOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 340, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14 }}>Yeni rezervasyon</div>
+            {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <input autoFocus value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={inp} />
+              <input value={fPhone} onChange={(e) => setFPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...inp, flex: 1 }} />
+                <DatePicker value={fDate} onChange={setFDate} style={{ flex: 1 }} />
+                <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, flex: 1 }} />
+              </div>
+              <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Özel not (opsiyonel)" style={inp} />
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              {kvkkNotice.trim() ? (
+                <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
+                  {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
+                </button>
+              ) : (
+                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.</span>
+              )}
+              {kvkkAcik && kvkkNotice.trim() && (
+                <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
+                  {kvkkNotice}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setNewResOpen(false)} style={btnSecondary}>Vazgeç</button>
+              <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}>Ekle</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* OTURT KATMANI */}
       {seatingFor && (
