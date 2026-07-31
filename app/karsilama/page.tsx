@@ -8,7 +8,7 @@ import { toTitleTr } from "@/lib/text";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
-import { ListHeader, HeaderCell, ListRow, Cell, Spacer, ActionsCell } from "../components/ListRow";
+import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../components/ListRow";
 
 // Karşılama — ROADMAP §O2, birleşik akış (2026-07-31, Gökhan onayı).
 // Eskiden Rezervasyon (ileri tarih, isim/telefon/saat) ve Karşılama (bekleme listesi, "şimdi")
@@ -284,11 +284,17 @@ export default function KarsilamaPage() {
         </div>
         <ListHeader>
           <HeaderCell width={46}>Zaman</HeaderCell>
-          <HeaderCell width={170}>Misafir</HeaderCell>
+          <HeaderSep />
+          <HeaderCell width={170} marginLeft={14}>Misafir</HeaderCell>
+          <HeaderSep />
           <HeaderCell width={110}>Telefon</HeaderCell>
+          <HeaderSep />
           <HeaderCell width={40} align="center">Pax</HeaderCell>
+          <HeaderSep />
           <HeaderCell width={150} align="center" marginLeft={76}>Masa</HeaderCell>
+          <HeaderSep />
           <HeaderCell width={160}>Not</HeaderCell>
+          <HeaderSep />
           <Spacer />
           <HeaderCell width={210} align="center">Rezervasyon durumu</HeaderCell>
         </ListHeader>
@@ -301,14 +307,18 @@ export default function KarsilamaPage() {
             return (
               <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi" || r.status === "iptal"}>
                 <Cell width={46}><span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)" }}>{saat(r.reserved_at)}</span></Cell>
-                <Cell width={170}>
+                <RowSep />
+                <Cell width={170} marginLeft={14}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</div>
                   {canli && r.arrived_at && (
                     <div style={{ fontSize: 11, color: inkSoft }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
                   )}
                 </Cell>
+                <RowSep />
                 <Cell width={110}><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.guest_phone || "—"}</span></Cell>
+                <RowSep />
                 <Cell width={40} align="center"><span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{r.party_size}</span></Cell>
+                <RowSep />
                 <Cell width={150} align="center" marginLeft={76}>
                   {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
                       yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası). */}
@@ -325,11 +335,13 @@ export default function KarsilamaPage() {
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
                 </Cell>
+                <RowSep />
                 <Cell width={160}>
                   <span style={{ fontSize: 12, color: "var(--ink)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.note ?? undefined}>
                     {r.note || "—"}
                   </span>
                 </Cell>
+                <RowSep />
                 <Spacer />
                 <ActionsCell width={210} align="center">
                   {bugunMu && r.status === "bekleniyor" && (

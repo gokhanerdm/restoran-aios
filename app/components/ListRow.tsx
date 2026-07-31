@@ -30,6 +30,16 @@ export function HeaderCell({ width, flex, align = "left", marginLeft, children }
   );
 }
 
+// Kolon başlıkları arasına konan ince ayraç ("Zaman - Misafir - Telefon...").
+export function HeaderSep() {
+  return <span aria-hidden style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: "var(--line-2)" }}>–</span>;
+}
+// HeaderSep ile AYNI genişlikte ama görünmez — satırlarda kolonlar başlıklarla hizalı
+// kalsın diye (ayraç sadece başlıkta görünür, hizalamayı bozmadan).
+export function RowSep() {
+  return <span aria-hidden style={{ visibility: "hidden", flexShrink: 0, fontSize: 12.5, fontWeight: 700 }}>–</span>;
+}
+
 export function ListRow({ highlight, muted, children }: { highlight?: boolean; muted?: boolean; children: React.ReactNode }) {
   return (
     <div style={{
