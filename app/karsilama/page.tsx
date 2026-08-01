@@ -165,6 +165,10 @@ export default function KarsilamaPage() {
   // girilsin"). Sebep boş bırakılabilir, zorunlu değil.
   const [iptalFor, setIptalFor] = useState<Rez | null>(null);
   const [iptalReason, setIptalReason] = useState("");
+  // Sağ üst filtre — iptal artık ana listede gizli olmadığı için, günü kalabalıklaştırmadan
+  // belirli bir gruba (rezervasyonlar/kapı/gelmedi/iptal) bakabilmek için (Gökhan: "sağ üstte
+  // filtre koyalım, ordan seçilsin rezervasyonlar iptaller rezervasyonsuz gelenler gelmediler").
+  const [filtre, setFiltre] = useState("tumu");
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
 
@@ -366,6 +370,18 @@ export default function KarsilamaPage() {
   // sırası bozulmuyor.
   const siraKademe = (s: string) => (s === "iptal" ? 2 : s === "gelmedi" ? 1 : 0);
   const visibleRows = [...rows].sort((a, b) => siraKademe(a.status) - siraKademe(b.status));
+  // Filtre — "Rezervasyonlar"/"Rezervasyonsuz gelenler" sadece hâlâ akıştaki (iptal/gelmedi
+  // olmayan) kayıtları gösterir; onlar zaten kendi ayrı seçeneklerinde. Her satır tam olarak
+  // bir gruba düşsün diye (Gökhan: "rezervasyonlar iptaller rezervasyonsuz gelenler gelmediler").
+  const filtreliRows = visibleRows.filter((r) => {
+    if (filtre === "tumu") return true;
+    if (filtre === "gelmedi") return r.status === "gelmedi";
+    if (filtre === "iptal") return r.status === "iptal";
+    if (filtre === "rezervasyon" || filtre === "kapi") {
+      return r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi";
+    }
+    return true;
+  });
 
   // Kapasite/Yedek — günü tek havuz değil öğle/akşam diye iki dönem sayar. Sadece gerçekten
   // yer kaplayan durumlar (bekleniyor/geldi/oturdu) kapasiteye girer; gelmedi/iptal saymaz.
@@ -431,6 +447,13 @@ export default function KarsilamaPage() {
           </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
           <button onClick={() => { setWName(""); setWPhone(""); setWParty("2"); setWNote(""); setErr(null); setWalkInOpen(true); }} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
+          <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ ...inp, marginLeft: "auto", width: 190 }}>
+            <option value="tumu">Tümü</option>
+            <option value="rezervasyon">Rezervasyonlar</option>
+            <option value="kapi">Rezervasyonsuz gelenler</option>
+            <option value="gelmedi">Gelmediler</option>
+            <option value="iptal">İptaller</option>
+          </select>
         </div>
         {/* Kapasite özeti — gün tek havuz değil öğle/akşam diye iki dönem (Gökhan). Biz sadece
             bilgilendiririz, engellemeyiz. Sayaç kapasitede DURUR, kapasite üstü "Yedek" olarak
@@ -466,8 +489,12 @@ export default function KarsilamaPage() {
           <HeaderCell width={210} align="center">Rezervasyon durumu</HeaderCell>
         </ListHeader>
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          {visibleRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
-          {visibleRows.map((r) => {
+          {filtreliRows.length === 0 && (
+            <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>
+              {visibleRows.length === 0 ? "Bu gün için kayıt yok." : "Bu filtreye uyan kayıt yok."}
+            </div>
+          )}
+          {filtreliRows.map((r) => {
             const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
             const canli = r.status === "geldi";
             const aktif = r.status === "bekleniyor" || r.status === "geldi";
