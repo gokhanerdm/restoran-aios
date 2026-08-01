@@ -49,9 +49,13 @@ export function RowSep() {
 // kalıyor) — sadece arka plan rengi + köşe + satırlar arası 1mm boşluk (eskiden ayıran
 // çizginin yerini şimdi bu boşluk alıyor, çizgiye gerek kalmadı).
 export function ListRow({ bg, muted, children }: { bg?: string; muted?: boolean; children: React.ReactNode }) {
+  // Yükseklik içerikten (buton mu düz yazı mı) bağımsız, SABİT — kenarlık/satır yüksekliği
+  // farkı yüzünden padding'i ne kadar inceltirsem inceltim buton içeren satırlar hep birkaç
+  // piksel kalın kalıyordu (Gökhan: "hâlâ düzelmedi, aynı yükseklikte değil"). Sabit yükseklik
+  // + ortalanmış içerik bunu kesin çözer — hepsi tam aynı boyda.
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 10, padding: "10px 0", marginBottom: "1mm", boxSizing: "border-box",
+      display: "flex", alignItems: "center", gap: 10, height: 44, marginBottom: "1mm", boxSizing: "border-box", overflow: "hidden",
       opacity: muted ? 0.5 : 1,
       background: bg ?? "var(--recede)",
       borderRadius: 10,
