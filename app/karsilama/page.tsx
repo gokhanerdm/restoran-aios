@@ -484,6 +484,10 @@ export default function KarsilamaPage() {
                 </Cell>
                 <RowSep />
                 <Cell width={170} marginLeft={14}>
+                  {/* "X dk önce geldi" eskiden ismin altında ayrı bir satırdı — sadece "geldi"
+                      durumundaki satırları (rezervasyonsuz gelenler + az önce gelmiş rezervasyonlar)
+                      tek başına kalınlaştırıyordu (Gökhan: "satır kalınlıkları farklı, ayarla").
+                      Artık ismin yanında, aynı satırda — bilgi kayıp değil, satır tek satır kalıyor. */}
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                     <EditableText
                       value={r.guest_name}
@@ -491,10 +495,10 @@ export default function KarsilamaPage() {
                       style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     />
                     {yedek && <span title="Kapasite dolduktan sonra alınmış" style={{ fontSize: 9.5, fontWeight: 700, color: "var(--gold-text)", border: "1px solid var(--gold)", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>YEDEK</span>}
+                    {canli && r.arrived_at && (
+                      <span style={{ fontSize: 11, color: inkSoft, flexShrink: 0 }}>· {bekleyenSure(r.arrived_at, now)} önce geldi</span>
+                    )}
                   </div>
-                  {canli && r.arrived_at && (
-                    <div style={{ fontSize: 11, color: inkSoft }}>{bekleyenSure(r.arrived_at, now)} önce geldi</div>
-                  )}
                   {doluUyari && (
                     <div style={{ fontSize: 11, color: "var(--danger)", fontWeight: 600 }}>⚠ Masa hâlâ dolu</div>
                   )}
