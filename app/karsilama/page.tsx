@@ -57,12 +57,14 @@ const bekleyenSure = (from: string, now: number) => {
 const saatIstanbul = (iso: string) => parseInt(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" }).format(new Date(iso)), 10);
 const donem = (iso: string, aksamBaslangic: number): "ogle" | "aksam" => (saatIstanbul(iso) >= aksamBaslangic ? "aksam" : "ogle");
 
-const DURUM_INFO: Record<string, { label: string; color: string }> = {
-  bekleniyor: { label: "Bekleniyor", color: "var(--ink)" },
-  geldi: { label: "Geldi", color: "var(--danger)" },
-  oturdu: { label: "Oturdu", color: "var(--brand)" },
-  gelmedi: { label: "Gelmedi", color: "var(--gold-text)" },
-  iptal: { label: "İptal", color: "var(--ink)" },
+// bg — satır kartının arka planı (Gökhan: "her duruma bir renk verelim"). Her durumun kendi
+// tonu var; bekleniyor'a da nötr bir "bekleniyor" mavisi verildi ki hiçbiri renksiz kalmasın.
+const DURUM_INFO: Record<string, { label: string; color: string; bg: string }> = {
+  bekleniyor: { label: "Bekleniyor", color: "var(--ink)", bg: "var(--info-bg)" },
+  geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--danger-bg)" },
+  oturdu: { label: "Oturdu", color: "var(--brand)", bg: "var(--brand-bg)" },
+  gelmedi: { label: "Gelmedi", color: "var(--gold-text)", bg: "var(--gold-bg)" },
+  iptal: { label: "İptal", color: "var(--ink)", bg: "var(--recede)" },
 };
 
 // Yeni "geldi" olan kaydı fark edince kısa bir bip — mutfak/garson bildirimiyle (Faz 10) aynı
@@ -462,7 +464,7 @@ export default function KarsilamaPage() {
             const yedek = yedekIds.has(r.id);
             const doluUyari = masaHalaDolu(r);
             return (
-              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi"}>
+              <ListRow key={r.id} bg={info.bg} muted={r.status === "gelmedi"}>
                 <Cell width={46} marginLeft="1cm">
                   <EditableText
                     value={saat(r.reserved_at)}

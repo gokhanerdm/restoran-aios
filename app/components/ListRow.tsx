@@ -40,20 +40,19 @@ export function RowSep() {
   return <span aria-hidden style={{ visibility: "hidden", flexShrink: 0, fontSize: 12.5, fontWeight: 700 }}>–</span>;
 }
 
-export function ListRow({ highlight, muted, children }: { highlight?: boolean; muted?: boolean; children: React.ReactNode }) {
+// Gökhan (2026-08-01): "satırların köşeleri oval olsun, her duruma bir renk verelim" —
+// eski sık/bitişik liste görünümünden, her satırın kendi durumuna göre renkli, yuvarlak
+// köşeli bir "kart" olduğu daha modern bir görünüme geçildi. Kutular şu anki genişlikten
+// FAZLA yer kaplamasın diye sağ/sol padding yok (tam genişlik, diğer başlıklarla aynı hizada
+// kalıyor) — sadece arka plan rengi + köşe + satırlar arası 1mm boşluk (eskiden ayıran
+// çizginin yerini şimdi bu boşluk alıyor, çizgiye gerek kalmadı).
+export function ListRow({ bg, muted, children }: { bg?: string; muted?: boolean; children: React.ReactNode }) {
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)",
+      display: "flex", alignItems: "center", gap: 10, padding: "10px 0", marginBottom: "1mm", boxSizing: "border-box",
       opacity: muted ? 0.5 : 1,
-      // Vurgulu satır eskiden sağ/sol padding İLE birlikte köşe yuvarlıyordu — o padding
-      // sütunları diğer satırlarla hizasız bırakıyordu (Gökhan: "2 satır dar duruyor, aynı
-      // standartlarda aynı şekilde olmalı"). Padding kaldırıldı (satır artık tam genişlikte,
-      // diğerleriyle aynı hizada) ama köşe yuvarlaklığı KALDI — konseptin "oval köşe"
-      // standardı (Gökhan: "köşeler oval değil mi, bu standardı koru"); border-radius layout'u
-      // etkilemediği için hizayı bozmadan köşeleri yuvarlıyor. Kırmızı da "hata" gibi
-      // okunuyordu — daha nötr, formata uygun bir ton (Gökhan: "kırık beyaz bej gibi").
-      background: highlight ? "var(--recede)" : "transparent",
-      borderRadius: highlight ? 10 : 0,
+      background: bg ?? "var(--recede)",
+      borderRadius: 10,
     }}>
       {children}
     </div>
