@@ -69,7 +69,7 @@ export default function Personel() {
   };
 
   const remove = async (s: Staff) => {
-    const ok = await confirm(`${s.full_name} silinsin mi? Geçmiş kayıtları (kimin ne sattığı) etkilenmez, sadece giriş yapamaz olur.`);
+    const ok = await confirm(`${s.full_name} silinsin mi? Geçmiş kayıtları (kimin ne sattığı) etkilenmez, sadece giriş yapamaz olur.`, { confirmLabel: "Sil" });
     if (!ok) return;
     await supabase.from("staff_members").update({ deleted_at: new Date().toISOString() }).eq("id", s.id);
     await load();

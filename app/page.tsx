@@ -131,7 +131,7 @@ export default function KasaPage() {
   const deleteArea = async (a: Area) => {
     const count = tables.filter((t) => t.area_id === a.id).length;
     if (count > 0) {
-      const ok = await confirm(`Bu salonda ${count} masa var. Silersen masalar da silinir. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu salonda ${count} masa var. Silersen masalar da silinir. Yine de silinsin mi?`, { confirmLabel: "Sil" });
       if (!ok) return;
     }
     setErr(null);
@@ -185,7 +185,7 @@ export default function KasaPage() {
   };
 
   const deleteTable = async (t: TableRow) => {
-    const ok = await confirm(`"${t.name}" silinsin mi?`);
+    const ok = await confirm(`"${t.name}" silinsin mi?`, { confirmLabel: "Sil" });
     if (!ok) return;
     setErr(null);
     const { error } = await supabase.from("restaurant_tables").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);

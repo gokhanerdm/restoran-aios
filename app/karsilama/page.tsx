@@ -223,7 +223,7 @@ export default function KarsilamaPage() {
     if (fDate === gun) {
       mevcut = donemDoluPax(new Date(`${fDate}T${fTime}:00+03:00`).toISOString());
       if (mevcut + kisi > toplamKapasite) {
-        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu rezervasyon Yedek olarak kaydedilecek. Devam edilsin mi?`);
+        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu rezervasyon Yedek olarak kaydedilecek. Devam edilsin mi?`, { danger: false });
         if (!ok) return;
       }
     }
@@ -256,7 +256,7 @@ export default function KarsilamaPage() {
     if (bugunMu) {
       mevcut = donemDoluPax(new Date().toISOString());
       if (mevcut + kisi > toplamKapasite) {
-        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu misafir Yedek olarak kaydedilecek. Devam edilsin mi?`);
+        const ok = await confirm(`Kapasite dolu (${mevcut}/${toplamKapasite} pax) — bu misafir Yedek olarak kaydedilecek. Devam edilsin mi?`, { danger: false });
         if (!ok) return;
       }
     }
@@ -285,7 +285,7 @@ export default function KarsilamaPage() {
   };
 
   const iptalEt = async (r: Rez) => {
-    const ok = await confirm(`${r.guest_name} rezervasyonu iptal edilsin mi?`);
+    const ok = await confirm(`${r.guest_name} rezervasyonu iptal edilsin mi?`, { danger: false });
     if (!ok) return;
     await durumDegistir(r, "iptal");
   };

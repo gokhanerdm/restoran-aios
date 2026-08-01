@@ -252,7 +252,7 @@ export default function MenuPage() {
     const childCount = categories.filter((c) => c.parent_id === id).length;
     const prodCount = products.filter((p) => p.category_id === id).length;
     if (childCount + prodCount > 0) {
-      const ok = await confirm(`Bu kategoride ${prodCount} ürün ve ${childCount} alt kategori var. Silersen menüde görünmez olurlar. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu kategoride ${prodCount} ürün ve ${childCount} alt kategori var. Silersen menüde görünmez olurlar. Yine de silinsin mi?`, { confirmLabel: "Sil" });
       if (!ok) return;
     }
     await supabase.from("menu_categories").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();
@@ -269,7 +269,7 @@ export default function MenuPage() {
     const catCount = categories.filter((c) => c.default_station_id === id).length;
     const prodCount = products.filter((p) => p.station_override_id === id).length;
     if (catCount + prodCount > 0) {
-      const ok = await confirm(`Bu istasyon ${catCount} kategoride ve ${prodCount} üründe kullanılıyor. Silersen o kategori/ürünler istasyonsuz kalır. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu istasyon ${catCount} kategoride ve ${prodCount} üründe kullanılıyor. Silersen o kategori/ürünler istasyonsuz kalır. Yine de silinsin mi?`, { confirmLabel: "Sil" });
       if (!ok) return;
     }
     await supabase.from("stations").update({ deleted_at: new Date().toISOString() }).eq("id", id); await loadBase();

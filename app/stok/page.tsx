@@ -316,14 +316,14 @@ export default function StokPage() {
 
   const deleteGroup = async (sec: Section) => {
     if (sec.items.length > 0) {
-      const ok = await confirm(`Bu başlıkta ${sec.items.length} malzeme var. Silersen malzemeler "Diğer"e düşer. Yine de silinsin mi?`);
+      const ok = await confirm(`Bu başlıkta ${sec.items.length} malzeme var. Silersen malzemeler "Diğer"e düşer. Yine de silinsin mi?`, { confirmLabel: "Sil" });
       if (!ok) return;
     }
     await supabase.from("stock_groups").update({ deleted_at: new Date().toISOString() }).eq("id", sec.id);
     await load();
   };
   const deleteIngredient = async (i: Item) => {
-    const ok = await confirm(`"${i.ingredient_name}" silinsin mi?`);
+    const ok = await confirm(`"${i.ingredient_name}" silinsin mi?`, { confirmLabel: "Sil" });
     if (!ok) return;
     await supabase.from("ingredients").update({ deleted_at: new Date().toISOString() }).eq("id", i.ingredient_id);
     if (selectedId === i.ingredient_id) setSelectedId(null);

@@ -604,7 +604,7 @@ export default function TableOrderPanel({
     if (!order || splitSel.size === 0) return;
     const targetName = emptyTables.find((t) => t.id === splitTarget)?.name ?? "";
     const where = splitTarget === "same" ? "aynı masada ikinci bir hesaba" : `"${targetName}" masasına`;
-    const ok = await confirm(`Seçilen ${splitSel.size} kalem ${where} ayrılsın mı?`);
+    const ok = await confirm(`Seçilen ${splitSel.size} kalem ${where} ayrılsın mı?`, { danger: false });
     if (!ok) return;
     setBusy(true); setErr(null);
     const { error } = await supabase.rpc("split_order", {
@@ -622,7 +622,7 @@ export default function TableOrderPanel({
   // geri alınamaz (para hareketi olmuş bir hesabı sessizce dağıtmak doğru olmaz).
   const undoSplit = async (b: SplitBill) => {
     if (!order || b.order_payments.length > 0) return;
-    const ok = await confirm("Ayrılan hesap geri alınsın mı? Kalemler tekrar bu adisyona döner.");
+    const ok = await confirm("Ayrılan hesap geri alınsın mı? Kalemler tekrar bu adisyona döner.", { danger: false });
     if (!ok) return;
     setBusy(true); setErr(null);
     await supabase.from("order_items").update({ order_id: order.id }).eq("order_id", b.id);
@@ -642,7 +642,8 @@ export default function TableOrderPanel({
     if (amount <= 0) return;
     const closes = amount >= remaining - 0.001;
     const ok = await confirm(
-      `${money(amount)}${tip > 0 ? ` + ${money(tip)} bahşiş` : ""} · ${payLabel(method)} ile ayrılan hesabı ${closes ? "kasaya teslim etmek" : "kısmi ödemek"} istiyor musunuz?`
+      `${money(amount)}${tip > 0 ? ` + ${money(tip)} bahşiş` : ""} · ${payLabel(method)} ile ayrılan hesabı ${closes ? "kasaya teslim etmek" : "kısmi ödemek"} istiyor musunuz?`,
+      { danger: false },
     );
     if (!ok) return;
     setBusy(true); setErr(null);
