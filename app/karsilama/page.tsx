@@ -120,6 +120,26 @@ function playArrivalBeep() {
   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([150, 80, 150]);
 }
 
+// Misafir geçmişi (CRM) — pazar araştırmasında öne çıkan "dönen misafiri tanı" özelliği
+// (Gökhan: "3'ü de ciddi özellikler ekleyelim"). Telefon 10 haneye ulaşınca (yazma bitince)
+// 500ms bekleyip guest_history RPC'sini çağırır — her tuşta sorgu atmasın diye.
+type Gecmis = { ziyaretSayisi: number; sonNot: string | null } | null;
+function useMisafirGecmisi(phone: string, restaurantId: string | null): Gecmis {
+  const [gecmis, setGecmis] = useState<Gecmis>(null);
+  useEffect(() => {
+    const digits = phone.replace(/\D/g, "");
+    if (!restaurantId || digits.length < 10) { setGecmis(null); return; }
+    const id = setTimeout(() => {
+      supabase.rpc("guest_history", { p_restaurant: restaurantId, p_phone: phone }).then(({ data }) => {
+        const row = (data as { ziyaret_sayisi: number; son_not: string | null }[] | null)?.[0];
+        setGecmis(row && row.ziyaret_sayisi > 0 ? { ziyaretSayisi: row.ziyaret_sayisi, sonNot: row.son_not } : null);
+      });
+    }, 500);
+    return () => clearTimeout(id);
+  }, [phone, restaurantId]);
+  return gecmis;
+}
+
 export default function KarsilamaPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [gun, setGun] = useState("");
@@ -150,6 +170,7 @@ export default function KarsilamaPage() {
   const [fDate, setFDate] = useState("");
   const [fTime, setFTime] = useState("");
   const [fNote, setFNote] = useState("");
+  const fGecmis = useMisafirGecmisi(fPhone, restaurantId);
 
   // Kayıtsız doğrudan gir (rezervasyonsuz, kapıdan) — küçük bir pencere, ayrı panel değil.
   // Rezervasyon formuyla aynı bilgileri toplar (telefon, not) — sadece tarih/saat yok, "şimdi"
@@ -159,6 +180,7 @@ export default function KarsilamaPage() {
   const [wPhone, setWPhone] = useState("");
   const [wParty, setWParty] = useState("2");
   const [wNote, setWNote] = useState("");
+  const wGecmis = useMisafirGecmisi(wPhone, restaurantId);
 
   // Masa ata (satır bazlı, inline seçim — Vale ekranındaki "Masaya bağla" ile aynı desen)
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -637,6 +659,11 @@ export default function KarsilamaPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <input autoFocus value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={inp} />
               <input value={fPhone} onChange={(e) => setFPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
+              {fGecmis && (
+                <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: -4 }}>
+                  Bu numarayla daha önce {fGecmis.ziyaretSayisi} kez geldi{fGecmis.sonNot ? ` · Son not: ${fGecmis.sonNot}` : ""}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...inp, flex: 1 }} />
                 <DatePicker value={fDate} onChange={setFDate} style={{ flex: 1 }} />
@@ -684,6 +711,11 @@ export default function KarsilamaPage() {
                 <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
               </div>
               <input value={wPhone} onChange={(e) => setWPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
+              {wGecmis && (
+                <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: -4 }}>
+                  Bu numarayla daha önce {wGecmis.ziyaretSayisi} kez geldi{wGecmis.sonNot ? ` · Son not: ${wGecmis.sonNot}` : ""}
+                </div>
+              )}
               <input value={wNote} onChange={(e) => setWNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Özel not (opsiyonel)" style={inp} />
             </div>
 
