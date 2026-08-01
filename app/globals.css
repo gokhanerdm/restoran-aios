@@ -7,10 +7,8 @@
   --rail: #1e3932;
   --brand: #00704a;
   --brand-strong: #006241;
-  --brand-bg: #e6f2ec;
   --gold: #c8a24c;
   --gold-text: #9a7b2e;
-  --gold-bg: #f7f0dd;
   --ink: #1e1e1c;
   --ink-green: #1e3932;
   --muted: #7c8a82;
@@ -21,6 +19,13 @@
   --info-bg: #e9eff7;
   --danger: #a32d2d;
   --danger-bg: #fbeaea;
+  /* Açık kahve/bej tonları — satır renklendirmeleri için (Gökhan: "renk skalamızla alakası
+     yok, açık kahve tonlarını kullanabilirsin"). Açıktan koyuya dereceli tek bir aile,
+     mavi/kırmızı/yeşil gibi konseptten kopan renkler yerine. */
+  --tan-100: #f5f0e6;
+  --tan-200: #ecdec2;
+  --tan-300: #e2cfa9;
+  --tan-400: #d6bd8e;
 }
 
 * { box-sizing: border-box; }

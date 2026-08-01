@@ -12,8 +12,10 @@
 type Align = "left" | "right" | "center";
 
 export function ListHeader({ children }: { children: React.ReactNode }) {
+  // Gökhan: "başlıklar ve liste arasında bir çizgi var onu kaldır" — satırlar artık kendi
+  // renkli kartları olduğu için ayırıcı çizgiye gerek kalmadı.
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 0 8px", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 0 8px", flexShrink: 0 }}>
       {children}
     </div>
   );

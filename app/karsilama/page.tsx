@@ -57,13 +57,14 @@ const bekleyenSure = (from: string, now: number) => {
 const saatIstanbul = (iso: string) => parseInt(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" }).format(new Date(iso)), 10);
 const donem = (iso: string, aksamBaslangic: number): "ogle" | "aksam" => (saatIstanbul(iso) >= aksamBaslangic ? "aksam" : "ogle");
 
-// bg — satır kartının arka planı (Gökhan: "her duruma bir renk verelim"). Her durumun kendi
-// tonu var; bekleniyor'a da nötr bir "bekleniyor" mavisi verildi ki hiçbiri renksiz kalmasın.
+// bg — satır kartının arka planı (Gökhan: "her duruma bir renk verelim"). İlk halde
+// mavi/kırmızı/yeşil karışımıydı — "renk skalamızla alakası yok" dendi, açık kahve
+// tonlarının (--tan-100..400) dereceli ailesine çevrildi; hepsi aynı konseptin içinde.
 const DURUM_INFO: Record<string, { label: string; color: string; bg: string }> = {
-  bekleniyor: { label: "Bekleniyor", color: "var(--ink)", bg: "var(--info-bg)" },
-  geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--danger-bg)" },
-  oturdu: { label: "Oturdu", color: "var(--brand)", bg: "var(--brand-bg)" },
-  gelmedi: { label: "Gelmedi", color: "var(--gold-text)", bg: "var(--gold-bg)" },
+  bekleniyor: { label: "Bekleniyor", color: "var(--ink)", bg: "var(--tan-100)" },
+  geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--tan-200)" },
+  oturdu: { label: "Oturdu", color: "var(--brand)", bg: "var(--tan-300)" },
+  gelmedi: { label: "Gelmedi", color: "var(--gold-text)", bg: "var(--tan-400)" },
   iptal: { label: "İptal", color: "var(--ink)", bg: "var(--recede)" },
 };
 
