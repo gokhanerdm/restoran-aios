@@ -28,7 +28,7 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 type Rez = {
   id: string; guest_name: string; guest_phone: string | null; party_size: number;
   reserved_at: string; status: string; note: string | null; table_id: string | null;
-  arrived_at: string | null; created_at: string;
+  arrived_at: string | null; created_at: string; cancel_reason: string | null;
 };
 type TableRow = { id: string; name: string; seat_count: number; status: string };
 
@@ -143,8 +143,14 @@ export default function KarsilamaPage() {
   // Oturt katmanı (masa seçimi — sadece boş masalar)
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
   // İptal edilenler ana listeden çıkıp arşive düşer (Gökhan: "iptal olanları listeden çıkar,
-  // arşiv olarak başka yerde tut") — silinmiyor, sadece ayrı bir pencerede tutuluyor.
+  // arşiv olarak başka yerde tut") — silinmiyor, sadece ayrı bir pencerede tutuluyor. Gelmedi
+  // artık arşive değil, ana listede en altta kalıyor (Gökhan: "gelmedi diye işaretlenenler
+  // listede kalsın ama en alta düşsün").
   const [arsivOpen, setArsivOpen] = useState(false);
+  // İptal — sebep sormadan direkt onaya gitmiyor (Gökhan: "iptal edilenlere iptal sebebi
+  // girilsin"). Sebep boş bırakılabilir, zorunlu değil.
+  const [iptalFor, setIptalFor] = useState<Rez | null>(null);
+  const [iptalReason, setIptalReason] = useState("");
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
 
@@ -154,7 +160,7 @@ export default function KarsilamaPage() {
     setRestaurantId(restId);
     const { start, end } = gunSiniri(targetGun);
     const [{ data: r, error }, { data: t }, { data: s }] = await Promise.all([
-      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, created_at")
+      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, created_at, cancel_reason")
         .eq("restaurant_id", restId).is("deleted_at", null)
         .gte("reserved_at", start).lt("reserved_at", end)
         .order("created_at"),
@@ -277,17 +283,18 @@ export default function KarsilamaPage() {
 
   // Durum değişikliği (Geldi/Gelmedi/İptal) RPC üzerinden — Gelmedi/İptal olunca atanmış
   // masa hâlâ "reserved" ise (henüz oturtulmadıysa) otomatik boşa çıkar (set_reservation_status).
-  const durumDegistir = async (r: Rez, next: string) => {
+  const durumDegistir = async (r: Rez, next: string, cancelReason?: string) => {
     setErr(null);
-    const { error } = await supabase.rpc("set_reservation_status", { p_reservation_id: r.id, p_status: next });
+    const { error } = await supabase.rpc("set_reservation_status", { p_reservation_id: r.id, p_status: next, p_cancel_reason: cancelReason ?? null });
     if (error) { setErr(error.message); return; }
     await load(gun);
   };
 
-  const iptalEt = async (r: Rez) => {
-    const ok = await confirm(`${r.guest_name} rezervasyonu iptal edilsin mi?`, { danger: false });
-    if (!ok) return;
-    await durumDegistir(r, "iptal");
+  const iptalEt = (r: Rez) => { setIptalReason(""); setIptalFor(r); };
+  const iptalOnayla = async () => {
+    if (!iptalFor) return;
+    await durumDegistir(iptalFor, "iptal", iptalReason);
+    setIptalFor(null);
   };
 
   // Masa ata — SADECE bugün için anlamlı (Gökhan: "işletme masa planını aynı gün yapar,
@@ -339,8 +346,11 @@ export default function KarsilamaPage() {
   const bugunMu = gun === bugunIstanbul();
   // İptal ve Gelmedi ana listede görünmez, ayrı bir arşiv penceresinde durur (Gökhan:
   // "gelmedileri de iptal edilenlerin yanına koyalım, listeden çıksın").
-  const visibleRows = rows.filter((r) => r.status !== "iptal" && r.status !== "gelmedi");
-  const arsivRows = rows.filter((r) => r.status === "iptal" || r.status === "gelmedi");
+  // Gelmedi ana listede kalır ama en alta düşer (Array.sort stable — created_at sırası
+  // grup içinde korunur); sadece iptal edilenler ayrı arşive gider.
+  const visibleRows = rows.filter((r) => r.status !== "iptal")
+    .sort((a, b) => (a.status === "gelmedi" ? 1 : 0) - (b.status === "gelmedi" ? 1 : 0));
+  const arsivRows = rows.filter((r) => r.status === "iptal");
 
   // Kapasite/Yedek — günü tek havuz değil öğle/akşam diye iki dönem sayar. Sadece gerçekten
   // yer kaplayan durumlar (bekleniyor/geldi/oturdu) kapasiteye girer; gelmedi/iptal saymaz.
@@ -407,7 +417,7 @@ export default function KarsilamaPage() {
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
           <button onClick={() => { setWName(""); setWPhone(""); setWParty("2"); setWNote(""); setErr(null); setWalkInOpen(true); }} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
           {arsivRows.length > 0 && (
-            <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal / Gelmedi ({arsivRows.length})</button>
+            <button onClick={() => setArsivOpen(true)} style={{ ...btnGhost, marginLeft: "auto" }}>İptal ({arsivRows.length})</button>
           )}
         </div>
         {/* Kapasite özeti — gün tek havuz değil öğle/akşam diye iki dönem (Gökhan). Biz sadece
@@ -452,7 +462,7 @@ export default function KarsilamaPage() {
             const yedek = yedekIds.has(r.id);
             const doluUyari = masaHalaDolu(r);
             return (
-              <ListRow key={r.id} highlight={canli}>
+              <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi"}>
                 <Cell width={46}>
                   <EditableText
                     value={saat(r.reserved_at)}
@@ -662,18 +672,41 @@ export default function KarsilamaPage() {
         </div>
       )}
 
-      {/* İPTAL / GELMEDİ ARŞİVİ */}
+      {/* İPTAL KATMANI — sebep sormadan direkt iptal etmiyor (Gökhan: "iptal edilenlere
+          iptal sebebi girilsin"). Sebep opsiyonel, boş bırakılabilir. */}
+      {iptalFor && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setIptalFor(null)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>{iptalFor.guest_name} rezervasyonu iptal edilsin mi?</div>
+            <input
+              autoFocus value={iptalReason} onChange={(e) => setIptalReason(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && iptalOnayla()}
+              placeholder="İptal sebebi (opsiyonel)" style={{ ...inp, width: "100%", marginTop: 12 }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setIptalFor(null)} style={btnSecondary}>Hayır</button>
+              <button onClick={iptalOnayla} style={btnPrimary}>Evet</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* İPTAL ARŞİVİ — gelmedi artık burada değil, ana listede en altta kalıyor. */}
       {arsivOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setArsivOpen(false)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 360, maxWidth: 440, maxHeight: "70vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>İptal / Gelmedi</div>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>İptal</div>
             <div style={{ overflowY: "auto", flex: 1 }}>
               {arsivRows.map((r) => (
-                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
-                  <span className="tnum" style={{ fontSize: 12.5, fontWeight: 600, color: inkSoft, width: 42, flexShrink: 0 }}>{saat(r.reserved_at)}</span>
-                  <span style={{ flex: 1, fontSize: 13, color: inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
-                  <span className="tnum" style={{ fontSize: 12, color: inkSoft, flexShrink: 0 }}>{r.party_size} pax</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: DURUM_INFO[r.status]?.color ?? inkSoft, flexShrink: 0, width: 55, textAlign: "right" }}>{DURUM_INFO[r.status]?.label ?? r.status}</span>
+                <div key={r.id} style={{ padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="tnum" style={{ fontSize: 12.5, fontWeight: 600, color: inkSoft, width: 42, flexShrink: 0 }}>{saat(r.reserved_at)}</span>
+                    <span style={{ flex: 1, fontSize: 13, color: inkSoft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
+                    <span className="tnum" style={{ fontSize: 12, color: inkSoft, flexShrink: 0 }}>{r.party_size} pax</span>
+                  </div>
+                  {r.cancel_reason && (
+                    <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: 3, paddingLeft: 52 }}>{r.cancel_reason}</div>
+                  )}
                 </div>
               ))}
               {arsivRows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Kayıt yok.</div>}
