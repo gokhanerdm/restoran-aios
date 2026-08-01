@@ -45,12 +45,15 @@ export function ListRow({ highlight, muted, children }: { highlight?: boolean; m
     <div style={{
       display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid var(--line)",
       opacity: muted ? 0.5 : 1,
-      // Vurgulu satır eskiden sağ/sol padding + border-radius ile "kart" gibi içeri
-      // büzülüyordu — sütunları diğer satırlarla hizasız bırakıyordu (Gökhan: "2 satır dar
-      // duruyor, aynı standartlarda aynı şekilde olmalı"). Artık kutu modeli (padding/genişlik)
-      // tüm satırlarda aynı, sadece arka plan rengi değişiyor. Kırmızı da "hata" gibi
+      // Vurgulu satır eskiden sağ/sol padding İLE birlikte köşe yuvarlıyordu — o padding
+      // sütunları diğer satırlarla hizasız bırakıyordu (Gökhan: "2 satır dar duruyor, aynı
+      // standartlarda aynı şekilde olmalı"). Padding kaldırıldı (satır artık tam genişlikte,
+      // diğerleriyle aynı hizada) ama köşe yuvarlaklığı KALDI — konseptin "oval köşe"
+      // standardı (Gökhan: "köşeler oval değil mi, bu standardı koru"); border-radius layout'u
+      // etkilemediği için hizayı bozmadan köşeleri yuvarlıyor. Kırmızı da "hata" gibi
       // okunuyordu — daha nötr, formata uygun bir ton (Gökhan: "kırık beyaz bej gibi").
       background: highlight ? "var(--recede)" : "transparent",
+      borderRadius: highlight ? 10 : 0,
     }}>
       {children}
     </div>
