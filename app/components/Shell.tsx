@@ -47,7 +47,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü, mutfak/bar ve vale
   // (kulübe tableti/telefon — link+PIN modeli, Gökhan 2026-07-31) ve giriş ekranının kendisi
   // yönetim kabuğunu/oturum kontrolünü kullanmaz.
-  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
+  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/rezervasyon-yap/") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
 
   useEffect(() => {
     // isPublic ise render zaten aşağıda erken dönüyor (authChecked/hasSession hiç okunmuyor).

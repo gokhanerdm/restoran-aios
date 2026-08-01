@@ -81,6 +81,10 @@ const DURUM_INFO: Record<string, { label: string; color: string; bg: string }> =
 const SOURCE_INFO: Record<string, { label: string; color: string }> = {
   rezervasyon: { label: "RVZ", color: "var(--brand)" },
   kapi: { label: "Kapı", color: "var(--gold-text)" },
+  // Misafirin kendi kendine, girişsiz genel sayfadan (/rezervasyon-yap) girdiği rezervasyon.
+  // var(--info) (mavi) BİLEREK kullanılmadı — "renk skalamızla alakası yok" (Gökhan) dendiği
+  // için paletteki mevcut koyu yeşil tonu kullanıldı, yeni/yabancı bir renk eklenmedi.
+  online: { label: "Online", color: "var(--ink-green)" },
 };
 
 // Yeni "geldi" olan kaydı fark edince kısa bir bip — mutfak/garson bildirimiyle (Faz 10) aynı
@@ -377,7 +381,7 @@ export default function KarsilamaPage() {
     if (filtre === "tumu") return true;
     if (filtre === "gelmedi") return r.status === "gelmedi";
     if (filtre === "iptal") return r.status === "iptal";
-    if (filtre === "rezervasyon" || filtre === "kapi") {
+    if (filtre === "rezervasyon" || filtre === "kapi" || filtre === "online") {
       return r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi";
     }
     return true;
@@ -451,6 +455,7 @@ export default function KarsilamaPage() {
             <option value="tumu">Tümü</option>
             <option value="rezervasyon">Rezervasyonlar</option>
             <option value="kapi">Rezervasyonsuz gelenler</option>
+            <option value="online">Online gelenler</option>
             <option value="gelmedi">Gelmediler</option>
             <option value="iptal">İptaller</option>
           </select>
