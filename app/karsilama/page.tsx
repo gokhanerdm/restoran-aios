@@ -547,7 +547,7 @@ export default function KarsilamaPage() {
                     </>
                   )}
                   {bugunMu && r.status === "geldi" && (
-                    <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturt</button>
+                    <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturdu</button>
                   )}
                   {aktif ? (
                     <button onClick={() => iptalEt(r)} style={btnGhost}>İptal</button>
