@@ -60,9 +60,13 @@ const donem = (iso: string, aksamBaslangic: number): "ogle" | "aksam" => (saatIs
 // bg — satır kartının arka planı (Gökhan: "her duruma bir renk verelim"). İlk halde
 // mavi/kırmızı/yeşil karışımıydı — "renk skalamızla alakası yok" dendi, açık kahve
 // tonlarının (--tan-100..400) dereceli ailesine çevrildi; hepsi aynı konseptin içinde.
+// geldi, bekleniyor ile AYNI tonu kullanıyor — rezervasyon dışı (kapıdan doğrudan) gelen
+// misafirler de bu durumda düşüyor, Gökhan bunların "normal liste ile aynı" görünmesini
+// istedi (öne çıkan renk yerine düz durmalı) — zaten "X dk önce geldi" notu ve
+// Oturdu/İptal butonları o satırı yeterince ayırt ediyor, renge gerek yok.
 const DURUM_INFO: Record<string, { label: string; color: string; bg: string }> = {
   bekleniyor: { label: "Bekleniyor", color: "var(--ink)", bg: "var(--tan-100)" },
-  geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--tan-200)" },
+  geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--tan-100)" },
   oturdu: { label: "Oturdu", color: "var(--brand)", bg: "var(--tan-300)" },
   gelmedi: { label: "Gelmedi", color: "var(--gold-text)", bg: "var(--tan-400)" },
   iptal: { label: "İptal", color: "var(--ink)", bg: "var(--recede)" },
