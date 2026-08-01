@@ -438,7 +438,7 @@ export default function KarsilamaPage() {
           })}
         </div>
         <ListHeader>
-          <HeaderCell width={46}>Zaman</HeaderCell>
+          <HeaderCell width={46} marginLeft="1cm">Zaman</HeaderCell>
           <HeaderSep />
           <HeaderCell width={170} marginLeft={14}>Misafir</HeaderCell>
           <HeaderSep />
@@ -463,7 +463,7 @@ export default function KarsilamaPage() {
             const doluUyari = masaHalaDolu(r);
             return (
               <ListRow key={r.id} highlight={canli} muted={r.status === "gelmedi"}>
-                <Cell width={46}>
+                <Cell width={46} marginLeft="1cm">
                   <EditableText
                     value={saat(r.reserved_at)}
                     onSave={(next) => {

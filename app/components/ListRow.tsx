@@ -19,7 +19,7 @@ export function ListHeader({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function HeaderCell({ width, flex, align = "left", marginLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number; children: React.ReactNode }) {
+export function HeaderCell({ width, flex, align = "left", marginLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number | string; children: React.ReactNode }) {
   return (
     <span style={{
       width: flex ? undefined : width, flex: flex ? 1 : undefined, flexShrink: 0, minWidth: 0, marginLeft,
@@ -60,7 +60,7 @@ export function ListRow({ highlight, muted, children }: { highlight?: boolean; m
   );
 }
 
-export function Cell({ width, flex, align = "left", marginLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number; children: React.ReactNode }) {
+export function Cell({ width, flex, align = "left", marginLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number | string; children: React.ReactNode }) {
   return (
     <div style={{ width: flex ? undefined : width, flex: flex ? 1 : undefined, flexShrink: 0, minWidth: 0, textAlign: align, marginLeft }}>
       {children}
