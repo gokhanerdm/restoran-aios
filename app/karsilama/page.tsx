@@ -533,7 +533,7 @@ export default function KarsilamaPage() {
                       <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
                     )
                   ) : bugunMu && aktif ? (
-                    <button onClick={() => setAssigningId(r.id)} style={btnGhost}>Masa ata</button>
+                    <button onClick={() => setAssigningId(r.id)} style={btnGhostRow}>Masa ata</button>
                   ) : (
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
@@ -559,15 +559,15 @@ export default function KarsilamaPage() {
                       host'un elinden bağımsız gerçekleşiyor). */}
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
-                      <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
-                      <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhost}>Gelmedi</button>
+                      <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmallRow, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
+                      <button onClick={() => durumDegistir(r, "gelmedi")} style={btnGhostRow}>Gelmedi</button>
                     </>
                   )}
                   {bugunMu && r.status === "geldi" && (
-                    <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmall, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturdu</button>
+                    <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmallRow, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturdu</button>
                   )}
                   {aktif ? (
-                    <button onClick={() => iptalEt(r)} style={btnGhost}>İptal</button>
+                    <button onClick={() => iptalEt(r)} style={btnGhostRow}>İptal</button>
                   ) : (
                     <span style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
                   )}
@@ -731,6 +731,12 @@ const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "c
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--ink)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
+// Liste satırı içindeki butonlar (Masa ata, Geldi/Oturdu, Gelmedi, İptal) — sıradaki dikey
+// padding'le (7px) düz yazı hücrelerinden belirgin kalın duruyordu (Gökhan: "yeni rezervasyon
+// ve rezervasyonsuz gelen müşteri satırları kalın, diğerlerine göre ayarla" — masa atanmamış/
+// aktif satırlarda buton var, diğerlerinde düz yazı). Aynı butonlar, sadece dikeyde daha ince.
+const btnSmallRow: React.CSSProperties = { ...btnSmall, padding: "4px 14px" };
+const btnGhostRow: React.CSSProperties = { ...btnGhost, padding: "4px 12px" };
 // Soluk yeşilimsi gri (var(--muted)) yerine — Gökhan: "siyah ve tonlarını kullan." Sadece
 // gerçekten ikincil (tarih/boş yer tutucu gibi) küçük bilgiler için, ana metin var(--ink).
 const inkSoft = "#5c5c58";
