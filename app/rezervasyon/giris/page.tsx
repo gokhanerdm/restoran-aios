@@ -71,6 +71,7 @@ export default function RezervasyonGirisPage() {
   // Hesap
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [showPw, setShowPw] = useState(false);
 
   // İşletme / marka
@@ -138,6 +139,7 @@ export default function RezervasyonGirisPage() {
       return;
     }
     if (!sifreGecerliMi(password)) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
+    if (password !== password2) { setErr("Şifreler birbiriyle uyuşmuyor."); return; }
     if (!businessType) { setErr("İşletme türünü seç."); return; }
     if (subeTipi === "cok" && !branchName.trim()) { setErr("Şube adı gerekli."); return; }
     if (!il.trim() || !ilce.trim() || !address.trim()) { setErr("İl, ilçe ve açık adres gerekli."); return; }
@@ -345,12 +347,17 @@ export default function RezervasyonGirisPage() {
               <span style={{ fontSize: 11, color: "var(--line-2)", flexShrink: 0 }}>·</span>
               <button
                 type="button"
-                onClick={() => { setPassword(gucluSifreOner()); setShowPw(true); }}
+                onClick={() => { const yeni = gucluSifreOner(); setPassword(yeni); setPassword2(yeni); setShowPw(true); }}
                 style={{ all: "unset", cursor: "pointer", fontSize: 10.5, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
               >
                 Güçlü şifre öner
               </button>
             </div>
+
+            <input
+              value={password2} onChange={(e) => setPassword2(e.target.value)}
+              type={showPw ? "text" : "password"} placeholder="Şifre (tekrar)" style={inp}
+            />
 
             {subeTipi === "cok" && (
               <>
