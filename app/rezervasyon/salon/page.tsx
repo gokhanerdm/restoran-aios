@@ -21,11 +21,26 @@ import { useConfirm } from "../../components/useConfirm";
 // gerekmedi. Ayarlar'daki liste duruyor (hızlı toplu ekleme için), bu ekran görsel yerleşim için.
 
 type Area = { id: string; name: string; sort_order: number };
+type Shape = "yuvarlak" | "kare" | "dikdortgen";
 type TableRow = {
   id: string; name: string; area_id: string | null; status: string; sort_order: number;
-  position_x: number | null; position_y: number | null; seat_count: number;
+  position_x: number | null; position_y: number | null; seat_count: number; shape: Shape;
 };
 type OturanBilgi = { guestName: string; partySize: number };
+
+// Masa eklerken seçilen şekil+kişi sayısı ön tanımları (Gökhan, 2026-08-04: "kart değil
+// masa şekli çıksın"). Konsepte göre otomatik öneri şimdilik yok — seçim elle, ileride
+// concept_templates'e bağlanabilir.
+const MASA_ONTANIMLARI: { shape: Shape; seats: number; label: string }[] = [
+  { shape: "yuvarlak", seats: 2, label: "Yuvarlak · 2" },
+  { shape: "yuvarlak", seats: 4, label: "Yuvarlak · 4" },
+  { shape: "kare", seats: 4, label: "Kare · 4" },
+  { shape: "dikdortgen", seats: 6, label: "Dikdörtgen · 6" },
+  { shape: "dikdortgen", seats: 8, label: "Dikdörtgen · 8" },
+];
+// Şekle göre kutu köşe yuvarlaklığı — gerçek daire/dikdörtgen değil (grid hizası bozulmasın
+// diye kutu boyutu hep BOX_W×BOX_H sabit), ama üç şekil görsel olarak ayırt edilebiliyor.
+const SEKIL_RADIUS: Record<Shape, number> = { yuvarlak: 999, kare: 14, dikdortgen: 6 };
 
 const BOX_W = 148;
 const BOX_H = 108;
@@ -56,6 +71,7 @@ export default function SalonPage() {
   const [newAreaName, setNewAreaName] = useState("");
   const [addingTable, setAddingTable] = useState(false);
   const [newTableName, setNewTableName] = useState("");
+  const [newTableSecim, setNewTableSecim] = useState(0); // MASA_ONTANIMLARI içindeki index
   const [koltukInput, setKoltukInput] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
@@ -74,7 +90,7 @@ export default function SalonPage() {
     const { start, end } = bugunSiniri();
     const [{ data: a }, { data: t }, { data: r }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
         .gte("reserved_at", start).lt("reserved_at", end),
     ]);
@@ -123,9 +139,13 @@ export default function SalonPage() {
     if (!restaurantId || !selectedAreaId || !newTableName.trim()) return;
     setErr(null);
     const count = tables.filter((t) => t.area_id === selectedAreaId).length;
-    const { error } = await supabase.from("restaurant_tables").insert({ restaurant_id: restaurantId, name: toTitleTr(newTableName), area_id: selectedAreaId, status: "empty", sort_order: count });
+    const secim = MASA_ONTANIMLARI[newTableSecim];
+    const { error } = await supabase.from("restaurant_tables").insert({
+      restaurant_id: restaurantId, name: toTitleTr(newTableName), area_id: selectedAreaId, status: "empty", sort_order: count,
+      shape: secim.shape, seat_count: secim.seats,
+    });
     if (error) { setErr(error.message); return; }
-    setNewTableName(""); setAddingTable(false);
+    setNewTableName(""); setNewTableSecim(0); setAddingTable(false);
     await load(restaurantId);
   };
   const renameTable = async (id: string, name: string) => {
@@ -197,6 +217,16 @@ export default function SalonPage() {
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Salon</div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{doluSayisi}/{tables.length} masa dolu · {toplamKoltuk} koltuk</div>
         </div>
+        <div style={{ flex: 1 }} />
+        {/* Sağ tık gizli kalıyordu (Gökhan: "masa ekleyemiyorum", "masa ekleyi sağ üste koy")
+            — görünür buton başlıkta, sağ tık da hâlâ çalışıyor. */}
+        <button
+          onClick={() => { if (!selectedAreaId) return; setAddingTable(true); setErr(null); }}
+          disabled={!selectedAreaId}
+          style={{ ...btnSmall, opacity: !selectedAreaId ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 5 }}
+        >
+          <Plus size={14} /> Masa ekle
+        </button>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -233,10 +263,7 @@ export default function SalonPage() {
             {!selectedAreaId ? (
               <div style={{ padding: 24, color: "var(--muted-2)", fontSize: 13 }}>Önce solda bir salon seç ya da ekle.</div>
             ) : (
-              <div
-                style={{ position: "relative", width: "100%", height: containerHeight }}
-                onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, table: null }); }}
-              >
+              <div style={{ position: "relative", width: "100%", height: containerHeight }}>
                 {positioned.map(({ table: t, x, y }) => (
                   <TableBox
                     key={t.id}
@@ -248,28 +275,10 @@ export default function SalonPage() {
                     onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
                   />
                 ))}
-                {addingTable && (
-                  <div style={{
-                    position: "absolute", left: addBoxPos.x, top: addBoxPos.y, width: BOX_W, height: BOX_H,
-                    border: "1px solid var(--line-2)", borderRadius: 14, background: "var(--card)", boxSizing: "border-box",
-                    display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 6, padding: 10,
-                  }}>
-                    <input
-                      value={newTableName}
-                      onChange={(e) => setNewTableName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") addTable(); if (e.key === "Escape") { setAddingTable(false); setNewTableName(""); } }}
-                      placeholder="Masa 9" style={{ ...inp, fontSize: 13, padding: "6px 8px" }} autoFocus
-                    />
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={addTable} style={{ ...btnSmall, flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Ekle</button>
-                      <button onClick={() => { setAddingTable(false); setNewTableName(""); }} style={{ ...btnSecondary, width: "auto", flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Vazgeç</button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 10, flexShrink: 0 }}>{tablesInArea.length} masa · boş bir yere sağ tıkla masa ekle</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 10, flexShrink: 0 }}>{tablesInArea.length} masa · boş bir yere sağ tıklayıp da ekleyebilirsin</div>
         </div>
       </div>
 
@@ -277,14 +286,7 @@ export default function SalonPage() {
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
           <div style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
-            {!ctxMenu.table ? (
-              <button
-                onClick={() => { setCtxMenu(null); setAddingTable(true); setErr(null); }}
-                style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--ink)" }}
-              >
-                <Plus size={14} /> Masa ekle
-              </button>
-            ) : (
+            {ctxMenu.table && (
               <>
                 <div style={{ padding: "8px 12px 9px" }}>
                   <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Koltuk sayısı</div>
@@ -315,6 +317,52 @@ export default function SalonPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* MASA EKLE KATMANI — kart değil, gerçek masa şekli seçiliyor (Gökhan, 2026-08-04:
+          "masa ekle deyince kart değil masa şekli çıksın"). Şekil × kişi sayısı ön tanımlı
+          5 seçenek, her biri kendi görseliyle (yuvarlak/kare/dikdörtgen). */}
+      {addingTable && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => { setAddingTable(false); setNewTableName(""); }}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 340, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14 }}>Masa ekle</div>
+            {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
+
+            <input
+              value={newTableName}
+              onChange={(e) => setNewTableName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addTable(); if (e.key === "Escape") { setAddingTable(false); setNewTableName(""); } }}
+              placeholder="Masa adı (Masa 9, Teras 2…)" style={inp} autoFocus
+            />
+
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 14, marginBottom: 8 }}>Masa şekli</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {MASA_ONTANIMLARI.map((secim, i) => (
+                <button
+                  key={secim.label}
+                  onClick={() => setNewTableSecim(i)}
+                  style={{
+                    all: "unset", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                    padding: 10, borderRadius: 12,
+                    border: newTableSecim === i ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
+                    background: newTableSecim === i ? "var(--recede)" : "transparent",
+                  }}
+                >
+                  <div style={{
+                    width: secim.shape === "dikdortgen" ? 44 : 32, height: secim.shape === "yuvarlak" ? 32 : secim.shape === "kare" ? 32 : 26,
+                    borderRadius: SEKIL_RADIUS[secim.shape], background: "var(--tan-300)", border: "1px solid var(--line-2)",
+                  }} />
+                  <span style={{ fontSize: 11, color: "var(--ink)", whiteSpace: "nowrap" }}>{secim.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
+              <button onClick={() => { setAddingTable(false); setNewTableName(""); }} style={btnSecondary}>Vazgeç</button>
+              <button onClick={addTable} disabled={!newTableName.trim()} style={{ border: "none", borderRadius: 980, padding: "9px 16px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer", opacity: !newTableName.trim() ? 0.5 : 1 }}>Ekle</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -363,7 +411,7 @@ function TableBox({
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
       style={{
-        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: 14, padding: 12,
+        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: SEKIL_RADIUS[table.shape] ?? 14, padding: 12,
         cursor: "grab", touchAction: "none", userSelect: "none",
         background: occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)",
         border: "1px solid var(--line)", boxSizing: "border-box",
