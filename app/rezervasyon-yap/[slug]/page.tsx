@@ -66,7 +66,7 @@ export default function RezervasyonYapPage() {
     if (honeypot.trim()) { setDone(true); return; } // bot — sessizce "başarılı" göster, gerçek kayıt açma
 
     setBusy(true); setErr(null);
-    const { error } = await supabase.from("reservations").insert({
+    const { data: yeniKayit, error } = await supabase.from("reservations").insert({
       restaurant_id: restaurant.id,
       guest_name: toTitleTr(name),
       guest_phone: phone.trim(),
@@ -76,9 +76,11 @@ export default function RezervasyonYapPage() {
       status: "bekleniyor",
       source: "online",
       consent_at: new Date().toISOString(),
-    });
+    }).select("id").single();
     setBusy(false);
     if (error) { setErr("Rezervasyon gönderilemedi, lütfen tekrar dene."); return; }
+    // Onay bildirimi — sağlayıcı bağlanana kadar sessizce "gönderilmedi" döner, akışı etkilemez.
+    if (yeniKayit) supabase.functions.invoke("send-reservation-notification", { body: { reservation_id: yeniKayit.id, type: "onay" } }).catch(() => {});
     setDone(true);
   };
 

@@ -140,6 +140,15 @@ function useMisafirGecmisi(phone: string, restaurantId: string | null): Gecmis {
   return gecmis;
 }
 
+// Rezervasyon onay/hatırlatma bildirimi — SMS/WhatsApp sağlayıcısı henüz bağlanmadı, Edge
+// Function şu an her zaman "gönderilmedi" döner (bkz. supabase/functions/send-reservation-
+// notification). Arka planda, sonucunu beklemeden çağırıyoruz — bildirim gitmese de
+// rezervasyon akışı asla bundan etkilenmesin (Gökhan: "sağlayıcılara bağlanacakmışın gibi
+// devam et, sonrasına bakarız").
+const bildirimGonder = (reservationId: string, tip: "onay" | "hatirlatma") => {
+  supabase.functions.invoke("send-reservation-notification", { body: { reservation_id: reservationId, type: tip } }).catch(() => {});
+};
+
 export default function KarsilamaPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [gun, setGun] = useState("");
@@ -279,7 +288,7 @@ export default function KarsilamaPage() {
     }
 
     setBusy(true);
-    const { error } = await supabase.from("reservations").insert({
+    const { data: yeniKayit, error } = await supabase.from("reservations").insert({
       restaurant_id: restaurantId,
       guest_name: toTitleTr(fName),
       guest_phone: fPhone.trim() || null,
@@ -287,9 +296,10 @@ export default function KarsilamaPage() {
       reserved_at: new Date(`${fDate}T${fTime}:00+03:00`).toISOString(),
       note: fNote.trim() || null,
       consent_at: fPhone.trim() ? new Date().toISOString() : null,
-    });
+    }).select("id").single();
     setBusy(false);
     if (error) { setErr(error.message); return; }
+    if (yeniKayit) bildirimGonder(yeniKayit.id, "onay");
     setNewResOpen(false);
     if (fDate === gun && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
       bildirCapacityNotice(`Kapasite bu rezervasyonla doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);

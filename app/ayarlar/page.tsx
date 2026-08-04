@@ -27,6 +27,12 @@ type Settings = {
   // Karşılama'nın kapasite/Yedek hesabı bu saatten önceki/sonraki rezervasyonları ayrı
   // dönem sayar (ROADMAP §O2 — "gün olarak değil dönem olarak takip edeceğiz").
   evening_start_hour: number;
+  // Rezervasyon SMS/WhatsApp bildirimleri — kanal 'kapali' olduğu sürece send-reservation-
+  // notification Edge Function'ı hiçbir şey göndermez (Gökhan: "sağlayıcılara bağlanacakmışın
+  // gibi devam et, sonrasına bakarız" — boru hattı hazır, sağlayıcı seçilince tamamlanacak).
+  notif_channel: "kapali" | "sms" | "whatsapp";
+  notif_onay: boolean;
+  notif_hatirlatma: boolean;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -42,6 +48,9 @@ const DEFAULT_SETTINGS: Settings = {
   kitchen_tip_percent: 0,
   course_sequencing_enabled: false,
   evening_start_hour: 17,
+  notif_channel: "kapali",
+  notif_onay: true,
+  notif_hatirlatma: true,
 };
 
 // Personel ekranındaki ROLES ile aynı liste — bahşiş puanı da rol bazında tanımlanıyor.
@@ -170,7 +179,7 @@ export default function Ayarlar() {
     if (!restId) return;
     setRestaurantId(restId);
     const [{ data: s }, { data: c }, { data: pv }] = await Promise.all([
-      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent, course_sequencing_enabled, evening_start_hour").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("default_vat_rate, default_menu_design, default_variable_cost_per_cover, default_fixed_cost_share_percent, role_visibility, staff_comparison_enabled, purchase_approval_roles, table_flow_mode, tip_points, kitchen_tip_percent, course_sequencing_enabled, evening_start_hour, notif_channel, notif_onay, notif_hatirlatma").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("menu_categories").select("id, name, parent_id, vat_rate, target_food_cost_percent, course_no").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("payment_providers").select("id, name, method, commission_rate, settlement_days, is_default, is_active").eq("restaurant_id", restId).is("deleted_at", null).order("method").order("sort_order"),
     ]);
@@ -422,6 +431,35 @@ export default function Ayarlar() {
               Karşılama&apos;daki kapasite/&quot;Yedek&quot; hesabı günü tek havuzda değil, bu saatten önceki
               (öğle) ve sonraki (akşam) diye iki ayrı dönemde sayar — öğlenin dolu olması akşamı
               &quot;dolu&quot; göstermesin diye.
+            </div>
+
+            {/* Rezervasyon SMS/WhatsApp bildirimleri — boru hattı hazır (ayar kontrolü, tetikleme
+                noktaları), sadece sağlayıcı (Netgsm/İleti Merkezi/WhatsApp Business API) eksik.
+                Kanal seçilip API anahtarı Edge Function'a eklenene kadar hiçbir mesaj gitmez. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 16, marginBottom: 8 }}>Rezervasyon bildirimleri</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }}>Kanal:</span>
+              <select
+                value={settings.notif_channel}
+                onChange={(e) => setSettings((s) => ({ ...s, notif_channel: e.target.value as Settings["notif_channel"] }))}
+                style={{ ...inp, width: 160 }}
+              >
+                <option value="kapali">Kapalı</option>
+                <option value="sms">SMS</option>
+                <option value="whatsapp">WhatsApp</option>
+              </select>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={settings.notif_onay} onChange={() => setSettings((s) => ({ ...s, notif_onay: !s.notif_onay }))} /> Rezervasyon alınınca onay mesajı
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={settings.notif_hatirlatma} onChange={() => setSettings((s) => ({ ...s, notif_hatirlatma: !s.notif_hatirlatma }))} /> Geliş saatinden önce hatırlatma
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.6 }}>
+              Kanal &quot;Kapalı&quot; olduğu sürece hiçbir mesaj gönderilmez. SMS/WhatsApp seçince de,
+              gerçek gönderim için bir sağlayıcı hesabı (Netgsm, İleti Merkezi, WhatsApp Business
+              API gibi) bağlanması gerekiyor — o bağlanana kadar sistem mesajı &quot;gönderilemedi,
+              sağlayıcı bağlı değil&quot; diye kaydeder, hata vermez.
             </div>
 
             {/* Bahşiş puan-saat dağıtımı (ROADMAP §O12). Boş bırakılan rol 0 puan sayılır,
