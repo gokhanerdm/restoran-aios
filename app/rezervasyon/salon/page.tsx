@@ -635,8 +635,8 @@ export default function SalonPage() {
                   {/* Salonun gerçek ölçüsü girildiyse çerçeve — "gerçek oturumun minyatürü"
                       (Gökhan: "salonun gerçek oturumunu minyatürde görmek"). */}
                   {odaGenislikPx && odaDerinlikPx && (
-                    <div style={{ position: "absolute", left: 0, top: 0, width: odaGenislikPx, height: odaDerinlikPx, border: "2px dashed var(--line-2)", borderRadius: 4, boxSizing: "border-box", pointerEvents: "none" }}>
-                      <div className="tnum" style={{ position: "absolute", top: -20, left: 0, fontSize: 11, color: "var(--muted-2)" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, width: odaGenislikPx, height: odaDerinlikPx, border: "3px solid var(--brand-strong)", borderRadius: 4, boxSizing: "border-box", pointerEvents: "none" }}>
+                      <div className="tnum" style={{ position: "absolute", top: -22, left: -3, fontSize: 12, fontWeight: 700, color: "var(--ink-green)" }}>
                         {(selectedArea!.genislik_cm! / 100).toFixed(1)} × {(selectedArea!.derinlik_cm! / 100).toFixed(1)} m
                       </div>
                     </div>
