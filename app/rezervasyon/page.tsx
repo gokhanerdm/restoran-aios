@@ -1,11 +1,12 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Settings } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -152,6 +153,8 @@ function RezervasyonInner() {
   const [kvkkNotice, setKvkkNotice] = useState("");
   const [kvkkAcik, setKvkkAcik] = useState(false);
   const [aksamBaslangic, setAksamBaslangic] = useState(17);
+  // Varsayılan oturma süresi Ayarlar'dan geliyor — yeni rezervasyon bu süreyle kaydedilir.
+  const [oturmaSuresi, setOturmaSuresi] = useState(90);
   const [capacityNotice, setCapacityNotice] = useState<string | null>(null);
   const bildirCapacityNotice = (msg: string) => {
     setCapacityNotice(msg);
@@ -207,15 +210,16 @@ function RezervasyonInner() {
         .gte("reserved_at", start).lt("reserved_at", end)
         .order("created_at"),
       supabase.from("restaurant_tables").select("id, name, seat_count, status").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("kvkk_notice, evening_start_hour").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("kvkk_notice, evening_start_hour, default_duration_minutes").eq("restaurant_id", restId).maybeSingle(),
     ]);
     if (error) { setErr(error.message); return; }
     const list = (r as Rez[]) ?? [];
     setRows(list);
     setTables((t as TableRow[]) ?? []);
-    const settingsRow = s as { kvkk_notice: string | null; evening_start_hour: number } | null;
+    const settingsRow = s as { kvkk_notice: string | null; evening_start_hour: number; default_duration_minutes: number } | null;
     setKvkkNotice(settingsRow?.kvkk_notice ?? "");
     setAksamBaslangic(settingsRow?.evening_start_hour ?? 17);
+    setOturmaSuresi(settingsRow?.default_duration_minutes ?? 90);
     setErr(null);
 
     if (targetGun === bugunIstanbul()) {
@@ -281,6 +285,7 @@ function RezervasyonInner() {
       guest_phone: fPhone.trim() || null,
       party_size: kisi,
       reserved_at: new Date(`${fDate}T${fTime}:00+03:00`).toISOString(),
+      duration_minutes: oturmaSuresi,
       note: fNote.trim() || null,
       consent_at: fPhone.trim() ? new Date().toISOString() : null,
     }).select("id").single();
@@ -443,9 +448,13 @@ function RezervasyonInner() {
       {confirmDialog}
 
       {/* Kendi başlığı — AIOS kabuğu (sol menü) bu programda yok, işletme adı burada durur. */}
-      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "baseline", gap: 10 }}>
+      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyon</div>
         {restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>}
+        <div style={{ flex: 1 }} />
+        <Link href={rSlug ? `/rezervasyon/ayarlar?r=${rSlug}` : "/rezervasyon/ayarlar"} aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, textDecoration: "none" }}>
+          <Settings size={19} />
+        </Link>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
