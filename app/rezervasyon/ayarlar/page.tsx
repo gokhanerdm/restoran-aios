@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
+import { getMyReservationRestaurantId, getMyReservationRestaurants, isMultiBranchAccount, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toUpperTr, toTitleTr } from "@/lib/text";
-import { Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft } from "lucide-react";
+import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
+import { Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft, Store } from "lucide-react";
 import { useConfirm } from "../../components/useConfirm";
 import EditableText from "../../components/EditableText";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../../components/ListRow";
@@ -99,6 +100,25 @@ export default function RezervasyonAyarlarPage() {
   const [oturmaSuresi, setOturmaSuresi] = useState("90");
   const [kvkkNotice, setKvkkNotice] = useState("");
 
+  // Şubeler — sadece çok şubeli hesapta gösterilir (Gökhan, 2026-08-04: "çok şubeli
+  // işletmede şube ekle olmalı, girilen bilgiler aynı olmalı, değişkenlik gösteren
+  // bilgiler girilmeli" — marka bilgisi tekrar sorulmaz, sadece şubeye özgü alanlar).
+  const [cokSubeli, setCokSubeli] = useState(false);
+  const [subeler, setSubeler] = useState<ReservationBranch[]>([]);
+  const [subeEkleAcik, setSubeEkleAcik] = useState(false);
+  const [subeBusy, setSubeBusy] = useState(false);
+  const [subeErr, setSubeErr] = useState<string | null>(null);
+  const [bAdi, setBAdi] = useState("");
+  const [bTelefon, setBTelefon] = useState("");
+  const [bIl, setBIl] = useState("");
+  const [bIlce, setBIlce] = useState("");
+  const [bAdres, setBAdres] = useState("");
+  const [bIlOnerileriAcik, setBIlOnerileriAcik] = useState(false);
+  const [bIlceOnerileriAcik, setBIlceOnerileriAcik] = useState(false);
+  const [bAcikGunler, setBAcikGunler] = useState<Set<DayKey>>(new Set(DAYS.map((d) => d.k)));
+  const [bAcilis, setBAcilis] = useState("09:00");
+  const [bKapanis, setBKapanis] = useState("23:00");
+
   useEffect(() => {
     let active = true;
     getMyReservationRestaurantId().then((id) => {
@@ -106,8 +126,61 @@ export default function RezervasyonAyarlarPage() {
       if (!id) { router.replace("/rezervasyon/giris"); return; }
       setRestaurantId(id);
     });
+    isMultiBranchAccount().then((v) => { if (active) setCokSubeli(v); });
+    getMyReservationRestaurants().then((list) => { if (active) setSubeler(list); });
     return () => { active = false; };
   }, [router]);
+
+  const subeleriYenile = async () => setSubeler(await getMyReservationRestaurants());
+
+  const subeDegistir = (id: string) => {
+    setAktifSube(id);
+    window.location.assign("/rezervasyon/ayarlar");
+  };
+
+  const bGunToggle = (k: DayKey) => setBAcikGunler((s) => {
+    const next = new Set(s);
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  });
+
+  const subeEkle = async () => {
+    if (!restaurantId || subeBusy) return;
+    if (!bAdi.trim() || !bIl.trim() || !bIlce.trim() || !bAdres.trim()) {
+      setSubeErr("Şube adı, il, ilçe ve açık adres gerekli.");
+      return;
+    }
+    if (bAcikGunler.size === 0) { setSubeErr("En az bir çalışma günü seçmelisin."); return; }
+    setSubeErr(null); setSubeBusy(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setSubeBusy(false); setSubeErr("Oturum bulunamadı."); return; }
+
+    const opening_hours = {} as OpeningHours;
+    for (const d of DAYS) {
+      opening_hours[d.k] = bAcikGunler.has(d.k)
+        ? { acilis: bAcilis, kapanis: bKapanis, kapali: false }
+        : { acilis: bAcilis, kapanis: bKapanis, kapali: true };
+    }
+
+    const { data: yeniId, error } = await supabase.rpc("add_reservation_branch", {
+      p_user_id: session.user.id,
+      p_branch_name: toTitleTr(bAdi),
+      p_branch_phone: bTelefon.trim(),
+      p_il: toTitleTr(bIl),
+      p_ilce: toTitleTr(bIlce),
+      p_address: toTitleTr(bAdres),
+      p_opening_hours: opening_hours,
+    });
+    setSubeBusy(false);
+    if (error) { setSubeErr(error.message); return; }
+
+    setBAdi(""); setBTelefon(""); setBIl(""); setBIlce(""); setBAdres("");
+    setBAcikGunler(new Set(DAYS.map((d) => d.k))); setBAcilis("09:00"); setBKapanis("23:00");
+    setSubeEkleAcik(false);
+    await subeleriYenile();
+    if (yeniId) subeDegistir(yeniId as string);
+  };
 
   const load = useCallback(async (restId: string) => {
     const [{ data: a }, { data: t }, { data: r }, { data: s }] = await Promise.all([
@@ -426,6 +499,101 @@ export default function RezervasyonAyarlarPage() {
               Bu bilgiler misafirin kendi rezervasyonunu yaptığı sayfada görünür.
             </div>
 
+            {/* Şubeler — sadece çok şubeli hesapta. Marka bilgisi (işletme türü, yetkili)
+                kayıtta zaten girildi, tekrar sorulmuyor; şube eklerken sadece değişen alanlar
+                (ad, telefon, il, ilçe, adres, çalışma saatleri) istenir. */}
+            {cokSubeli && (
+              <>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Şubeler</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+                  {subeler.map((s) => (
+                    <button
+                      key={s.id} onClick={() => s.id !== restaurantId && subeDegistir(s.id)}
+                      style={{
+                        all: "unset", cursor: s.id === restaurantId ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6,
+                        padding: "7px 10px", borderRadius: 8,
+                        background: s.id === restaurantId ? "var(--recede)" : "transparent",
+                        fontSize: 13, color: s.id === restaurantId ? "var(--brand-strong)" : "var(--ink)",
+                      }}
+                    >
+                      <Store size={13} style={{ flexShrink: 0 }} />
+                      {s.name}
+                      {(s.il || s.ilce) && <span style={{ color: "var(--muted-2)", fontSize: 11 }}>· {[s.il, s.ilce].filter(Boolean).join(" / ")}</span>}
+                      {s.id === restaurantId && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700 }}>ŞU AN</span>}
+                    </button>
+                  ))}
+                </div>
+
+                {!subeEkleAcik ? (
+                  <button onClick={() => setSubeEkleAcik(true)} style={{ ...btnGhostRow, marginBottom: 16 }}><Plus size={12} style={{ marginRight: 4 }} />Şube ekle</button>
+                ) : (
+                  <div style={{ border: "1px solid var(--line-2)", borderRadius: 12, padding: 14, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {subeErr && <div style={{ fontSize: 12, color: "var(--danger)" }}>{subeErr}</div>}
+                    <input value={bAdi} onChange={(e) => setBAdi(e.target.value)} onBlur={(e) => setBAdi(toTitleTr(e.target.value))} placeholder="Şube adı" style={inp} />
+                    <input value={bTelefon} onChange={(e) => setBTelefon(e.target.value)} inputMode="tel" placeholder="Şube telefon numarası (opsiyonel)" style={inp} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ flex: 1, position: "relative" }}>
+                        <input
+                          value={bIl} onChange={(e) => { setBIl(e.target.value); setBIlOnerileriAcik(true); }}
+                          onFocus={() => setBIlOnerileriAcik(true)}
+                          onBlur={(e) => { setBIl(toTitleTr(e.target.value)); setBIlOnerileriAcik(false); }}
+                          placeholder="İl" style={inp}
+                        />
+                        {bIlOnerileriAcik && eslesenIller(bIl).length > 0 && (
+                          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 5, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                            {eslesenIller(bIl).map((o) => (
+                              <button key={o} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setBIl(o); setBIlOnerileriAcik(false); }} style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "8px 12px", boxSizing: "border-box", fontSize: 13, color: "var(--ink)" }}>{o}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ flex: 1, position: "relative" }}>
+                        <input
+                          value={bIlce} onChange={(e) => { setBIlce(e.target.value); setBIlceOnerileriAcik(true); }}
+                          onFocus={() => setBIlceOnerileriAcik(true)}
+                          onBlur={(e) => { setBIlce(toTitleTr(e.target.value)); setBIlceOnerileriAcik(false); }}
+                          placeholder="İlçe" style={inp}
+                        />
+                        {bIlceOnerileriAcik && eslesenIlceler(bIl, bIlce).length > 0 && (
+                          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 5, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                            {eslesenIlceler(bIl, bIlce).map((o) => (
+                              <button key={o} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setBIlce(o); setBIlceOnerileriAcik(false); }} style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "8px 12px", boxSizing: "border-box", fontSize: 13, color: "var(--ink)" }}>{o}</button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <input value={bAdres} onChange={(e) => setBAdres(e.target.value)} onBlur={(e) => setBAdres(toTitleTr(e.target.value))} placeholder="Açık adres" style={inp} />
+                    <div style={{ display: "flex", gap: 5 }}>
+                      {DAYS.map((d) => {
+                        const acik = bAcikGunler.has(d.k);
+                        return (
+                          <button key={d.k} onClick={() => bGunToggle(d.k)} style={{
+                            flex: 1, border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 0", fontSize: 11.5, cursor: "pointer",
+                            background: acik ? "var(--brand-strong)" : "var(--card)", color: acik ? "#fff" : "var(--muted)",
+                          }}>
+                            {d.l.slice(0, 3)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input type="time" value={bAcilis} onChange={(e) => setBAcilis(e.target.value)} style={{ ...inp, flex: 1 }} />
+                      <span style={{ fontSize: 13, color: "var(--muted)" }}>–</span>
+                      <input type="time" value={bKapanis} onChange={(e) => setBKapanis(e.target.value)} style={{ ...inp, flex: 1 }} />
+                    </div>
+                    {kapanisErtesiGun(bAcilis, bKapanis) && (
+                      <div style={{ fontSize: 11, color: "var(--gold-text)" }}>Kapanış ertesi güne sarkıyor.</div>
+                    )}
+                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                      <button onClick={() => { setSubeEkleAcik(false); setSubeErr(null); }} style={btnSecondary}>Vazgeç</button>
+                      <button onClick={subeEkle} disabled={subeBusy} style={{ ...btnPrimary, opacity: subeBusy ? 0.6 : 1 }}>{subeBusy ? "…" : "Şubeyi ekle"}</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Çalışma saatleri — misafir sayfası bu saatlerin dışına rezervasyon aldırmayacak. */}
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Çalışma saatleri</div>
             {DAYS.map((d) => {
@@ -513,6 +681,7 @@ export default function RezervasyonAyarlarPage() {
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, boxSizing: "border-box" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 4 };
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, border: "none", borderRadius: 980, padding: "9px 14px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0, cursor: "pointer" };
+const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--ink)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
 const btnGhostRow: React.CSSProperties = { ...btnGhost, padding: "4px 12px" };
 const inkSoft = "#5c5c58";

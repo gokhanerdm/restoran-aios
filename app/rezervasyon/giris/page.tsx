@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { toTitleTr } from "@/lib/text";
+import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
+import { SIFRE_KURALLARI, sifreGecerliMi, gucluSifreOner } from "@/lib/passwordPolicy";
 
 // REZERVASYON — kendi giriş/kayıt ekranı (Gökhan, 2026-08-04). AIOS'un /giris ekranıyla
 // AYNI görsel dili (kart, pill toggle, input stilleri) kullanılıyor ama mekanizma tamamen
@@ -42,33 +44,6 @@ const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) &&
 // bir küçük harf, bir rakam, bir sembol. Kayıt formunda canlı gösteriliyor (kutu yazarken
 // değişir, bu bir "hatırlatma listesi"), giriş (login) tarafında zorlanmıyor — eski
 // hesaplar farklı bir kuralla açılmış olabilir, login sadece şifreyi doğrular.
-const SIFRE_KURALLARI: { label: string; test: (pw: string) => boolean }[] = [
-  { label: "En az 8 karakter", test: (pw) => pw.length >= 8 },
-  { label: "Büyük harf", test: (pw) => /[A-ZÇĞİÖŞÜ]/.test(pw) },
-  { label: "Küçük harf", test: (pw) => /[a-zçğıöşü]/.test(pw) },
-  { label: "Rakam", test: (pw) => /[0-9]/.test(pw) },
-  { label: "Sembol (!, @, # gibi)", test: (pw) => /[^A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(pw) },
-];
-
-// "Güçlü şifre öner" — SIFRE_KURALLARI'ndaki her kuraldan en az bir karakter garanti edip
-// geri kalanı rastgele dolduruyor, sonra karıştırıyor. Karıştırma harfleri okunabilir
-// tutmak için karışık büyük/küçük I/O gibi harfler havuzdan çıkarıldı.
-function gucluSifreOner(): string {
-  const buyuk = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const kucuk = "abcdefghijkmnopqrstuvwxyz";
-  const rakam = "23456789";
-  const sembol = "!@#$%^&*-_=+?";
-  const rastgele = (havuz: string) => havuz[Math.floor(Math.random() * havuz.length)];
-  const karakterler = [rastgele(buyuk), rastgele(kucuk), rastgele(rakam), rastgele(sembol)];
-  const tumHavuz = buyuk + kucuk + rakam + sembol;
-  while (karakterler.length < 12) karakterler.push(rastgele(tumHavuz));
-  for (let i = karakterler.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [karakterler[i], karakterler[j]] = [karakterler[j], karakterler[i]];
-  }
-  return karakterler.join("");
-}
-
 const errMap: Record<string, string> = {
   invalid_credentials: "E-posta veya şifre hatalı.",
   email_not_confirmed: "E-postanı henüz onaylamamışsın — gelen kutunu kontrol et.",
@@ -107,6 +82,8 @@ export default function RezervasyonGirisPage() {
   const [branchPhone, setBranchPhone] = useState("");
   const [il, setIl] = useState("");
   const [ilce, setIlce] = useState("");
+  const [ilOnerileriAcik, setIlOnerileriAcik] = useState(false);
+  const [ilceOnerileriAcik, setIlceOnerileriAcik] = useState(false);
   const [address, setAddress] = useState("");
   const [acikGunler, setAcikGunler] = useState<Set<DayKey>>(new Set(TUM_GUNLER));
   const [acilis, setAcilis] = useState("09:00");
@@ -136,7 +113,7 @@ export default function RezervasyonGirisPage() {
       setErr(`${subeTipi === "cok" ? "Marka" : "İşletme"} adı, yetkili adı soyadı, telefon, e-posta ve şifre gerekli.`);
       return;
     }
-    if (!SIFRE_KURALLARI.every((k) => k.test(password))) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
+    if (!sifreGecerliMi(password)) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
     if (!businessType) { setErr("İşletme türünü seç."); return; }
     if (subeTipi === "cok" && !branchName.trim()) { setErr("Şube adı gerekli."); return; }
     if (!il.trim() || !ilce.trim() || !address.trim()) { setErr("İl, ilçe ve açık adres gerekli."); return; }
@@ -189,6 +166,20 @@ export default function RezervasyonGirisPage() {
     router.push("/rezervasyon");
   };
 
+  // Şifremi unuttum — mailine sıfırlama linki gider, link /rezervasyon/sifre-sifirla'ya
+  // düşer (Gökhan, 2026-08-04: "şifremi unuttum seçeneğimizde yok").
+  const sifremiUnuttum = async () => {
+    if (busy) return;
+    if (!email.trim()) { setErr("Önce e-posta adresini yaz, sonra linke tıkla."); return; }
+    setBusy(true); setErr(null); setConfirmMsg(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/rezervasyon/sifre-sifirla`,
+    });
+    setBusy(false);
+    if (error) { setErr(friendlyErr(error.code, error.message)); return; }
+    setConfirmMsg(`${email.trim()} adresine bir şifre sıfırlama linki gönderdik.`);
+  };
+
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--canvas)", padding: "40px 20px" }}>
       <div style={{ width: "min(460px, 94vw)", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 20, padding: 28 }}>
@@ -215,6 +206,9 @@ export default function RezervasyonGirisPage() {
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="E-posta" style={inp} />
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Şifre" style={inp}
               onKeyDown={(e) => e.key === "Enter" && submitGiris()} />
+            <button type="button" onClick={sifremiUnuttum} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)", alignSelf: "flex-end" }}>
+              Şifremi unuttum
+            </button>
             <button onClick={submitGiris} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, marginTop: 6 }}>
               {busy ? "…" : "Giriş yap"}
             </button>
@@ -284,25 +278,31 @@ export default function RezervasyonGirisPage() {
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            {/* Gereksinim listesi — kutuya yazdıkça canlı güncellenir, karşılanan madde
-                yeşile döner. Şifrenin kendisi hiçbir yere loglanmıyor, sadece burada. */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: -2 }}>
+            {/* Gereksinim listesi + "Güçlü şifre öner" AYNI TEK SIRADA (Gökhan, 2026-08-04:
+                "o sıraya al", "şifre doğrulamada girsin") — hiçbir koşulda alta düşmez,
+                kısaltılmış etiketler + flexWrap:"nowrap" tek satıra kesin sığıyor; aşırı
+                dar bir ekranda bile bölünmez, gerekirse yana kayar (overflowX). */}
+            <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 7, marginTop: -2, overflowX: "auto" }}>
               {SIFRE_KURALLARI.map((k) => {
                 const met = k.test(password);
                 return (
-                  <span key={k.label} style={{ fontSize: 11, color: met ? "var(--brand)" : "var(--muted-2)" }}>
-                    {met ? "✓ " : ""}{k.label}
+                  <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 11, color: "var(--line-2)" }}>·</span>
+                    <span style={{ fontSize: 10.5, color: met ? "var(--brand)" : "var(--muted-2)" }}>
+                      {met ? "✓ " : ""}{k.label}
+                    </span>
                   </span>
                 );
               })}
+              <span style={{ fontSize: 11, color: "var(--line-2)", flexShrink: 0 }}>·</span>
+              <button
+                type="button"
+                onClick={() => { setPassword(gucluSifreOner()); setShowPw(true); }}
+                style={{ all: "unset", cursor: "pointer", fontSize: 10.5, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
+              >
+                Güçlü şifre öner
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => { setPassword(gucluSifreOner()); setShowPw(true); }}
-              style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)", alignSelf: "flex-start" }}
-            >
-              Güçlü şifre öner
-            </button>
 
             {subeTipi === "cok" && (
               <>
@@ -313,8 +313,56 @@ export default function RezervasyonGirisPage() {
             )}
 
             <div style={{ display: "flex", gap: 8 }}>
-              <input value={il} onChange={(e) => setIl(e.target.value)} onBlur={onBlurTitle(setIl)} onKeyDown={onEnterBlur} placeholder="İl" style={{ ...inp, flex: 1 }} />
-              <input value={ilce} onChange={(e) => setIlce(e.target.value)} onBlur={onBlurTitle(setIlce)} onKeyDown={onEnterBlur} placeholder="İlçe" style={{ ...inp, flex: 1 }} />
+              {/* İl/İlçe önerisi — "an" yazınca Ankara, "is" yazınca İstanbul gibi baştan
+                  eşleşen resmi il/ilçe adları aşağıda kutunun içinden açılır (Gökhan,
+                  2026-08-04). Öneriye tıklarken input'un blur olup listeyi kapatmasını
+                  onMouseDown'daki preventDefault engelliyor, yoksa tıklama hiç ulaşmıyordu. */}
+              <div style={{ flex: 1, position: "relative" }}>
+                <input
+                  value={il}
+                  onChange={(e) => { setIl(e.target.value); setIlOnerileriAcik(true); }}
+                  onFocus={() => setIlOnerileriAcik(true)}
+                  onBlur={(e) => { onBlurTitle(setIl)(e); setIlOnerileriAcik(false); }}
+                  onKeyDown={onEnterBlur}
+                  placeholder="İl" style={inp}
+                />
+                {ilOnerileriAcik && eslesenIller(il).length > 0 && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 5, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                    {eslesenIller(il).map((o) => (
+                      <button
+                        key={o} type="button" onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setIl(o); setIlOnerileriAcik(false); }}
+                        style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "8px 12px", boxSizing: "border-box", fontSize: 13, color: "var(--ink)" }}
+                      >
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ flex: 1, position: "relative" }}>
+                <input
+                  value={ilce}
+                  onChange={(e) => { setIlce(e.target.value); setIlceOnerileriAcik(true); }}
+                  onFocus={() => setIlceOnerileriAcik(true)}
+                  onBlur={(e) => { onBlurTitle(setIlce)(e); setIlceOnerileriAcik(false); }}
+                  onKeyDown={onEnterBlur}
+                  placeholder="İlçe" style={inp}
+                />
+                {ilceOnerileriAcik && eslesenIlceler(il, ilce).length > 0 && (
+                  <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 5, boxShadow: "0 4px 14px rgba(0,0,0,0.08)" }}>
+                    {eslesenIlceler(il, ilce).map((o) => (
+                      <button
+                        key={o} type="button" onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => { setIlce(o); setIlceOnerileriAcik(false); }}
+                        style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "8px 12px", boxSizing: "border-box", fontSize: 13, color: "var(--ink)" }}
+                      >
+                        {o}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <input value={address} onChange={(e) => setAddress(e.target.value)} onBlur={onBlurTitle(setAddress)} onKeyDown={onEnterBlur} placeholder="Açık adres" style={inp} />
 

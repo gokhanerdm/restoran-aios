@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
+import { getMyReservationRestaurantId, getMyReservationRestaurants, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight, Settings, LogOut } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, Settings, LogOut, Store } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -135,6 +135,9 @@ const bildirimGonder = (reservationId: string, tip: "onay" | "hatirlatma") => {
 export default function RezervasyonPage() {
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState("");
+  // Çok şubeli hesaplarda şube değiştirici — tek şubelide hiç görünmez (liste 1 elemanlı).
+  const [subeler, setSubeler] = useState<ReservationBranch[]>([]);
+  const [subeSecimiAcik, setSubeSecimiAcik] = useState(false);
   const [gun, setGun] = useState("");
   const [rows, setRows] = useState<Rez[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
@@ -182,6 +185,8 @@ export default function RezervasyonPage() {
   const router = useRouter();
 
   // İşletme oturumdan çözülür — oturum yoksa ya da hesabın restoranı yoksa girişe düşer.
+  // Şube listesi de burada çekiliyor — çok şubeli hesapta değiştirici için (tek şubelide
+  // liste 1 elemanlı geleceği için değiştirici zaten hiç görünmeyecek).
   useEffect(() => {
     let active = true;
     getMyReservationRestaurantId().then((id) => {
@@ -191,8 +196,16 @@ export default function RezervasyonPage() {
       supabase.from("restaurants").select("name").eq("id", id).maybeSingle()
         .then(({ data }) => { if (active) setRestaurantName((data as { name: string } | null)?.name ?? ""); });
     });
+    getMyReservationRestaurants().then((list) => { if (active) setSubeler(list); });
     return () => { active = false; };
   }, [router]);
+
+  // Şube değiştirme — bu masaya/ekrana özgü onlarca state'i teker teker sıfırlamak yerine
+  // sert bir sayfa yenilemesiyle temiz baştan yükleniyor (Ayarlar dahil her ekran tutarlı kalsın diye).
+  const subeDegistir = (id: string) => {
+    setAktifSube(id);
+    window.location.assign("/rezervasyon");
+  };
 
   const cikisYap = async () => { await supabase.auth.signOut(); router.replace("/rezervasyon/giris"); };
 
@@ -444,7 +457,38 @@ export default function RezervasyonPage() {
       {/* Kendi başlığı — AIOS kabuğu (sol menü) bu programda yok, işletme adı burada durur. */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyon</div>
-        {restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>}
+        {/* Şube değiştirici — SADECE çok şubeli hesapta görünür (tek şubeliyse liste zaten
+            1 elemanlı, buton anlamsız olurdu). İşletme adının yanında küçük bir akordiyon. */}
+        {subeler.length > 1 ? (
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setSubeSecimiAcik((v) => !v)}
+              style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "var(--muted)" }}
+            >
+              <Store size={13} />
+              {restaurantName}
+              <ChevronDown size={13} style={{ transform: subeSecimiAcik ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} />
+            </button>
+            {subeSecimiAcik && (
+              <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, minWidth: 200, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 20, boxShadow: "0 4px 14px rgba(0,0,0,0.1)" }}>
+                {subeler.map((s) => (
+                  <button
+                    key={s.id} onClick={() => subeDegistir(s.id)}
+                    style={{
+                      all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "8px 12px", boxSizing: "border-box",
+                      fontSize: 13, color: s.id === restaurantId ? "var(--brand-strong)" : "var(--ink)",
+                      background: s.id === restaurantId ? "var(--recede)" : "transparent",
+                    }}
+                  >
+                    {s.name}{(s.il || s.ilce) && <span style={{ color: "var(--muted-2)", fontSize: 11 }}> · {[s.il, s.ilce].filter(Boolean).join(" / ")}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>
+        )}
         <div style={{ flex: 1 }} />
         <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, textDecoration: "none" }}>
           <Settings size={19} />
