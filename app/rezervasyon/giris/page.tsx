@@ -146,6 +146,15 @@ export default function RezervasyonGirisPage() {
     const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
     if (error) { setBusy(false); setErr(friendlyErr(error.code, error.message)); return; }
     if (!data.user) { setBusy(false); setErr("Hesap oluşturulamadı."); return; }
+    // Supabase, zaten kayıtlı bir e-postayla signUp çağrılınca (e-posta sızıntısını önlemek
+    // için) HATA DÖNDÜRMEZ — "başarılı" görünen ama identities'i boş bir kullanıcı nesnesi
+    // döner. Bunu error alanına bakarak yakalayamıyoruz, tek işareti bu: identities boşsa
+    // hesap zaten var demektir, bootstrap RPC'sini hiç çağırmadan burada durmalıyız.
+    if (Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+      setBusy(false);
+      setErr(friendlyErr("user_already_exists", "Bu e-posta ile zaten bir hesap var, giriş yapmayı dene."));
+      return;
+    }
 
     const { error: bootErr } = await supabase.rpc("bootstrap_reservation_account", {
       p_user_id: data.user.id,
