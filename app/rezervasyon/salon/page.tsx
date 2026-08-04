@@ -20,7 +20,9 @@ import { useConfirm } from "../../components/useConfirm";
 // paylaşıyor, position_x/position_y de zaten AIOS'tan beri var olan kolonlar, yeni migration
 // gerekmedi. Ayarlar'daki liste duruyor (hızlı toplu ekleme için), bu ekran görsel yerleşim için.
 
-type Area = { id: string; name: string; sort_order: number };
+// genislik_cm/derinlik_cm — salonun gerçek en/boy ölçüsü (Gökhan: "salonun gerçek oturumunu
+// minyatürde görmek"). İsteğe bağlı; girilmezse tuval eskisi gibi otomatik büyür.
+type Area = { id: string; name: string; sort_order: number; genislik_cm: number | null; derinlik_cm: number | null };
 // Loca gerçek bir masa şekli (Gökhan: "locayı masa ekleye koyacağız" — dekoratif öğe değil,
 // doğrudan kişi sayısı/rezervasyon durumu taşıyan bir masa gibi işlem görsün).
 type Shape = "yuvarlak" | "kare" | "dikdortgen" | "loca";
@@ -141,6 +143,33 @@ export default function SalonPage() {
   const [ogeler, setOgeler] = useState<SalonOge[]>([]);
   const [ogeMenuAcik, setOgeMenuAcik] = useState(false);
   const [ogeCtxMenu, setOgeCtxMenu] = useState<{ x: number; y: number; oge: SalonOge } | null>(null);
+  // Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — gerçek en/boy (m)
+  // girişi + yakınlaştırma. olcuInput sadece salon değişince senkronlanır (poll her 6sn'de
+  // areas'ı tazeliyor — sürekli senkronlarsak yazarken input elinden kayar).
+  const [olcuInput, setOlcuInput] = useState<{ genislik: string; derinlik: string }>({ genislik: "", derinlik: "" });
+  const [zoom, setZoom] = useState(1);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(1);
+  const panStart = useRef<{ x: number; y: number; scrollLeft: number; scrollTop: number } | null>(null);
+  const pendingAnchor = useRef<{ contentX: number; contentY: number; clientX: number; clientY: number } | null>(null);
+  const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
+  // Ref değil state — react-hooks/refs kuralı render sırasında ref okuma/yazmayı da yasaklıyor,
+  // bu yüzden "bir kez çalıştım" bayrağı da state olarak tutuluyor.
+  const [autoFitDone, setAutoFitDone] = useState<string | null>(null);
+
+  // Salon değişince ölçü kutusu ve zoom sıfırlanır — bunu bir effect yerine render sırasında
+  // yapıyoruz (React'in "prop değişince state sıfırla" deseni), yoksa react-hooks/set-state-in-effect
+  // uyarısı tetikleniyordu.
+  const [prevAreaId, setPrevAreaId] = useState<string | null | undefined>(undefined);
+  if (selectedAreaId !== prevAreaId) {
+    setPrevAreaId(selectedAreaId);
+    const a = areas.find((x) => x.id === selectedAreaId);
+    setOlcuInput({
+      genislik: a?.genislik_cm ? String(Math.round(a.genislik_cm) / 100) : "",
+      derinlik: a?.derinlik_cm ? String(Math.round(a.derinlik_cm) / 100) : "",
+    });
+    setZoom(1);
+  }
 
   useEffect(() => {
     let active = true;
@@ -155,7 +184,7 @@ export default function SalonPage() {
   const load = useCallback(async (restId: string) => {
     const { start, end } = bugunSiniri();
     const [{ data: a }, { data: t }, { data: r }, { data: o }] = await Promise.all([
-      supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("dining_areas").select("id, name, sort_order, genislik_cm, derinlik_cm").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
         .gte("reserved_at", start).lt("reserved_at", end),
@@ -179,6 +208,64 @@ export default function SalonPage() {
     const id = setInterval(() => load(restaurantId), 6000);
     return () => clearInterval(id);
   }, [restaurantId, load]);
+
+  useEffect(() => { zoomRef.current = zoom; }, [zoom]);
+
+  // Fare tekerleğiyle yakınlaştırırken imlecin altındaki nokta yerinde kalsın diye — zoom
+  // state değiştikten SONRA (DOM yeni ölçekle güncellendikten sonra) kaydırma konumu ayarlanıyor.
+  useEffect(() => {
+    const anchor = pendingAnchor.current;
+    const el = viewportRef.current;
+    if (!anchor || !el) return;
+    el.scrollLeft = anchor.contentX * zoom - anchor.clientX;
+    el.scrollTop = anchor.contentY * zoom - anchor.clientY;
+    pendingAnchor.current = null;
+  }, [zoom]);
+
+  // Görünür tuval kutusunun piksel boyutu — "tüm salonu göster" hesabı için gerekli.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box) setViewportSize({ w: box.width, h: box.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [selectedAreaId]);
+
+  // İki parmakla yakınlaştırma (tablet) — Pointer Events masa sürüklemesiyle karışmasın diye
+  // ayrı, native touch event dinleyicileri (React'ın sentetik pointer capture akışının dışında).
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    let baslangicMesafe = 0;
+    let baslangicZoom = 1;
+    const mesafe = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) { baslangicMesafe = mesafe(e.touches); baslangicZoom = zoomRef.current; }
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && baslangicMesafe > 0) {
+        e.preventDefault();
+        setZoom(Math.min(6, Math.max(0.1, baslangicZoom * (mesafe(e.touches) / baslangicMesafe))));
+      }
+    };
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => { el.removeEventListener("touchstart", onTouchStart); el.removeEventListener("touchmove", onTouchMove); };
+  }, [selectedAreaId]);
+
+  const saveOlcu = async () => {
+    if (!selectedAreaId) return;
+    const g = parseFloat(olcuInput.genislik.replace(",", "."));
+    const d = parseFloat(olcuInput.derinlik.replace(",", "."));
+    const genislik_cm = Number.isFinite(g) && g > 0 ? Math.round(g * 100) : null;
+    const derinlik_cm = Number.isFinite(d) && d > 0 ? Math.round(d * 100) : null;
+    const { error } = await supabase.from("dining_areas").update({ genislik_cm, derinlik_cm }).eq("id", selectedAreaId);
+    if (error) { setErr(error.message); return; }
+    if (restaurantId) await load(restaurantId);
+  };
 
   const renameArea = async (id: string, name: string) => { await supabase.from("dining_areas").update({ name: toUpperTr(name) }).eq("id", id); if (restaurantId) await load(restaurantId); };
   const deleteArea = async (a: Area) => {
@@ -326,8 +413,77 @@ export default function SalonPage() {
   let addBoxPos = defaultPos(addSlot);
   while (!isFree(addBoxPos.x, addBoxPos.y)) { addSlot++; addBoxPos = defaultPos(addSlot); }
   const ogeYukseklik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar" ? CEKME_GORUNUM[o.type].kalinlik : SABIT_GORUNUM[o.type]?.yukseklik ?? 0);
+  const ogeGenislik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar" ? CEKME_GORUNUM[o.type].kalinlik : SABIT_GORUNUM[o.type]?.genislik ?? 0);
   const ogeAltSinirlari = ogelerInArea.map((o) => Math.max(o.y1, o.y2 ?? o.y1) + ogeYukseklik(o) + GAP);
-  const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP, ...ogeAltSinirlari);
+  const ogeSagSinirlari = ogelerInArea.map((o) => Math.max(o.x1, o.x2 ?? o.x1) + ogeGenislik(o) + GAP);
+
+  // Salon ölçeklendirme (Gökhan: "salonun gerçek oturumunu minyatürde görmek") — girilen
+  // gerçek en/boy (m), masalarla AYNI PX_PER_CM oranıyla piksele çevrilip çerçeve olarak
+  // çizilir; tuval en az bu çerçeveyi kapsayacak kadar büyür.
+  const selectedArea = areas.find((a) => a.id === selectedAreaId) ?? null;
+  const odaGenislikPx = selectedArea?.genislik_cm ? selectedArea.genislik_cm * PX_PER_CM : null;
+  const odaDerinlikPx = selectedArea?.derinlik_cm ? selectedArea.derinlik_cm * PX_PER_CM : null;
+
+  const containerWidth = Math.max(600, ...positioned.map((p) => p.x + BOX_W + GAP), addBoxPos.x + BOX_W + GAP, ...ogeSagSinirlari, odaGenislikPx ?? 0);
+  const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP, ...ogeAltSinirlari, odaDerinlikPx ?? 0);
+
+  // "Tüm salonu göster" — tuvalin tamamı görünür kutuya sığacak zoom oranı (gerekirse
+  // yakınlaştırarak da, küçük bir salon büyük bir ekranda kaybolmasın).
+  const fitZoom = () => {
+    if (!viewportSize.w || !viewportSize.h) return 1;
+    return Math.max(0.05, Math.min(viewportSize.w / containerWidth, viewportSize.h / containerHeight));
+  };
+  const zoomUygula = (yeni: number) => setZoom(Math.min(6, Math.max(0.1, yeni)));
+  const tumunuGoster = () => {
+    zoomUygula(fitZoom());
+    if (viewportRef.current) { viewportRef.current.scrollLeft = 0; viewportRef.current.scrollTop = 0; }
+  };
+
+  // Fare tekerleği ile yakınlaştır — imlecin altındaki nokta yerinde kalsın diye kaydırma
+  // konumu da (aşağıdaki useEffect'te) ayarlanıyor.
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = viewportRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const prevZoom = zoomRef.current;
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const newZoom = Math.min(6, Math.max(0.1, prevZoom * factor));
+    pendingAnchor.current = {
+      contentX: (e.clientX - rect.left + el.scrollLeft) / prevZoom,
+      contentY: (e.clientY - rect.top + el.scrollTop) / prevZoom,
+      clientX: e.clientX - rect.left,
+      clientY: e.clientY - rect.top,
+    };
+    setZoom(newZoom);
+  };
+
+  // Boş tuval alanından tutup kaydırma (pan) — sadece tıklanan yer gerçekten boşluksa
+  // (bir masa/öğeye değil doğrudan tuvale tıklandıysa) başlar.
+  const onCanvasPanDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || !viewportRef.current) return;
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
+    panStart.current = { x: e.clientX, y: e.clientY, scrollLeft: viewportRef.current.scrollLeft, scrollTop: viewportRef.current.scrollTop };
+  };
+  const onCanvasPanMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!panStart.current || !viewportRef.current) return;
+    viewportRef.current.scrollLeft = panStart.current.scrollLeft - (e.clientX - panStart.current.x);
+    viewportRef.current.scrollTop = panStart.current.scrollTop - (e.clientY - panStart.current.y);
+  };
+  const onCanvasPanUp = () => { panStart.current = null; };
+
+  // Gerçek ölçü girilmiş bir salon açıldığında (ya da ölçü az önce girildiğinde) varsayılan
+  // görünüm doğrudan "tüm salonu göster" olsun (Gökhan: "salonun minyatürünü görecek, sonra
+  // zoom yaparak istediği masaya gidecek") — zoom=1 ile açılıp elle sığdırması beklenmesin.
+  // Effect değil render-sırası koşullu setState (autoFitDone aynı kombinasyon için bir kez
+  // çalışmasını garanti ediyor) — react-hooks/set-state-in-effect'i tetiklememek için.
+  if (selectedAreaId && selectedArea?.genislik_cm && selectedArea?.derinlik_cm && viewportSize.w > 0 && viewportSize.h > 0) {
+    const anahtar = `${selectedAreaId}:${selectedArea.genislik_cm}:${selectedArea.derinlik_cm}:${viewportSize.w}:${viewportSize.h}`;
+    if (autoFitDone !== anahtar) {
+      setAutoFitDone(anahtar);
+      zoomUygula(fitZoom());
+    }
+  }
 
   const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
   const doluSayisi = tables.filter((t) => t.status !== "empty").length;
@@ -417,44 +573,93 @@ export default function SalonPage() {
           </div>
         </div>
 
-        {/* Kat planı — sürükle bırak, sağ tık menü. */}
+        {/* Kat planı — sürükle bırak, sağ tık menü, ölçekli yakınlaştırma. */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}>
+          {selectedAreaId && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8, flexShrink: 0, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)" }}>
+                <span>Salon ölçüsü:</span>
+                <input
+                  value={olcuInput.genislik}
+                  onChange={(e) => setOlcuInput((v) => ({ ...v, genislik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder="en" inputMode="decimal" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 48, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+                <span>×</span>
+                <input
+                  value={olcuInput.derinlik}
+                  onChange={(e) => setOlcuInput((v) => ({ ...v, derinlik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder="boy" inputMode="decimal" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 48, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+                <span>m</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => zoomUygula(zoom / 1.25)} aria-label="Uzaklaştır" style={zoomBtn}>−</button>
+                <span className="tnum" style={{ fontSize: 12, width: 42, textAlign: "center", color: "var(--muted)" }}>{Math.round(zoom * 100)}%</span>
+                <button onClick={() => zoomUygula(zoom * 1.25)} aria-label="Yakınlaştır" style={zoomBtn}>+</button>
+                <button onClick={tumunuGoster} style={{ ...btnSecondaryHeader, padding: "6px 12px", fontSize: 12.5 }}>Tüm salonu göster</button>
+              </div>
+            </div>
+          )}
+          <div
+            ref={viewportRef} onWheel={selectedAreaId ? onWheel : undefined}
+            style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}
+          >
             {!selectedAreaId ? (
               <div style={{ padding: 24, color: "var(--muted-2)", fontSize: 13 }}>Önce solda bir salon seç ya da ekle.</div>
             ) : (
-              <div style={{ position: "relative", width: "100%", height: containerHeight }}>
-                {/* Salon öğeleri masaların ALTINDA çiziliyor — duvar/bar arka planda dursun,
-                    masalar hep tıklanabilir üstte kalsın. */}
-                {ogelerInArea.filter((o) => o.type === "duvar" || o.type === "bar").map((o) => (
-                  <CekilebilirOge
-                    key={o.id} oge={o}
-                    onMoveBody={(x1, y1, x2, y2) => moveOgeBody(o.id, x1, y1, x2, y2)}
-                    onMoveEndpoint={(which, x, y) => moveOgeEndpoint(o.id, which, x, y)}
-                    onRename={(v) => renameOge(o.id, v)}
-                    onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
-                  />
-                ))}
-                {ogelerInArea.filter((o) => o.type !== "duvar" && o.type !== "bar").map((o) => (
-                  <SabitOge
-                    key={o.id} oge={o}
-                    onMove={(x1, y1) => moveOge(o.id, x1, y1)}
-                    onRename={(v) => renameOge(o.id, v)}
-                    onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
-                  />
-                ))}
-                {positioned.map(({ table: t, x, y }) => (
-                  <TableBox
-                    key={t.id}
-                    table={t}
-                    x={x} y={y}
-                    oturan={oturanlar[t.id] ?? null}
-                    onMove={moveTable}
-                    onRename={(v) => renameTable(t.id, v)}
-                    onRotate={() => rotateTable(t.id, t.rotated)}
-                    onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
-                  />
-                ))}
+              <div style={{ position: "relative", width: containerWidth * zoom, height: containerHeight * zoom }}>
+                <div
+                  onPointerDown={onCanvasPanDown} onPointerMove={onCanvasPanMove} onPointerUp={onCanvasPanUp}
+                  style={{
+                    position: "absolute", left: 0, top: 0, width: containerWidth, height: containerHeight,
+                    transform: `scale(${zoom})`, transformOrigin: "0 0", cursor: "grab",
+                  }}
+                >
+                  {/* Salonun gerçek ölçüsü girildiyse çerçeve — "gerçek oturumun minyatürü"
+                      (Gökhan: "salonun gerçek oturumunu minyatürde görmek"). */}
+                  {odaGenislikPx && odaDerinlikPx && (
+                    <div style={{ position: "absolute", left: 0, top: 0, width: odaGenislikPx, height: odaDerinlikPx, border: "2px dashed var(--line-2)", borderRadius: 4, boxSizing: "border-box", pointerEvents: "none" }}>
+                      <div className="tnum" style={{ position: "absolute", top: -20, left: 0, fontSize: 11, color: "var(--muted-2)" }}>
+                        {(selectedArea!.genislik_cm! / 100).toFixed(1)} × {(selectedArea!.derinlik_cm! / 100).toFixed(1)} m
+                      </div>
+                    </div>
+                  )}
+                  {/* Salon öğeleri masaların ALTINDA çiziliyor — duvar/bar arka planda dursun,
+                      masalar hep tıklanabilir üstte kalsın. */}
+                  {ogelerInArea.filter((o) => o.type === "duvar" || o.type === "bar").map((o) => (
+                    <CekilebilirOge
+                      key={o.id} oge={o} zoom={zoom}
+                      onMoveBody={(x1, y1, x2, y2) => moveOgeBody(o.id, x1, y1, x2, y2)}
+                      onMoveEndpoint={(which, x, y) => moveOgeEndpoint(o.id, which, x, y)}
+                      onRename={(v) => renameOge(o.id, v)}
+                      onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                    />
+                  ))}
+                  {ogelerInArea.filter((o) => o.type !== "duvar" && o.type !== "bar").map((o) => (
+                    <SabitOge
+                      key={o.id} oge={o} zoom={zoom}
+                      onMove={(x1, y1) => moveOge(o.id, x1, y1)}
+                      onRename={(v) => renameOge(o.id, v)}
+                      onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                    />
+                  ))}
+                  {positioned.map(({ table: t, x, y }) => (
+                    <TableBox
+                      key={t.id}
+                      table={t}
+                      x={x} y={y} zoom={zoom}
+                      oturan={oturanlar[t.id] ?? null}
+                      onMove={moveTable}
+                      onRename={(v) => renameTable(t.id, v)}
+                      onRotate={() => rotateTable(t.id, t.rotated)}
+                      onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
+                    />
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -584,9 +789,9 @@ export default function SalonPage() {
 }
 
 function TableBox({
-  table, x, y, oturan, onMove, onRename, onRotate, onContextMenu,
+  table, x, y, zoom, oturan, onMove, onRename, onRotate, onContextMenu,
 }: {
-  table: TableRow; x: number; y: number; oturan: OturanBilgi | null;
+  table: TableRow; x: number; y: number; zoom: number; oturan: OturanBilgi | null;
   onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onRotate: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -610,19 +815,20 @@ function TableBox({
     setDragOffset({ dx, dy });
   };
   // Gökhan: "çektiğim yerde durmalı, otomatik yerleşme kapansın" — artık grid'e yapışmıyor,
-  // bırakıldığı tam piksele yerleşiyor (snapCoord kaldırıldı).
+  // bırakıldığı tam piksele yerleşiyor (snapCoord kaldırıldı). Ekran-piksel farkı zoom'a
+  // bölünüyor — tuval ölçeklenince (Gökhan: "salon ölçeklendirme") imleçle 1:1 hareket etsin.
   const onPointerUp = () => {
     if (!startRef.current) return;
     const moved = startRef.current.moved;
-    const dx = dragOffset?.dx ?? 0;
-    const dy = dragOffset?.dy ?? 0;
+    const dx = (dragOffset?.dx ?? 0) / zoom;
+    const dy = (dragOffset?.dy ?? 0) / zoom;
     startRef.current = null;
     setDragOffset(null);
     if (moved) onMove(table.id, Math.max(0, x + dx), Math.max(0, y + dy));
   };
 
-  const curX = x + (dragOffset?.dx ?? 0);
-  const curY = y + (dragOffset?.dy ?? 0);
+  const curX = x + (dragOffset?.dx ?? 0) / zoom;
+  const curY = y + (dragOffset?.dy ?? 0) / zoom;
 
   // Dış kutu (BOX_W×BOX_H) sadece sürükleme alanı — görünmez. Gerçek görünen şey içindeki
   // ŞEKİL: yuvarlak/kare/dikdörtgen, durum rengiyle boyalı, üstünde masa adı, İÇİNDE durum
@@ -685,9 +891,9 @@ function TableBox({
 // durum takibi yok, sadece salonun gerçek halini göstersin diye. TableBox'la aynı Pointer Events
 // sürükleme deseni.
 function SabitOge({
-  oge, onMove, onRename, onContextMenu,
+  oge, zoom, onMove, onRename, onContextMenu,
 }: {
-  oge: SalonOge; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
+  oge: SalonOge; zoom: number; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
@@ -708,15 +914,15 @@ function SabitOge({
   const onPointerUp = () => {
     if (!startRef.current) return;
     const moved = startRef.current.moved;
-    const dx = dragOffset?.dx ?? 0;
-    const dy = dragOffset?.dy ?? 0;
+    const dx = (dragOffset?.dx ?? 0) / zoom;
+    const dy = (dragOffset?.dy ?? 0) / zoom;
     startRef.current = null;
     setDragOffset(null);
     if (moved) onMove(Math.max(0, oge.x1 + dx), Math.max(0, oge.y1 + dy));
   };
 
-  const curX = oge.x1 + (dragOffset?.dx ?? 0);
-  const curY = oge.y1 + (dragOffset?.dy ?? 0);
+  const curX = oge.x1 + (dragOffset?.dx ?? 0) / zoom;
+  const curY = oge.y1 + (dragOffset?.dy ?? 0) / zoom;
 
   return (
     <div
@@ -742,9 +948,10 @@ function SabitOge({
 // moveOgeEndpoint). Tutamaçlar kendi Pointer Events'lerini gövdeninkine karışmasın diye
 // stopPropagation ile izole ediyor.
 function CekilebilirOge({
-  oge, onMoveBody, onMoveEndpoint, onRename, onContextMenu,
+  oge, zoom, onMoveBody, onMoveEndpoint, onRename, onContextMenu,
 }: {
   oge: SalonOge;
+  zoom: number;
   onMoveBody: (x1: number, y1: number, x2: number, y2: number) => void;
   onMoveEndpoint: (which: 1 | 2, x: number, y: number) => void;
   onRename: (v: string) => void;
@@ -759,9 +966,9 @@ function CekilebilirOge({
   const x1 = oge.x1, y1 = oge.y1;
   const x2 = oge.x2 ?? oge.x1 + 120, y2 = oge.y2 ?? oge.y1;
 
-  const bDx = bodyDrag?.dx ?? 0, bDy = bodyDrag?.dy ?? 0;
-  const e1Dx = endDrag?.which === 1 ? endDrag.dx : 0, e1Dy = endDrag?.which === 1 ? endDrag.dy : 0;
-  const e2Dx = endDrag?.which === 2 ? endDrag.dx : 0, e2Dy = endDrag?.which === 2 ? endDrag.dy : 0;
+  const bDx = (bodyDrag?.dx ?? 0) / zoom, bDy = (bodyDrag?.dy ?? 0) / zoom;
+  const e1Dx = endDrag?.which === 1 ? endDrag.dx / zoom : 0, e1Dy = endDrag?.which === 1 ? endDrag.dy / zoom : 0;
+  const e2Dx = endDrag?.which === 2 ? endDrag.dx / zoom : 0, e2Dy = endDrag?.which === 2 ? endDrag.dy / zoom : 0;
 
   const curX1 = x1 + bDx + e1Dx, curY1 = y1 + bDy + e1Dy;
   const curX2 = x2 + bDx + e2Dx, curY2 = y2 + bDy + e2Dy;
@@ -785,7 +992,7 @@ function CekilebilirOge({
   const onBodyPointerUp = () => {
     if (!bodyStart.current) return;
     const moved = bodyStart.current.moved;
-    const dx = bodyDrag?.dx ?? 0, dy = bodyDrag?.dy ?? 0;
+    const dx = (bodyDrag?.dx ?? 0) / zoom, dy = (bodyDrag?.dy ?? 0) / zoom;
     bodyStart.current = null;
     setBodyDrag(null);
     if (moved) onMoveBody(Math.max(0, x1 + dx), Math.max(0, y1 + dy), Math.max(0, x2 + dx), Math.max(0, y2 + dy));
@@ -809,7 +1016,7 @@ function CekilebilirOge({
     e.stopPropagation();
     if (!endStart.current) return;
     const moved = endStart.current.moved;
-    const dx = endDrag?.dx ?? 0, dy = endDrag?.dy ?? 0;
+    const dx = (endDrag?.dx ?? 0) / zoom, dy = (endDrag?.dy ?? 0) / zoom;
     endStart.current = null;
     setEndDrag(null);
     if (moved) {
@@ -861,3 +1068,4 @@ const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, paddin
 const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };
 const btnSecondaryHeader: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, cursor: "pointer" };
 const ogeMenuBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, fontSize: 13, color: "var(--ink)" };
+const zoomBtn: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 8, width: 26, height: 26, background: "var(--card)", color: "var(--ink-green)", fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 };
