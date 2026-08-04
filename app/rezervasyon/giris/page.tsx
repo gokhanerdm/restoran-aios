@@ -233,7 +233,14 @@ export default function RezervasyonGirisPage() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--canvas)", padding: "40px 20px" }}>
       <div style={{ width: "min(460px, 94vw)", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 20, padding: 28 }}>
-        <div style={{ fontSize: 22, fontWeight: 600, color: "var(--ink-green)", letterSpacing: "-0.4px", marginBottom: 4 }}>Rezervasyon</div>
+        {/* RZV — ürün adı/rozeti (Gökhan, 2026-08-04). AIOS Shell'deki yuvarlak baş harf
+            rozetiyle aynı dil (bkz. app/components/Shell.tsx), sadece 3 harfli. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, letterSpacing: 0.5, flexShrink: 0 }}>
+            RZV
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600, color: "var(--ink-green)", letterSpacing: "-0.4px" }}>Rezerve</div>
+        </div>
         <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>{mode === "kayit" ? "Yeni işletme kaydı" : "Giriş yap"}</div>
 
         <div style={{ display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980, marginBottom: 18 }}>

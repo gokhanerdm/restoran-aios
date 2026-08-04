@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId, getMyReservationRestaurants, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, Settings, LogOut, Store } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, Settings, LogOut } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -454,23 +454,27 @@ export default function RezervasyonPage() {
     <div style={{ background: "var(--canvas)", padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
-      {/* Kendi başlığı — AIOS kabuğu (sol menü) bu programda yok, işletme adı burada durur. */}
+      {/* Kendi başlığı — AIOS kabuğu (sol menü) bu programda yok. RZV rozeti + işletme adı
+          aynı satırda (Gökhan, 2026-08-04: "rzv yaz yanında da işletme adı yazsın") —
+          eskiden işletme adı "Rezervasyon" başlığının altında 13px soluk gri bir ek gibi
+          duruyordu ("küçük ve soluk olması normal mi" — değildi). */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyon</div>
+        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0 }}>
+          RZV
+        </div>
         {/* Şube değiştirici — SADECE çok şubeli hesapta görünür (tek şubeliyse liste zaten
-            1 elemanlı, buton anlamsız olurdu). İşletme adının yanında küçük bir akordiyon. */}
+            1 elemanlı, buton anlamsız olurdu). */}
         {subeler.length > 1 ? (
           <div style={{ position: "relative" }}>
             <button
               onClick={() => setSubeSecimiAcik((v) => !v)}
-              style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "var(--muted)" }}
+              style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}
             >
-              <Store size={13} />
-              {restaurantName}
-              <ChevronDown size={13} style={{ transform: subeSecimiAcik ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} />
+              {restaurantName || "Rezerve"}
+              <ChevronDown size={18} style={{ transform: subeSecimiAcik ? "rotate(180deg)" : undefined, transition: "transform 0.15s" }} />
             </button>
             {subeSecimiAcik && (
-              <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, minWidth: 200, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 20, boxShadow: "0 4px 14px rgba(0,0,0,0.1)" }}>
+              <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, minWidth: 200, border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden", zIndex: 20, boxShadow: "0 4px 14px rgba(0,0,0,0.1)" }}>
                 {subeler.map((s) => (
                   <button
                     key={s.id} onClick={() => subeDegistir(s.id)}
@@ -487,13 +491,15 @@ export default function RezervasyonPage() {
             )}
           </div>
         ) : (
-          restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>
+          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
+            {restaurantName || "Rezerve"}
+          </div>
         )}
         <div style={{ flex: 1 }} />
-        <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, textDecoration: "none" }}>
+        <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
           <Settings size={19} />
         </Link>
-        <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={navBtn}>
+        <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={{ ...navBtn, marginTop: 2 }}>
           <LogOut size={19} />
         </button>
       </div>
