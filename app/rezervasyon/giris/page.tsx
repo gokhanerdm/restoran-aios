@@ -93,6 +93,16 @@ export default function RezervasyonGirisPage() {
   const [err, setErr] = useState<string | null>(null);
   const [confirmMsg, setConfirmMsg] = useState<string | null>(null);
 
+  // Şifremi unuttum — kendi katmanı, ana giriş e-postasının doldurulmuş olmasını
+  // beklemiyor (Gökhan, 2026-08-04: "önce mailini yaz sonra tıkla diyor, yeni ekran
+  // açılmalı"). Açılırken varsa üstteki e-posta önceden dolduruluyor, ama ayrı bir alan —
+  // burada değiştirmek giriş formundaki e-postayı etkilemiyor.
+  const [unutOpen, setUnutOpen] = useState(false);
+  const [unutEmail, setUnutEmail] = useState("");
+  const [unutBusy, setUnutBusy] = useState(false);
+  const [unutErr, setUnutErr] = useState<string | null>(null);
+  const [unutTamam, setUnutTamam] = useState(false);
+
   const friendlyErr = (code: string | undefined, fallback: string) => (code && errMap[code]) || fallback;
 
   // İsim/il/ilçe/adres gibi alanlar kutudan çıkınca (Tab, tıklayıp başka kutuya geçme,
@@ -166,18 +176,24 @@ export default function RezervasyonGirisPage() {
     router.push("/rezervasyon");
   };
 
-  // Şifremi unuttum — mailine sıfırlama linki gider, link /rezervasyon/sifre-sifirla'ya
-  // düşer (Gökhan, 2026-08-04: "şifremi unuttum seçeneğimizde yok").
-  const sifremiUnuttum = async () => {
-    if (busy) return;
-    if (!email.trim()) { setErr("Önce e-posta adresini yaz, sonra linke tıkla."); return; }
-    setBusy(true); setErr(null); setConfirmMsg(null);
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+  // Şifremi unuttum — kendi katmanı (Gökhan, 2026-08-04: "önce mailini yaz sonra tıkla
+  // diyor, yeni ekran açılmalı"). Giriş e-postası doluysa katman açılırken ona kopyalanır
+  // (kolaylık), ama ayrı bir alan — burada değiştirmek giriş formunu etkilemez.
+  const unutAc = () => {
+    setUnutEmail(email.trim());
+    setUnutErr(null); setUnutTamam(false);
+    setUnutOpen(true);
+  };
+  const unutGonder = async () => {
+    if (unutBusy) return;
+    if (!unutEmail.trim()) { setUnutErr("E-posta adresi gerekli."); return; }
+    setUnutBusy(true); setUnutErr(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(unutEmail.trim(), {
       redirectTo: `${window.location.origin}/rezervasyon/sifre-sifirla`,
     });
-    setBusy(false);
-    if (error) { setErr(friendlyErr(error.code, error.message)); return; }
-    setConfirmMsg(`${email.trim()} adresine bir şifre sıfırlama linki gönderdik.`);
+    setUnutBusy(false);
+    if (error) { setUnutErr(friendlyErr(error.code, error.message)); return; }
+    setUnutTamam(true);
   };
 
   return (
@@ -206,7 +222,7 @@ export default function RezervasyonGirisPage() {
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="E-posta" style={inp} />
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Şifre" style={inp}
               onKeyDown={(e) => e.key === "Enter" && submitGiris()} />
-            <button type="button" onClick={sifremiUnuttum} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)", alignSelf: "flex-end" }}>
+            <button type="button" onClick={unutAc} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--brand)", alignSelf: "flex-end" }}>
               Şifremi unuttum
             </button>
             <button onClick={submitGiris} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, marginTop: 6 }}>
@@ -399,9 +415,47 @@ export default function RezervasyonGirisPage() {
           </div>
         )}
       </div>
+
+      {/* ŞİFREMİ UNUTTUM KATMANI — giriş e-postasının doldurulmuş olmasını beklemez,
+          kendi e-posta alanı var (Gökhan, 2026-08-04). */}
+      {unutOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setUnutOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Şifremi unuttum</div>
+            {unutTamam ? (
+              <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginTop: 10 }}>
+                {unutEmail.trim()} adresine bir şifre sıfırlama linki gönderdik.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
+                  Hesabına kayıtlı e-postayı yaz, sıfırlama linkini oraya gönderelim.
+                </div>
+                {unutErr && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{unutErr}</div>}
+                <input
+                  autoFocus value={unutEmail} onChange={(e) => setUnutEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && unutGonder()}
+                  type="email" placeholder="E-posta" style={inp}
+                />
+              </>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
+              <button onClick={() => setUnutOpen(false)} style={btnSecondary}>{unutTamam ? "Kapat" : "Vazgeç"}</button>
+              {!unutTamam && (
+                <button onClick={unutGonder} disabled={unutBusy || !unutEmail.trim()} style={{ ...btnPrimary, width: "auto", padding: "9px 16px", opacity: unutBusy || !unutEmail.trim() ? 0.5 : 1 }}>
+                  {unutBusy ? "…" : "Gönder"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "11px 13px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { width: "100%", border: "none", borderRadius: 980, padding: 12, background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" };
+// Şifremi unuttum katmanındaki iki buton — btnPrimary'nin width:100%'ü burada işe
+// yaramaz (yan yana iki buton), bu yüzden ayrı, satır-içi boyutta.
+const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
