@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId, getMyReservationRestaurants, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, Settings, LogOut } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -496,6 +496,10 @@ export default function RezervasyonPage() {
           </div>
         )}
         <div style={{ flex: 1 }} />
+        {/* Salon — görsel masa planı, Ayarlar dişlisinin yanında (Gökhan, 2026-08-04). */}
+        <Link href="/rezervasyon/salon" aria-label="Salon" title="Salon" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
+          <LayoutGrid size={19} />
+        </Link>
         <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
           <Settings size={19} />
         </Link>
