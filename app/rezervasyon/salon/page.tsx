@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, RotateCw } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toUpperTr, toTitleTr } from "@/lib/text";
@@ -24,7 +24,7 @@ type Area = { id: string; name: string; sort_order: number };
 type Shape = "yuvarlak" | "kare" | "dikdortgen";
 type TableRow = {
   id: string; name: string; area_id: string | null; status: string; sort_order: number;
-  position_x: number | null; position_y: number | null; seat_count: number; shape: Shape;
+  position_x: number | null; position_y: number | null; seat_count: number; shape: Shape; rotated: boolean;
 };
 type OturanBilgi = { guestName: string; partySize: number };
 
@@ -96,7 +96,7 @@ export default function SalonPage() {
     const { start, end } = bugunSiniri();
     const [{ data: a }, { data: t }, { data: r }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
         .gte("reserved_at", start).lt("reserved_at", end),
     ]);
@@ -182,6 +182,13 @@ export default function SalonPage() {
   const moveTable = async (id: string, x: number, y: number) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, position_x: x, position_y: y } : t)));
     const { error } = await supabase.from("restaurant_tables").update({ position_x: x, position_y: y }).eq("id", id);
+    if (error) setErr(error.message);
+  };
+  // Sadece dikdörtgen masalarda anlamlı — duvara dayalı masa yatay/dikey durabilsin
+  // (Gökhan: "dikdörtgen masalar çevrilebilsin").
+  const rotateTable = async (id: string, current: boolean) => {
+    setTables((prev) => prev.map((t) => (t.id === id ? { ...t, rotated: !current } : t)));
+    const { error } = await supabase.from("restaurant_tables").update({ rotated: !current }).eq("id", id);
     if (error) setErr(error.message);
   };
 
@@ -279,6 +286,7 @@ export default function SalonPage() {
                     oturan={oturanlar[t.id] ?? null}
                     onMove={moveTable}
                     onRename={(v) => renameTable(t.id, v)}
+                    onRotate={() => rotateTable(t.id, t.rotated)}
                     onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ x: x2, y: y2, table: t }); }}
                   />
                 ))}
@@ -397,16 +405,18 @@ export default function SalonPage() {
 }
 
 function TableBox({
-  table, x, y, oturan, onMove, onRename, onContextMenu,
+  table, x, y, oturan, onMove, onRename, onRotate, onContextMenu,
 }: {
   table: TableRow; x: number; y: number; oturan: OturanBilgi | null;
-  onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
+  onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onRotate: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+  const [hover, setHover] = useState(false);
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
 
   const occupied = table.status === "occupied";
   const reserved = table.status === "reserved";
+  const durumEtiket = occupied ? "Dolu" : reserved ? "Rzv" : "Boş";
 
   const onPointerDown = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
@@ -436,27 +446,34 @@ function TableBox({
   const curY = y + (dragOffset?.dy ?? 0);
 
   // Dış kutu (BOX_W×BOX_H) sadece sürükleme alanı — görünmez. Gerçek görünen şey içindeki
-  // ŞEKİL: yuvarlak/kare/dikdörtgen, durum rengiyle boyalı, üstünde masa adı. Gökhan:
-  // "ekrana yine kart açılıyor" — önceki halde şekil sadece küçük bir rozetti, kutunun
-  // kendisi hep dikdörtgen kart gibi kalıyordu. Artık masa GERÇEKTEN o şekilde görünüyor.
-  const govde = table.shape === "dikdortgen" ? { width: 118, height: 66 } : { width: 82, height: 82 };
+  // ŞEKİL: yuvarlak/kare/dikdörtgen, durum rengiyle boyalı, üstünde masa adı, İÇİNDE durum
+  // yazısı (Gökhan: "durumu masanın içinde yazsın boş dolu rzv"). Dikdörtgen masa döndürülünce
+  // (Gökhan: "dikdörtgen masalar çevrilebilsin") en/boy takas edilir — duvara dayalı masa
+  // yatay ya da dikey durabilsin.
+  const dikdortgen = table.shape === "dikdortgen";
+  const govde = dikdortgen
+    ? (table.rotated ? { width: 66, height: 118 } : { width: 118, height: 66 })
+    : { width: 82, height: 82 };
   const govdeRadius = table.shape === "yuvarlak" ? "50%" : 10;
   const zeminRengi = occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)";
   const kenarRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--line-2)";
+  const durumRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
 
   return (
     <div
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H,
         cursor: "grab", touchAction: "none", userSelect: "none",
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
       }}
+      title={occupied && oturan ? `${oturan.guestName} · ${oturan.partySize} kişi` : undefined}
     >
       <div
         style={{
-          ...govde, borderRadius: govdeRadius,
+          ...govde, borderRadius: govdeRadius, position: "relative",
           background: zeminRengi, border: `2px solid ${kenarRengi}`, boxSizing: "border-box",
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: 6,
         }}
@@ -465,16 +482,23 @@ function TableBox({
           <EditableText value={table.name} onSave={onRename} />
         </div>
         <div style={{ fontSize: 10.5, color: "var(--muted-2)" }} className="tnum">{table.seat_count} kişilik</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: durumRengi }}>{durumEtiket}</div>
+
+        {dikdortgen && hover && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRotate(); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="Masayı döndür" title="Döndür"
+            style={{
+              all: "unset", cursor: "pointer", position: "absolute", top: -8, right: -8, width: 22, height: 22, borderRadius: "50%",
+              background: "var(--ink-green)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+            }}
+          >
+            <RotateCw size={12} />
+          </button>
+        )}
       </div>
-      {occupied ? (
-        <div style={{ fontSize: 11.5, color: "var(--ink-green)", fontWeight: 600, textAlign: "center", maxWidth: BOX_W - 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {oturan ? `${oturan.guestName} · ${oturan.partySize} kişi` : "Dolu"}
-        </div>
-      ) : reserved ? (
-        <div style={{ fontSize: 11.5, color: "var(--info)" }}>Rezerve</div>
-      ) : (
-        <div style={{ fontSize: 11.5, color: "var(--muted-2)" }}>Boş</div>
-      )}
     </div>
   );
 }
