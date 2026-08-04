@@ -28,6 +28,45 @@ type TableRow = {
 };
 type OturanBilgi = { guestName: string; partySize: number };
 
+// Masa dışı salon öğeleri (Gökhan, 2026-08-04: "bar ikonu koyarız duvar koyarız... kolon
+// koyalım bide servis koyalım kapı koyalım... loca"). Rezervasyon/durum takibi yok, sadece
+// salonun gerçek halini çizmek için. Duvar/Bar iki uçtan çekilip uzatılır; Kolon/Servis/
+// Kapı/Loca sabit boyda, tek noktadan sürüklenir. restaurant_tables'a KARIŞTIRILMADI —
+// oradaki kapasite/rezervasyon hesaplarını bozmasın diye ayrı bir tablo (salon_ogeleri).
+type OgeType = "duvar" | "bar" | "kolon" | "servis" | "kapi" | "loca";
+type SalonOge = { id: string; area_id: string; type: OgeType; name: string; x1: number; y1: number; x2: number | null; y2: number | null };
+const CEKME_TIPLERI: { type: OgeType; label: string }[] = [
+  { type: "duvar", label: "Duvar" },
+  { type: "bar", label: "Bar" },
+];
+const SABIT_TIPLERI: { type: OgeType; label: string }[] = [
+  { type: "kolon", label: "Kolon" },
+  { type: "servis", label: "Servis" },
+  { type: "kapi", label: "Kapı" },
+  { type: "loca", label: "Loca" },
+];
+// 1cm gerçek ölçünün piksel karşılığı — hem masa hem loca aynı oranı kullanır ki büyük/küçük
+// karşılaştırması tutarlı olsun.
+const PX_PER_CM = 0.8;
+// Loca standart ölçüsü (Gökhan: "locada koy standart masa ölçüleri bul ona göre işle") —
+// loca aslında duvara dayalı 4 kişilik banket oturma + masa birleşimi, restoran mobilyası
+// literatüründeki yaygın değer ~150×110cm (iki banket + aradaki masa). Diğer sabit öğeler
+// (kolon/servis/kapı) gerçek mobilya değil, mimari işaret — onlar piksel sabit kalabilir.
+const LOCA_CM = { w: 150, h: 110 };
+// Duvar/Bar kalınlığı — standart duvar ~20cm, bar tezgahı ~60cm derinlik (yaygın tezgah
+// ölçüsü). Uzunlukları (x1,y1)-(x2,y2) çekilerek serbest belirlenir, kalınlık sabit.
+const CEKME_GORUNUM: Record<string, { renk: string; kalinlik: number }> = {
+  duvar: { renk: "var(--ink)", kalinlik: Math.round(20 * PX_PER_CM) },
+  bar: { renk: "var(--gold)", kalinlik: Math.round(60 * PX_PER_CM) },
+};
+// Sabit tiplerin görünümü — her biri kendi rengi/boyutuyla ayırt edilsin diye.
+const SABIT_GORUNUM: Record<string, { renk: string; genislik: number; yukseklik: number }> = {
+  kolon: { renk: "var(--muted-2)", genislik: 44, yukseklik: 44 },
+  servis: { renk: "var(--gold)", genislik: 74, yukseklik: 50 },
+  kapi: { renk: "var(--danger)", genislik: 54, yukseklik: 26 },
+  loca: { renk: "var(--tan-400)", genislik: Math.round(LOCA_CM.w * PX_PER_CM), yukseklik: Math.round(LOCA_CM.h * PX_PER_CM) },
+};
+
 // Masa şekli ve kişi sayısı AYRI seçilir (Gökhan: "yuvarlak altı kişilik masada olabilir" —
 // şekle sabit bir kişi sayısı bağlı olamaz). Sürüklenen kutunun kendisi grid'e oturması için
 // hep BOX_W×BOX_H sabit kalıyor (gerçek daire/dikdörtgen yapmak grid'i bozar); şekil, kutunun
@@ -39,9 +78,28 @@ const SEKILLER: { shape: Shape; label: string }[] = [
   { shape: "dikdortgen", label: "Dikdörtgen" },
 ];
 const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
+
+// Standart masa ölçüleri (Gökhan: "standart masa ölçüleri bul ona göre işle") — restoran
+// mobilyası literatüründeki yaygın santim değerleri (ör. 2 kişilik kare ~60×60, 8 kişilik
+// dikdörtgen ~220×90). Piksele PX_PER_CM ile çevriliyor ki büyük masa küçükten GERÇEKTEN
+// büyük görünsün — önceki halde her masa şekli sabit tek boyuttaydı, kişi sayısının hiç
+// etkisi yoktu.
+const CM_OLCU: Record<Shape, Record<number, { w: number; h: number }>> = {
+  yuvarlak: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 150, h: 150 }, 8: { w: 180, h: 180 } },
+  kare: { 2: { w: 60, h: 60 }, 4: { w: 80, h: 80 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
+  dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 75 }, 8: { w: 220, h: 90 } },
+};
+const MIN_GOVDE_PX = 46;
+// En yakın tanımlı kişi sayısına yuvarlar (2/4/6/8 arası serbest sayı da girilebiliyor —
+// örn. 5 kişilik masa 4'ün ölçüsünü kullanır, tam santim hassasiyeti önemli değil).
+const enYakinKoltuk = (seats: number) => KOLTUK_SECENEKLERI.reduce((a, b) => (Math.abs(b - seats) < Math.abs(a - seats) ? b : a));
+const govdeOlcusu = (shape: Shape, seats: number): { width: number; height: number } => {
+  const cm = CM_OLCU[shape][enYakinKoltuk(seats)];
+  return { width: Math.max(MIN_GOVDE_PX, Math.round(cm.w * PX_PER_CM)), height: Math.max(MIN_GOVDE_PX, Math.round(cm.h * PX_PER_CM)) };
+};
 // Şekil rozeti — gerçek en/boy oranıyla (yuvarlak: eşit kenar + tam yuvarlak, kare: eşit
-// kenar + hafif köşe, dikdörtgen: geniş + hafif köşe). Hem seçim ekranında hem masanın
-// kendi kutusunda AYNI fonksiyon kullanılıyor ki ikisi birbirini tutsun.
+// kenar + hafif köşe, dikdörtgen: geniş + hafif köşe). Seçim ekranındaki küçük önizleme
+// ikonu için — masanın kendi kutusu artık govdeOlcusu'nu kullanıyor.
 const sekilRozeti = (shape: Shape, taban: number): React.CSSProperties => {
   if (shape === "yuvarlak") return { width: taban, height: taban, borderRadius: "50%" };
   if (shape === "kare") return { width: taban, height: taban, borderRadius: 4 };
@@ -81,6 +139,9 @@ export default function SalonPage() {
   const [koltukInput, setKoltukInput] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
+  const [ogeler, setOgeler] = useState<SalonOge[]>([]);
+  const [ogeMenuAcik, setOgeMenuAcik] = useState(false);
+  const [ogeCtxMenu, setOgeCtxMenu] = useState<{ x: number; y: number; oge: SalonOge } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -94,15 +155,17 @@ export default function SalonPage() {
 
   const load = useCallback(async (restId: string) => {
     const { start, end } = bugunSiniri();
-    const [{ data: a }, { data: t }, { data: r }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: r }, { data: o }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
         .gte("reserved_at", start).lt("reserved_at", end),
+      supabase.from("salon_ogeleri").select("id, area_id, type, name, x1, y1, x2, y2").eq("restaurant_id", restId).is("deleted_at", null),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
     setTables((t as TableRow[]) ?? []);
+    setOgeler((o as SalonOge[]) ?? []);
     const map: Record<string, OturanBilgi> = {};
     ((r as { table_id: string | null; guest_name: string; party_size: number }[]) ?? []).forEach((row) => {
       if (row.table_id) map[row.table_id] = { guestName: row.guest_name, partySize: row.party_size };
@@ -192,6 +255,61 @@ export default function SalonPage() {
     if (error) setErr(error.message);
   };
 
+  // Salon öğeleri (Duvar/Bar/Kolon/Servis/Kapı/Loca) — tıklanınca hemen eklenir, kullanıcı
+  // sürükleyip yerine çeker (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). Çekilebilen
+  // tipler (duvar/bar) x2/y2 ile 120px'lik bir uçla açılır, sabit tipler tek nokta.
+  const ogelerInArea = ogeler.filter((o) => o.area_id === selectedAreaId);
+  const addOge = async (type: OgeType) => {
+    if (!restaurantId || !selectedAreaId) return;
+    const label = [...CEKME_TIPLERI, ...SABIT_TIPLERI].find((t) => t.type === type)?.label ?? type;
+    const sayac = ogelerInArea.filter((o) => o.type === type).length;
+    const baseX = 40 + sayac * 24;
+    const baseY = 40 + sayac * 24;
+    const cekilebilen = type === "duvar" || type === "bar";
+    const payload: { restaurant_id: string; area_id: string; type: OgeType; name: string; x1: number; y1: number; x2?: number; y2?: number } = {
+      restaurant_id: restaurantId, area_id: selectedAreaId, type, name: label, x1: baseX, y1: baseY,
+    };
+    if (cekilebilen) { payload.x2 = baseX + 120; payload.y2 = baseY; }
+    const { error } = await supabase.from("salon_ogeleri").insert(payload);
+    if (error) { setErr(error.message); return; }
+    setOgeMenuAcik(false);
+    await load(restaurantId);
+  };
+  const renameOge = async (id: string, name: string) => {
+    setErr(null);
+    const { error } = await supabase.from("salon_ogeleri").update({ name }).eq("id", id);
+    if (error) { setErr(error.message); return; }
+    if (restaurantId) await load(restaurantId);
+  };
+  const deleteOge = async (o: SalonOge) => {
+    const ok = await confirm(`"${o.name}" silinsin mi?`, { confirmLabel: "Sil" });
+    if (!ok) return;
+    setErr(null);
+    const { error } = await supabase.from("salon_ogeleri").update({ deleted_at: new Date().toISOString() }).eq("id", o.id);
+    if (error) { setErr(error.message); return; }
+    setOgeCtxMenu(null);
+    if (restaurantId) await load(restaurantId);
+  };
+  // Sabit tipler (Kolon/Servis/Kapı/Loca) — tek nokta taşınır.
+  const moveOge = async (id: string, x1: number, y1: number) => {
+    setOgeler((prev) => prev.map((o) => (o.id === id ? { ...o, x1, y1 } : o)));
+    const { error } = await supabase.from("salon_ogeleri").update({ x1, y1 }).eq("id", id);
+    if (error) setErr(error.message);
+  };
+  // Çekilebilen tiplerin (Duvar/Bar) gövdesinden tutup taşımak — iki uç da aynı miktar kayar.
+  const moveOgeBody = async (id: string, x1: number, y1: number, x2: number, y2: number) => {
+    setOgeler((prev) => prev.map((o) => (o.id === id ? { ...o, x1, y1, x2, y2 } : o)));
+    const { error } = await supabase.from("salon_ogeleri").update({ x1, y1, x2, y2 }).eq("id", id);
+    if (error) setErr(error.message);
+  };
+  // Tek bir ucundan tutup çekmek — uzunluk/açı değişir.
+  const moveOgeEndpoint = async (id: string, which: 1 | 2, x: number, y: number) => {
+    setOgeler((prev) => prev.map((o) => (o.id === id ? (which === 1 ? { ...o, x1: x, y1: y } : { ...o, x2: x, y2: y }) : o)));
+    const patch = which === 1 ? { x1: x, y1: y } : { x2: x, y2: y };
+    const { error } = await supabase.from("salon_ogeleri").update(patch).eq("id", id);
+    if (error) setErr(error.message);
+  };
+
   const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId).sort((x, y) => x.sort_order - y.sort_order);
   const defaultPos = (i: number) => ({ x: (i % COLS) * (BOX_W + GAP) + GAP, y: Math.floor(i / COLS) * (BOX_H + GAP) + GAP });
   const placed = tablesInArea.filter((t) => t.position_x != null && t.position_y != null)
@@ -208,7 +326,9 @@ export default function SalonPage() {
   let addSlot = nextSlot;
   let addBoxPos = defaultPos(addSlot);
   while (!isFree(addBoxPos.x, addBoxPos.y)) { addSlot++; addBoxPos = defaultPos(addSlot); }
-  const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP);
+  const ogeYukseklik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar" ? CEKME_GORUNUM[o.type].kalinlik : SABIT_GORUNUM[o.type]?.yukseklik ?? 0);
+  const ogeAltSinirlari = ogelerInArea.map((o) => Math.max(o.y1, o.y2 ?? o.y1) + ogeYukseklik(o) + GAP);
+  const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP, ...ogeAltSinirlari);
 
   const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
   const doluSayisi = tables.filter((t) => t.status !== "empty").length;
@@ -241,6 +361,33 @@ export default function SalonPage() {
         >
           <Plus size={14} /> Masa ekle
         </button>
+
+        {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
+            çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => { if (!selectedAreaId) return; setOgeMenuAcik((v) => !v); }}
+            disabled={!selectedAreaId}
+            style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
+          >
+            <Plus size={14} /> Öğe ekle
+          </button>
+          {ogeMenuAcik && (
+            <>
+              <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeMenuAcik(false)} />
+              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "6px 10px 2px" }}>Çekip uzatılır</div>
+                {CEKME_TIPLERI.map((t) => (
+                  <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
+                ))}
+                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "8px 10px 2px", borderTop: "1px solid var(--line)", marginTop: 4 }}>Sürüklenir</div>
+                {SABIT_TIPLERI.map((t) => (
+                  <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -278,6 +425,25 @@ export default function SalonPage() {
               <div style={{ padding: 24, color: "var(--muted-2)", fontSize: 13 }}>Önce solda bir salon seç ya da ekle.</div>
             ) : (
               <div style={{ position: "relative", width: "100%", height: containerHeight }}>
+                {/* Salon öğeleri masaların ALTINDA çiziliyor — duvar/bar arka planda dursun,
+                    masalar hep tıklanabilir üstte kalsın. */}
+                {ogelerInArea.filter((o) => o.type === "duvar" || o.type === "bar").map((o) => (
+                  <CekilebilirOge
+                    key={o.id} oge={o}
+                    onMoveBody={(x1, y1, x2, y2) => moveOgeBody(o.id, x1, y1, x2, y2)}
+                    onMoveEndpoint={(which, x, y) => moveOgeEndpoint(o.id, which, x, y)}
+                    onRename={(v) => renameOge(o.id, v)}
+                    onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                  />
+                ))}
+                {ogelerInArea.filter((o) => o.type !== "duvar" && o.type !== "bar").map((o) => (
+                  <SabitOge
+                    key={o.id} oge={o}
+                    onMove={(x1, y1) => moveOge(o.id, x1, y1)}
+                    onRename={(v) => renameOge(o.id, v)}
+                    onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                  />
+                ))}
                 {positioned.map(({ table: t, x, y }) => (
                   <TableBox
                     key={t.id}
@@ -330,6 +496,20 @@ export default function SalonPage() {
                 )}
               </>
             )}
+          </div>
+        </>
+      )}
+
+      {ogeCtxMenu && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setOgeCtxMenu(null); }} />
+          <div style={{ position: "fixed", left: ogeCtxMenu.x, top: ogeCtxMenu.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+            <button
+              onClick={() => { const o = ogeCtxMenu.oge; setOgeCtxMenu(null); deleteOge(o); }}
+              style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)" }}
+            >
+              <Trash2 size={14} /> {[...CEKME_TIPLERI, ...SABIT_TIPLERI].find((t) => t.type === ogeCtxMenu.oge.type)?.label} sil
+            </button>
           </div>
         </>
       )}
@@ -451,9 +631,8 @@ function TableBox({
   // (Gökhan: "dikdörtgen masalar çevrilebilsin") en/boy takas edilir — duvara dayalı masa
   // yatay ya da dikey durabilsin.
   const dikdortgen = table.shape === "dikdortgen";
-  const govde = dikdortgen
-    ? (table.rotated ? { width: 66, height: 118 } : { width: 118, height: 66 })
-    : { width: 82, height: 82 };
+  const olcu = govdeOlcusu(table.shape, table.seat_count);
+  const govde = dikdortgen && table.rotated ? { width: olcu.height, height: olcu.width } : olcu;
   const govdeRadius = table.shape === "yuvarlak" ? "50%" : 10;
   const zeminRengi = occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)";
   const kenarRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--line-2)";
@@ -503,7 +682,183 @@ function TableBox({
   );
 }
 
+// Sabit boydaki öğeler (Kolon/Servis/Kapı/Loca) — tek noktadan (x1,y1) sürüklenir, rezervasyon/
+// durum takibi yok, sadece salonun gerçek halini göstersin diye. TableBox'la aynı Pointer Events
+// sürükleme deseni.
+function SabitOge({
+  oge, onMove, onRename, onContextMenu,
+}: {
+  oge: SalonOge; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
+}) {
+  const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+  const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const gorunum = SABIT_GORUNUM[oge.type];
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
+    startRef.current = { x: e.clientX, y: e.clientY, moved: false };
+    setDragOffset({ dx: 0, dy: 0 });
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!startRef.current) return;
+    const dx = e.clientX - startRef.current.x;
+    const dy = e.clientY - startRef.current.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) startRef.current.moved = true;
+    setDragOffset({ dx, dy });
+  };
+  const onPointerUp = () => {
+    if (!startRef.current) return;
+    const moved = startRef.current.moved;
+    const dx = dragOffset?.dx ?? 0;
+    const dy = dragOffset?.dy ?? 0;
+    startRef.current = null;
+    setDragOffset(null);
+    if (moved) onMove(Math.max(0, oge.x1 + dx), Math.max(0, oge.y1 + dy));
+  };
+
+  const curX = oge.x1 + (dragOffset?.dx ?? 0);
+  const curY = oge.y1 + (dragOffset?.dy ?? 0);
+
+  return (
+    <div
+      onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
+      style={{
+        position: "absolute", left: curX, top: curY, width: gorunum.genislik, height: gorunum.yukseklik,
+        cursor: "grab", touchAction: "none", userSelect: "none", boxSizing: "border-box",
+        borderRadius: oge.type === "kapi" ? 6 : 10, background: gorunum.renk, opacity: 0.82,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 4,
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", textAlign: "center", lineHeight: 1.15 }} onPointerDown={(e) => e.stopPropagation()}>
+        <EditableText value={oge.name} onSave={onRename} />
+      </div>
+    </div>
+  );
+}
+
+// Çekip uzatılan öğeler (Duvar/Bar) — iki uçtan (x1,y1)-(x2,y2) tanımlı bir çubuk, açısı ve
+// uzunluğu uçlardan bağımsız çekilerek değişir. Üç ayrı sürükleme alanı var: gövdenin kendisi
+// (ikisi de aynı miktar kayar — moveOgeBody) ve iki uç tutamacı (tek taraf uzar/kısalır —
+// moveOgeEndpoint). Tutamaçlar kendi Pointer Events'lerini gövdeninkine karışmasın diye
+// stopPropagation ile izole ediyor.
+function CekilebilirOge({
+  oge, onMoveBody, onMoveEndpoint, onRename, onContextMenu,
+}: {
+  oge: SalonOge;
+  onMoveBody: (x1: number, y1: number, x2: number, y2: number) => void;
+  onMoveEndpoint: (which: 1 | 2, x: number, y: number) => void;
+  onRename: (v: string) => void;
+  onContextMenu: (x: number, y: number) => void;
+}) {
+  const [bodyDrag, setBodyDrag] = useState<{ dx: number; dy: number } | null>(null);
+  const bodyStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const [endDrag, setEndDrag] = useState<{ which: 1 | 2; dx: number; dy: number } | null>(null);
+  const endStart = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+
+  const gorunum = CEKME_GORUNUM[oge.type];
+  const x1 = oge.x1, y1 = oge.y1;
+  const x2 = oge.x2 ?? oge.x1 + 120, y2 = oge.y2 ?? oge.y1;
+
+  const bDx = bodyDrag?.dx ?? 0, bDy = bodyDrag?.dy ?? 0;
+  const e1Dx = endDrag?.which === 1 ? endDrag.dx : 0, e1Dy = endDrag?.which === 1 ? endDrag.dy : 0;
+  const e2Dx = endDrag?.which === 2 ? endDrag.dx : 0, e2Dy = endDrag?.which === 2 ? endDrag.dy : 0;
+
+  const curX1 = x1 + bDx + e1Dx, curY1 = y1 + bDy + e1Dy;
+  const curX2 = x2 + bDx + e2Dx, curY2 = y2 + bDy + e2Dy;
+
+  const uzunluk = Math.max(20, Math.hypot(curX2 - curX1, curY2 - curY1));
+  const aci = Math.atan2(curY2 - curY1, curX2 - curX1) * (180 / Math.PI);
+  const ortaX = (curX1 + curX2) / 2, ortaY = (curY1 + curY2) / 2;
+
+  const onBodyPointerDown = (e: React.PointerEvent) => {
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
+    bodyStart.current = { x: e.clientX, y: e.clientY, moved: false };
+    setBodyDrag({ dx: 0, dy: 0 });
+  };
+  const onBodyPointerMove = (e: React.PointerEvent) => {
+    if (!bodyStart.current) return;
+    const dx = e.clientX - bodyStart.current.x;
+    const dy = e.clientY - bodyStart.current.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) bodyStart.current.moved = true;
+    setBodyDrag({ dx, dy });
+  };
+  const onBodyPointerUp = () => {
+    if (!bodyStart.current) return;
+    const moved = bodyStart.current.moved;
+    const dx = bodyDrag?.dx ?? 0, dy = bodyDrag?.dy ?? 0;
+    bodyStart.current = null;
+    setBodyDrag(null);
+    if (moved) onMoveBody(Math.max(0, x1 + dx), Math.max(0, y1 + dy), Math.max(0, x2 + dx), Math.max(0, y2 + dy));
+  };
+
+  const endPointerDown = (which: 1 | 2, e: React.PointerEvent) => {
+    e.stopPropagation();
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
+    endStart.current = { x: e.clientX, y: e.clientY, moved: false };
+    setEndDrag({ which, dx: 0, dy: 0 });
+  };
+  const endPointerMove = (which: 1 | 2, e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (!endStart.current) return;
+    const dx = e.clientX - endStart.current.x;
+    const dy = e.clientY - endStart.current.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) endStart.current.moved = true;
+    setEndDrag({ which, dx, dy });
+  };
+  const endPointerUp = (which: 1 | 2, e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (!endStart.current) return;
+    const moved = endStart.current.moved;
+    const dx = endDrag?.dx ?? 0, dy = endDrag?.dy ?? 0;
+    endStart.current = null;
+    setEndDrag(null);
+    if (moved) {
+      const baseX = which === 1 ? x1 : x2;
+      const baseY = which === 1 ? y1 : y2;
+      onMoveEndpoint(which, Math.max(0, baseX + dx), Math.max(0, baseY + dy));
+    }
+  };
+
+  const handleStyle = (x: number, y: number): React.CSSProperties => ({
+    position: "absolute", left: x - 6, top: y - 6, width: 12, height: 12, borderRadius: "50%",
+    background: "var(--ink-green)", border: "2px solid #fff", boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+    cursor: "grab", touchAction: "none",
+  });
+
+  // İsim etiketi gövdeyle birlikte döner — ters açılarda (90°'den büyük) baş aşağı olmasın
+  // diye 180° geri döndürülüyor, hep yatay okunur kalıyor.
+  const etiketTersMi = aci > 90 || aci < -90;
+
+  return (
+    <>
+      <div
+        onPointerDown={onBodyPointerDown} onPointerMove={onBodyPointerMove} onPointerUp={onBodyPointerUp}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
+        style={{
+          position: "absolute", left: ortaX - uzunluk / 2, top: ortaY - gorunum.kalinlik / 2,
+          width: uzunluk, height: gorunum.kalinlik, transform: `rotate(${aci}deg)`, transformOrigin: "center",
+          background: gorunum.renk, borderRadius: oge.type === "bar" ? 6 : 3, opacity: 0.85,
+          cursor: "grab", touchAction: "none", userSelect: "none", boxSizing: "border-box",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+      >
+        <div
+          style={{ fontSize: 11, fontWeight: 700, color: "#fff", whiteSpace: "nowrap", transform: etiketTersMi ? "rotate(180deg)" : undefined }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <EditableText value={oge.name} onSave={onRename} />
+        </div>
+      </div>
+      <div onPointerDown={(e) => endPointerDown(1, e)} onPointerMove={(e) => endPointerMove(1, e)} onPointerUp={(e) => endPointerUp(1, e)} style={handleStyle(curX1, curY1)} />
+      <div onPointerDown={(e) => endPointerDown(2, e)} onPointerMove={(e) => endPointerMove(2, e)} onPointerUp={(e) => endPointerUp(2, e)} style={handleStyle(curX2, curY2)} />
+    </>
+  );
+}
+
 const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, boxSizing: "border-box" };
 const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, width: "100%", justifyContent: "center", cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5, cursor: "pointer" };
 const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };
+const btnSecondaryHeader: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, cursor: "pointer" };
+const ogeMenuBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, fontSize: 13, color: "var(--ink)" };
