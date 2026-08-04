@@ -100,8 +100,19 @@ export default function RezervasyonGirisPage() {
   // beklemiyor (Gökhan, 2026-08-04: "önce mailini yaz sonra tıkla diyor, yeni ekran
   // açılmalı"). Açılırken varsa üstteki e-posta önceden dolduruluyor, ama ayrı bir alan —
   // burada değiştirmek giriş formundaki e-postayı etkilemiyor.
+  //
+  // KOD tabanlı — link DEĞİL: mail linki tıklanmadan bazı mail servisleri (ör. Gmail)
+  // güvenlik taraması için linki otomatik açıp tek kullanımlık jetonu tüketiyor, misafir
+  // tıkladığında "geçersiz" çıkıyordu (Gökhan, 2026-08-04'te canlı yaşandı). Mail artık
+  // 6 haneli bir KOD gösteriyor (bkz. Supabase mailer_templates_recovery_content), kod
+  // burada elle girilip supabase.auth.verifyOtp ile doğrulanıyor — tarama bunu tüketemez.
   const [unutOpen, setUnutOpen] = useState(false);
+  const [unutAsama, setUnutAsama] = useState<"eposta" | "kod">("eposta");
   const [unutEmail, setUnutEmail] = useState("");
+  const [unutKod, setUnutKod] = useState("");
+  const [unutYeniSifre, setUnutYeniSifre] = useState("");
+  const [unutYeniSifre2, setUnutYeniSifre2] = useState("");
+  const [unutShowPw, setUnutShowPw] = useState(false);
   const [unutBusy, setUnutBusy] = useState(false);
   const [unutErr, setUnutErr] = useState<string | null>(null);
   const [unutTamam, setUnutTamam] = useState(false);
@@ -184,10 +195,13 @@ export default function RezervasyonGirisPage() {
   // (kolaylık), ama ayrı bir alan — burada değiştirmek giriş formunu etkilemez.
   const unutAc = () => {
     setUnutEmail(email.trim());
-    setUnutErr(null); setUnutTamam(false);
+    setUnutKod(""); setUnutYeniSifre(""); setUnutYeniSifre2(""); setUnutShowPw(false);
+    setUnutErr(null); setUnutTamam(false); setUnutAsama("eposta");
     setUnutOpen(true);
   };
-  const unutGonder = async () => {
+  // 1. adım: koda mail gönder. redirectTo hâlâ veriliyor (mail linki hâlâ da çalışırsa
+  // diye zarar yok), ama asıl akış artık kodu elle girmek.
+  const unutKodGonder = async () => {
     if (unutBusy) return;
     if (!unutEmail.trim()) { setUnutErr("E-posta adresi gerekli."); return; }
     setUnutBusy(true); setUnutErr(null);
@@ -196,7 +210,22 @@ export default function RezervasyonGirisPage() {
     });
     setUnutBusy(false);
     if (error) { setUnutErr(friendlyErr(error.code, error.message)); return; }
+    setUnutAsama("kod");
+  };
+  // 2. adım: kodu doğrula (bu bir oturum açar), sonra o oturumla şifreyi güncelle.
+  const unutSifreyiKaydet = async () => {
+    if (unutBusy) return;
+    if (!unutKod.trim()) { setUnutErr("Maildeki kodu gir."); return; }
+    if (!sifreGecerliMi(unutYeniSifre)) { setUnutErr("Şifre, gereksinimlerin hepsini karşılamıyor."); return; }
+    if (unutYeniSifre !== unutYeniSifre2) { setUnutErr("Şifreler birbiriyle uyuşmuyor."); return; }
+    setUnutBusy(true); setUnutErr(null);
+    const { error: verifyErr } = await supabase.auth.verifyOtp({ email: unutEmail.trim(), token: unutKod.trim(), type: "recovery" });
+    if (verifyErr) { setUnutBusy(false); setUnutErr("Kod hatalı ya da süresi dolmuş — tekrar kod iste."); return; }
+    const { error: updateErr } = await supabase.auth.updateUser({ password: unutYeniSifre });
+    setUnutBusy(false);
+    if (updateErr) { setUnutErr(updateErr.message); return; }
     setUnutTamam(true);
+    setTimeout(() => router.push("/rezervasyon"), 1200);
   };
 
   return (
@@ -419,34 +448,95 @@ export default function RezervasyonGirisPage() {
         )}
       </div>
 
-      {/* ŞİFREMİ UNUTTUM KATMANI — giriş e-postasının doldurulmuş olmasını beklemez,
-          kendi e-posta alanı var (Gökhan, 2026-08-04). */}
+      {/* ŞİFREMİ UNUTTUM KATMANI — kod tabanlı, link DEĞİL (Gökhan, 2026-08-04: mail
+          linkine tıklamadan bazı mail servisleri linki taramak için otomatik açıp tek
+          kullanımlık jetonu tüketiyordu, "hâlâ hesap oluştur ekranına yönlendiriyor"
+          diye yaşandı). 1. adım e-posta, 2. adım maildeki kod + yeni şifre. */}
       {unutOpen && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setUnutOpen(false)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Şifremi unuttum</div>
+
             {unutTamam ? (
               <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.6, marginTop: 10 }}>
-                {unutEmail.trim()} adresine bir şifre sıfırlama linki gönderdik.
+                Şifren güncellendi, yönlendiriliyorsun…
               </div>
-            ) : (
+            ) : unutAsama === "eposta" ? (
               <>
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
-                  Hesabına kayıtlı e-postayı yaz, sıfırlama linkini oraya gönderelim.
+                  Hesabına kayıtlı e-postayı yaz, sana 6 haneli bir kod gönderelim.
                 </div>
                 {unutErr && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{unutErr}</div>}
                 <input
                   autoFocus value={unutEmail} onChange={(e) => setUnutEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && unutGonder()}
+                  onKeyDown={(e) => e.key === "Enter" && unutKodGonder()}
                   type="email" placeholder="E-posta" style={inp}
                 />
               </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
+                  {unutEmail.trim()} adresine bir kod gönderdik. Kodu ve yeni şifreni gir.
+                </div>
+                {unutErr && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{unutErr}</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <input
+                    autoFocus value={unutKod} onChange={(e) => setUnutKod(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric" placeholder="Mailden gelen kod" style={{ ...inp, letterSpacing: 3, textAlign: "center", fontSize: 18 }}
+                  />
+                  <div style={{ position: "relative" }}>
+                    <input
+                      value={unutYeniSifre} onChange={(e) => setUnutYeniSifre(e.target.value)}
+                      type={unutShowPw ? "text" : "password"} placeholder="Yeni şifre" style={{ ...inp, paddingRight: 38 }}
+                    />
+                    <button
+                      type="button" onClick={() => setUnutShowPw((v) => !v)}
+                      aria-label={unutShowPw ? "Şifreyi gizle" : "Şifreyi göster"}
+                      style={{ all: "unset", cursor: "pointer", position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", display: "flex" }}
+                    >
+                      {unutShowPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 6, marginTop: -2, overflowX: "auto" }}>
+                    {SIFRE_KURALLARI.map((k) => {
+                      const met = k.test(unutYeniSifre);
+                      return (
+                        <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 10, color: "var(--line-2)" }}>·</span>
+                          <span style={{ fontSize: 10, color: met ? "var(--brand)" : "var(--muted-2)" }}>{met ? "✓ " : ""}{k.label}</span>
+                        </span>
+                      );
+                    })}
+                    <span style={{ fontSize: 10, color: "var(--line-2)", flexShrink: 0 }}>·</span>
+                    <button
+                      type="button" onClick={() => { setUnutYeniSifre(gucluSifreOner()); setUnutShowPw(true); }}
+                      style={{ all: "unset", cursor: "pointer", fontSize: 10, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
+                    >
+                      Güçlü şifre öner
+                    </button>
+                  </div>
+                  <input
+                    value={unutYeniSifre2} onChange={(e) => setUnutYeniSifre2(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && unutSifreyiKaydet()}
+                    type={unutShowPw ? "text" : "password"} placeholder="Yeni şifre (tekrar)" style={inp}
+                  />
+                </div>
+                <button type="button" onClick={unutKodGonder} disabled={unutBusy} style={{ all: "unset", cursor: "pointer", fontSize: 11, color: "var(--brand)", marginTop: 8, display: "block" }}>
+                  Kodu tekrar gönder
+                </button>
+              </>
             )}
+
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setUnutOpen(false)} style={btnSecondary}>{unutTamam ? "Kapat" : "Vazgeç"}</button>
-              {!unutTamam && (
-                <button onClick={unutGonder} disabled={unutBusy || !unutEmail.trim()} style={{ ...btnPrimary, width: "auto", padding: "9px 16px", opacity: unutBusy || !unutEmail.trim() ? 0.5 : 1 }}>
-                  {unutBusy ? "…" : "Gönder"}
+              {!unutTamam && unutAsama === "eposta" && (
+                <button onClick={unutKodGonder} disabled={unutBusy || !unutEmail.trim()} style={{ ...btnPrimary, width: "auto", padding: "9px 16px", opacity: unutBusy || !unutEmail.trim() ? 0.5 : 1 }}>
+                  {unutBusy ? "…" : "Kod gönder"}
+                </button>
+              )}
+              {!unutTamam && unutAsama === "kod" && (
+                <button onClick={unutSifreyiKaydet} disabled={unutBusy} style={{ ...btnPrimary, width: "auto", padding: "9px 16px", opacity: unutBusy ? 0.5 : 1 }}>
+                  {unutBusy ? "…" : "Şifreyi kaydet"}
                 </button>
               )}
             </div>
