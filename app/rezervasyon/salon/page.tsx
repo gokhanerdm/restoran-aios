@@ -52,7 +52,6 @@ const BOX_W = 148;
 const BOX_H = 108;
 const GAP = 14;
 const COLS = 5;
-const snapCoord = (v: number, size: number) => Math.max(0, GAP + Math.round((v - GAP) / (size + GAP)) * (size + GAP));
 
 const bugunIstanbul = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
 const bugunSiniri = () => {
@@ -408,7 +407,6 @@ function TableBox({
 
   const occupied = table.status === "occupied";
   const reserved = table.status === "reserved";
-  const dotColor = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
 
   const onPointerDown = (e: React.PointerEvent) => {
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
@@ -422,6 +420,8 @@ function TableBox({
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) startRef.current.moved = true;
     setDragOffset({ dx, dy });
   };
+  // Gökhan: "çektiğim yerde durmalı, otomatik yerleşme kapansın" — artık grid'e yapışmıyor,
+  // bırakıldığı tam piksele yerleşiyor (snapCoord kaldırıldı).
   const onPointerUp = () => {
     if (!startRef.current) return;
     const moved = startRef.current.moved;
@@ -429,40 +429,51 @@ function TableBox({
     const dy = dragOffset?.dy ?? 0;
     startRef.current = null;
     setDragOffset(null);
-    if (moved) onMove(table.id, snapCoord(x + dx, BOX_W), snapCoord(y + dy, BOX_H));
+    if (moved) onMove(table.id, Math.max(0, x + dx), Math.max(0, y + dy));
   };
 
   const curX = x + (dragOffset?.dx ?? 0);
   const curY = y + (dragOffset?.dy ?? 0);
+
+  // Dış kutu (BOX_W×BOX_H) sadece sürükleme alanı — görünmez. Gerçek görünen şey içindeki
+  // ŞEKİL: yuvarlak/kare/dikdörtgen, durum rengiyle boyalı, üstünde masa adı. Gökhan:
+  // "ekrana yine kart açılıyor" — önceki halde şekil sadece küçük bir rozetti, kutunun
+  // kendisi hep dikdörtgen kart gibi kalıyordu. Artık masa GERÇEKTEN o şekilde görünüyor.
+  const govde = table.shape === "dikdortgen" ? { width: 118, height: 66 } : { width: 82, height: 82 };
+  const govdeRadius = table.shape === "yuvarlak" ? "50%" : 10;
+  const zeminRengi = occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)";
+  const kenarRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--line-2)";
 
   return (
     <div
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
       style={{
-        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: 14, padding: 12,
+        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H,
         cursor: "grab", touchAction: "none", userSelect: "none",
-        background: occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)",
-        border: "1px solid var(--line)", boxSizing: "border-box",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
       }}
     >
-      {/* Şekil rozeti — kutunun kendisi grid'e oturması için hep aynı boyda kalıyor,
-          gerçek şekil (yuvarlak/kare/dikdörtgen) burada, durum rengiyle boyalı. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-        <span style={{ ...sekilRozeti(table.shape, 13), background: dotColor, flexShrink: 0 }} />
-        <div style={{ fontWeight: 600, fontSize: 14, minWidth: 0, flex: 1 }} onPointerDown={(e) => e.stopPropagation()}>
+      <div
+        style={{
+          ...govde, borderRadius: govdeRadius,
+          background: zeminRengi, border: `2px solid ${kenarRengi}`, boxSizing: "border-box",
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, padding: 6,
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 13.5, color: "var(--ink-green)", textAlign: "center", lineHeight: 1.15, maxWidth: "100%" }} onPointerDown={(e) => e.stopPropagation()}>
           <EditableText value={table.name} onSave={onRename} />
         </div>
+        <div style={{ fontSize: 10.5, color: "var(--muted-2)" }} className="tnum">{table.seat_count} kişilik</div>
       </div>
-      <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 2 }} className="tnum">{table.seat_count} kişilik</div>
       {occupied ? (
-        <div style={{ fontSize: 12, color: "var(--ink-green)", fontWeight: 600, marginTop: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 11.5, color: "var(--ink-green)", fontWeight: 600, textAlign: "center", maxWidth: BOX_W - 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {oturan ? `${oturan.guestName} · ${oturan.partySize} kişi` : "Dolu"}
         </div>
       ) : reserved ? (
-        <div style={{ fontSize: 12, color: "var(--info)", marginTop: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Rezerve</div>
+        <div style={{ fontSize: 11.5, color: "var(--info)" }}>Rezerve</div>
       ) : (
-        <div style={{ fontSize: 12.5, color: "var(--muted-2)", marginTop: 10 }}>Boş</div>
+        <div style={{ fontSize: 11.5, color: "var(--muted-2)" }}>Boş</div>
       )}
     </div>
   );
