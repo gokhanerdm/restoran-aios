@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
+import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import { Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft } from "lucide-react";
 import { useConfirm } from "../../components/useConfirm";
@@ -69,18 +69,7 @@ const mergeHours = (raw: unknown): OpeningHours => {
 const DIGER = "__diger__";
 
 export default function RezervasyonAyarlarPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--canvas)" }} />}>
-      <AyarlarInner />
-    </Suspense>
-  );
-}
-
-function AyarlarInner() {
-  const searchParams = useSearchParams();
-  const rSlug = searchParams.get("r");
-  const geriLink = rSlug ? `/rezervasyon?r=${rSlug}` : "/rezervasyon";
-
+  const router = useRouter();
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,13 +96,13 @@ function AyarlarInner() {
 
   useEffect(() => {
     let active = true;
-    resolveRestaurantIdBySlug(rSlug).then((res) => {
+    getMyReservationRestaurantId().then((id) => {
       if (!active) return;
-      if ("error" in res) { setErr(res.error); return; }
-      setRestaurantId(res.id);
+      if (!id) { router.replace("/rezervasyon/giris"); return; }
+      setRestaurantId(id);
     });
     return () => { active = false; };
-  }, [rSlug]);
+  }, [router]);
 
   const load = useCallback(async (restId: string) => {
     const [{ data: a }, { data: t }, { data: r }, { data: s }] = await Promise.all([
@@ -274,7 +263,7 @@ function AyarlarInner() {
       {confirmDialog}
 
       <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
-        <Link href={geriLink} aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
+        <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
         <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Ayarlar</div>
         {isim && <div style={{ fontSize: 13, color: "var(--muted)" }}>{isim}</div>}
       </div>

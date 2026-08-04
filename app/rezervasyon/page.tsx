@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
+import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight, Settings } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Settings, LogOut } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -17,7 +17,9 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 // Eskiden bu ekran AIOS'un içindeydi (/karsilama), sol menüden açılıyordu ve misafir
 // oturunca adisyon açıyordu. Karar değişti: rezervasyon ayrı satılabilecek bir ürün, AIOS
 // ile işi yok. Bu yüzden:
-//   - Giriş yok, sol menü yok. Mutfak/Vale gibi linkle açılır: ?r=işletme-kodu
+//   - AIOS sol menüsü yok. Kendi girişi var (/rezervasyon/giris) — AIOS'un profiles/
+//     bootstrap_restaurant_account'ından tamamen ayrı bir hesap sistemi (restaurants.
+//     owner_user_id). Oturum yoksa buraya değil /rezervasyon/giris'e düşülür.
 //   - Hesap/adisyon yok. Akış kendi içinde kapanır: bekleniyor -> geldi -> oturdu -> kalktı
 //   - Masayı bu program yönetir: oturunca dolu, kalkınca boş (bkz. seat_reservation ve
 //     end_reservation_visit — artık orders tablosuna hiç dokunmuyorlar).
@@ -131,17 +133,6 @@ const bildirimGonder = (reservationId: string, tip: "onay" | "hatirlatma") => {
 };
 
 export default function RezervasyonPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--canvas)" }} />}>
-      <RezervasyonInner />
-    </Suspense>
-  );
-}
-
-function RezervasyonInner() {
-  const searchParams = useSearchParams();
-  const rSlug = searchParams.get("r");
-
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [restaurantName, setRestaurantName] = useState("");
   const [gun, setGun] = useState("");
@@ -188,19 +179,22 @@ function RezervasyonInner() {
   const [filtre, setFiltre] = useState("tumu");
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
+  const router = useRouter();
 
-  // İşletme linkteki koddan çözülür — bu program giriş istemiyor.
+  // İşletme oturumdan çözülür — oturum yoksa ya da hesabın restoranı yoksa girişe düşer.
   useEffect(() => {
     let active = true;
-    resolveRestaurantIdBySlug(rSlug).then((res) => {
+    getMyReservationRestaurantId().then((id) => {
       if (!active) return;
-      if ("error" in res) { setErr(res.error); return; }
-      setRestaurantId(res.id);
-      supabase.from("restaurants").select("name").eq("id", res.id).maybeSingle()
+      if (!id) { router.replace("/rezervasyon/giris"); return; }
+      setRestaurantId(id);
+      supabase.from("restaurants").select("name").eq("id", id).maybeSingle()
         .then(({ data }) => { if (active) setRestaurantName((data as { name: string } | null)?.name ?? ""); });
     });
     return () => { active = false; };
-  }, [rSlug]);
+  }, [router]);
+
+  const cikisYap = async () => { await supabase.auth.signOut(); router.replace("/rezervasyon/giris"); };
 
   const load = useCallback(async (restId: string, targetGun: string) => {
     const { start, end } = gunSiniri(targetGun);
@@ -432,7 +426,7 @@ function RezervasyonInner() {
     && !!r.table_id && (r.status === "bekleniyor" || r.status === "geldi")
     && tables.find((t) => t.id === r.table_id)?.status === "occupied";
 
-  // Link kodu verilmediyse/yanlışsa hiçbir veri gösterilemez — tek başına hata ekranı.
+  // Oturum çözülene kadar (ya da girişe yönlendirilene kadar) tek başına yükleniyor ekranı.
   if (!restaurantId) {
     return (
       <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -452,9 +446,12 @@ function RezervasyonInner() {
         <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyon</div>
         {restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>}
         <div style={{ flex: 1 }} />
-        <Link href={rSlug ? `/rezervasyon/ayarlar?r=${rSlug}` : "/rezervasyon/ayarlar"} aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, textDecoration: "none" }}>
+        <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, textDecoration: "none" }}>
           <Settings size={19} />
         </Link>
+        <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={navBtn}>
+          <LogOut size={19} />
+        </button>
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
