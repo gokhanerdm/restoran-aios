@@ -21,7 +21,9 @@ import { useConfirm } from "../../components/useConfirm";
 // gerekmedi. Ayarlar'daki liste duruyor (hızlı toplu ekleme için), bu ekran görsel yerleşim için.
 
 type Area = { id: string; name: string; sort_order: number };
-type Shape = "yuvarlak" | "kare" | "dikdortgen";
+// Loca gerçek bir masa şekli (Gökhan: "locayı masa ekleye koyacağız" — dekoratif öğe değil,
+// doğrudan kişi sayısı/rezervasyon durumu taşıyan bir masa gibi işlem görsün).
+type Shape = "yuvarlak" | "kare" | "dikdortgen" | "loca";
 type TableRow = {
   id: string; name: string; area_id: string | null; status: string; sort_order: number;
   position_x: number | null; position_y: number | null; seat_count: number; shape: Shape; rotated: boolean;
@@ -29,11 +31,12 @@ type TableRow = {
 type OturanBilgi = { guestName: string; partySize: number };
 
 // Masa dışı salon öğeleri (Gökhan, 2026-08-04: "bar ikonu koyarız duvar koyarız... kolon
-// koyalım bide servis koyalım kapı koyalım... loca"). Rezervasyon/durum takibi yok, sadece
-// salonun gerçek halini çizmek için. Duvar/Bar iki uçtan çekilip uzatılır; Kolon/Servis/
-// Kapı/Loca sabit boyda, tek noktadan sürüklenir. restaurant_tables'a KARIŞTIRILMADI —
-// oradaki kapasite/rezervasyon hesaplarını bozmasın diye ayrı bir tablo (salon_ogeleri).
-type OgeType = "duvar" | "bar" | "kolon" | "servis" | "kapi" | "loca";
+// koyalım bide servis koyalım kapı koyalım"). Rezervasyon/durum takibi yok, sadece salonun
+// gerçek halini çizmek için. Duvar/Bar iki uçtan çekilip uzatılır; Kolon/Servis/Kapı sabit
+// boyda, tek noktadan sürüklenir. restaurant_tables'a KARIŞTIRILMADI — oradaki kapasite/
+// rezervasyon hesaplarını bozmasın diye ayrı bir tablo (salon_ogeleri). Loca burada YOK —
+// o gerçek bir masa (yukarıdaki Shape), çünkü rezervasyon/durum taşıması gerekiyordu.
+type OgeType = "duvar" | "bar" | "kolon" | "servis" | "kapi";
 type SalonOge = { id: string; area_id: string; type: OgeType; name: string; x1: number; y1: number; x2: number | null; y2: number | null };
 const CEKME_TIPLERI: { type: OgeType; label: string }[] = [
   { type: "duvar", label: "Duvar" },
@@ -43,16 +46,10 @@ const SABIT_TIPLERI: { type: OgeType; label: string }[] = [
   { type: "kolon", label: "Kolon" },
   { type: "servis", label: "Servis" },
   { type: "kapi", label: "Kapı" },
-  { type: "loca", label: "Loca" },
 ];
-// 1cm gerçek ölçünün piksel karşılığı — hem masa hem loca aynı oranı kullanır ki büyük/küçük
-// karşılaştırması tutarlı olsun.
+// 1cm gerçek ölçünün piksel karşılığı — masa (Loca dahil) ve Duvar/Bar kalınlığı aynı oranı
+// kullanır ki büyük/küçük karşılaştırması tutarlı olsun.
 const PX_PER_CM = 0.8;
-// Loca standart ölçüsü (Gökhan: "locada koy standart masa ölçüleri bul ona göre işle") —
-// loca aslında duvara dayalı 4 kişilik banket oturma + masa birleşimi, restoran mobilyası
-// literatüründeki yaygın değer ~150×110cm (iki banket + aradaki masa). Diğer sabit öğeler
-// (kolon/servis/kapı) gerçek mobilya değil, mimari işaret — onlar piksel sabit kalabilir.
-const LOCA_CM = { w: 150, h: 110 };
 // Duvar/Bar kalınlığı — standart duvar ~20cm, bar tezgahı ~60cm derinlik (yaygın tezgah
 // ölçüsü). Uzunlukları (x1,y1)-(x2,y2) çekilerek serbest belirlenir, kalınlık sabit.
 const CEKME_GORUNUM: Record<string, { renk: string; kalinlik: number }> = {
@@ -64,7 +61,6 @@ const SABIT_GORUNUM: Record<string, { renk: string; genislik: number; yukseklik:
   kolon: { renk: "var(--muted-2)", genislik: 44, yukseklik: 44 },
   servis: { renk: "var(--gold)", genislik: 74, yukseklik: 50 },
   kapi: { renk: "var(--danger)", genislik: 54, yukseklik: 26 },
-  loca: { renk: "var(--tan-400)", genislik: Math.round(LOCA_CM.w * PX_PER_CM), yukseklik: Math.round(LOCA_CM.h * PX_PER_CM) },
 };
 
 // Masa şekli ve kişi sayısı AYRI seçilir (Gökhan: "yuvarlak altı kişilik masada olabilir" —
@@ -76,6 +72,7 @@ const SEKILLER: { shape: Shape; label: string }[] = [
   { shape: "yuvarlak", label: "Yuvarlak" },
   { shape: "kare", label: "Kare" },
   { shape: "dikdortgen", label: "Dikdörtgen" },
+  { shape: "loca", label: "Loca" },
 ];
 const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
 
@@ -83,10 +80,11 @@ const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
 // mobilyası literatüründeki yaygın santim değerleri (ör. 2 kişilik kare ~60×60, 8 kişilik
 // dikdörtgen ~220×90). Piksele PX_PER_CM ile çevriliyor ki büyük masa küçükten GERÇEKTEN
 // büyük görünsün — önceki halde her masa şekli sabit tek boyuttaydı, kişi sayısının hiç
-// etkisi yoktu.
+// etkisi yoktu. Loca ~150×110cm banket standardından (duvara dayalı çift banket + masa).
 const CM_OLCU: Record<Shape, Record<number, { w: number; h: number }>> = {
   yuvarlak: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 150, h: 150 }, 8: { w: 180, h: 180 } },
   kare: { 2: { w: 60, h: 60 }, 4: { w: 80, h: 80 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
+  loca: { 2: { w: 110, h: 90 }, 4: { w: 150, h: 110 }, 6: { w: 190, h: 120 }, 8: { w: 230, h: 130 } },
   dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 75 }, 8: { w: 220, h: 90 } },
 };
 const MIN_GOVDE_PX = 46;
@@ -103,6 +101,7 @@ const govdeOlcusu = (shape: Shape, seats: number): { width: number; height: numb
 const sekilRozeti = (shape: Shape, taban: number): React.CSSProperties => {
   if (shape === "yuvarlak") return { width: taban, height: taban, borderRadius: "50%" };
   if (shape === "kare") return { width: taban, height: taban, borderRadius: 4 };
+  if (shape === "loca") return { width: taban * 1.35, height: taban, borderRadius: 12 };
   return { width: taban * 1.5, height: taban * 0.7, borderRadius: 4 };
 };
 
@@ -633,7 +632,7 @@ function TableBox({
   const dikdortgen = table.shape === "dikdortgen";
   const olcu = govdeOlcusu(table.shape, table.seat_count);
   const govde = dikdortgen && table.rotated ? { width: olcu.height, height: olcu.width } : olcu;
-  const govdeRadius = table.shape === "yuvarlak" ? "50%" : 10;
+  const govdeRadius = table.shape === "yuvarlak" ? "50%" : table.shape === "loca" ? 16 : 10;
   const zeminRengi = occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)";
   const kenarRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--line-2)";
   const durumRengi = occupied ? "var(--brand)" : reserved ? "var(--info)" : "var(--muted-2)";
