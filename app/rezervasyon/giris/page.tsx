@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
 // REZERVASYON — kendi giriş/kayıt ekranı (Gökhan, 2026-08-04). AIOS'un /giris ekranıyla
@@ -29,7 +30,12 @@ const DAYS: { k: DayKey; l: string }[] = [
 ];
 const TUM_GUNLER = new Set<DayKey>(DAYS.map((d) => d.k));
 
-const ISLETME_TURLERI = ["Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Bar / Pub", "Fast food", "Otel restoranı", "Diğer"];
+const ISLETME_TURLERI = ["Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Bar / Pub", "Gece kulübü", "Fast food", "Otel restoranı", "Diğer"];
+
+// Kapanış saati açılıştan ÖNCEYSE gece yarısını geçmiş demektir — gece kulübü 23:00'te açılıp
+// 04:00'te kapanabilir, meyhane 18:00'de açılıp 01:00'de kapanabilir; restoranın çoğu aynı gün
+// açılıp kapanır. Ayrı bir "ertesi gün" kutucuğu YOK, saatlerden kendiliğinden çıkarılıyor.
+const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) && Boolean(kapanis) && kapanis < acilis;
 
 const errMap: Record<string, string> = {
   invalid_credentials: "E-posta veya şifre hatalı.",
@@ -58,7 +64,8 @@ export default function RezervasyonGirisPage() {
 
   // İşletme / marka
   const [businessName, setBusinessName] = useState("");
-  const [businessType, setBusinessType] = useState(ISLETME_TURLERI[0]);
+  const [businessType, setBusinessType] = useState("");
+  const [turAcik, setTurAcik] = useState(false);
   const [contactName, setContactName] = useState("");
   const [phone, setPhone] = useState("");
 
@@ -90,6 +97,7 @@ export default function RezervasyonGirisPage() {
       setErr(`${subeTipi === "cok" ? "Marka" : "İşletme"} adı, yetkili adı soyadı, telefon, e-posta ve en az 6 haneli şifre gerekli.`);
       return;
     }
+    if (!businessType) { setErr("İşletme türünü seç."); return; }
     if (subeTipi === "cok" && !branchName.trim()) { setErr("Şube adı gerekli."); return; }
     if (!il.trim() || !ilce.trim() || !address.trim()) { setErr("İl, ilçe ve açık adres gerekli."); return; }
     if (acikGunler.size === 0) { setErr("En az bir çalışma günü seçmelisin."); return; }
@@ -181,9 +189,35 @@ export default function RezervasyonGirisPage() {
               {subeTipi === "cok" ? "İşletme bilgileri" : "İşletme"}
             </div>
             <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={subeTipi === "cok" ? "İşletme veya marka adı" : "İşletme adı"} style={inp} />
-            <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} style={inp}>
-              {ISLETME_TURLERI.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+
+            {/* İşletme türü — native select yerine, aynı kutunun içinde aşağı doğru açılan
+                kendi akordiyonumuz (Ayarlar'daki salon akordiyonuyla aynı dil). */}
+            <div style={{ border: "1px solid var(--line-2)", borderRadius: 10, background: "var(--card)", overflow: "hidden" }}>
+              <button type="button" onClick={() => setTurAcik((v) => !v)} style={{
+                all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between",
+                width: "100%", padding: "11px 13px", boxSizing: "border-box", fontSize: 14,
+              }}>
+                <span style={{ color: businessType ? "var(--ink)" : "var(--muted-2)" }}>{businessType || "İşletme türü"}</span>
+                <ChevronDown size={16} style={{ color: "var(--muted)", transform: turAcik ? "rotate(180deg)" : undefined, transition: "transform 0.15s", flexShrink: 0 }} />
+              </button>
+              {turAcik && (
+                <div style={{ borderTop: "1px solid var(--line-2)" }}>
+                  {ISLETME_TURLERI.map((t) => (
+                    <button
+                      key={t} type="button" onClick={() => { setBusinessType(t); setTurAcik(false); }}
+                      style={{
+                        all: "unset", cursor: "pointer", display: "block", width: "100%", padding: "9px 13px", boxSizing: "border-box",
+                        fontSize: 13.5, color: businessType === t ? "var(--brand-strong)" : "var(--ink)",
+                        background: businessType === t ? "var(--recede)" : "transparent",
+                      }}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Yetkili adı soyadı" style={inp} />
             <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder={subeTipi === "cok" ? "Merkez telefon numarası" : "Telefon numarası"} style={inp} />
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={subeTipi === "cok" ? "Merkez e-posta adresi" : "E-posta adresi"} style={inp} />
@@ -223,6 +257,9 @@ export default function RezervasyonGirisPage() {
               <span style={{ fontSize: 13, color: "var(--muted)" }}>–</span>
               <input type="time" value={kapanis} onChange={(e) => setKapanis(e.target.value)} style={{ ...inp, flex: 1 }} />
             </div>
+            {kapanisErtesiGun(acilis, kapanis) && (
+              <div style={{ fontSize: 11.5, color: "var(--gold-text)" }}>Kapanış ertesi güne sarkıyor (ör. 23:00 – 04:00).</div>
+            )}
             <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: -2, lineHeight: 1.5 }}>
               Kapalı günler ve farklı saatler kayıttan sonra Ayarlar&apos;dan gün gün düzenlenebilir.
             </div>

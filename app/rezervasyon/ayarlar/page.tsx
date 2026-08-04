@@ -68,6 +68,11 @@ const mergeHours = (raw: unknown): OpeningHours => {
 // Salonu olmayan masalar kaybolmasın diye otomatik grup (PAGE_STANDARDS #4).
 const DIGER = "__diger__";
 
+// Kapanış saati açılıştan önceyse gece yarısını geçmiş demektir (gece kulübü 23:00–04:00,
+// meyhane 18:00–01:00 gibi) — ayrı bir "ertesi gün" kutucuğu yok, saatlerden çıkarılıyor.
+// Giriş ekranındaki (app/rezervasyon/giris) aynı isimli fonksiyonla aynı mantık.
+const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) && Boolean(kapanis) && kapanis < acilis;
+
 export default function RezervasyonAyarlarPage() {
   const router = useRouter();
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
@@ -439,6 +444,9 @@ export default function RezervasyonAyarlarPage() {
                     onChange={(e) => setDay(d.k, { kapanis: e.target.value })}
                     style={{ ...inp, width: 92, opacity: v.kapali ? 0.45 : 1 }}
                   />
+                  {!v.kapali && kapanisErtesiGun(v.acilis, v.kapanis) && (
+                    <span title="Kapanış ertesi güne sarkıyor" style={{ fontSize: 10.5, fontWeight: 700, color: "var(--gold-text)", border: "1px solid var(--gold)", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>ERTESİ GÜN</span>
+                  )}
                   <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: inkSoft, cursor: "pointer", marginLeft: "auto" }}>
                     <input type="checkbox" checked={v.kapali} onChange={(e) => setDay(d.k, { kapali: e.target.checked })} /> Kapalı
                   </label>
