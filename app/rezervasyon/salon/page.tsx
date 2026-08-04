@@ -28,19 +28,25 @@ type TableRow = {
 };
 type OturanBilgi = { guestName: string; partySize: number };
 
-// Masa eklerken seçilen şekil+kişi sayısı ön tanımları (Gökhan, 2026-08-04: "kart değil
-// masa şekli çıksın"). Konsepte göre otomatik öneri şimdilik yok — seçim elle, ileride
-// concept_templates'e bağlanabilir.
-const MASA_ONTANIMLARI: { shape: Shape; seats: number; label: string }[] = [
-  { shape: "yuvarlak", seats: 2, label: "Yuvarlak · 2" },
-  { shape: "yuvarlak", seats: 4, label: "Yuvarlak · 4" },
-  { shape: "kare", seats: 4, label: "Kare · 4" },
-  { shape: "dikdortgen", seats: 6, label: "Dikdörtgen · 6" },
-  { shape: "dikdortgen", seats: 8, label: "Dikdörtgen · 8" },
+// Masa şekli ve kişi sayısı AYRI seçilir (Gökhan: "yuvarlak altı kişilik masada olabilir" —
+// şekle sabit bir kişi sayısı bağlı olamaz). Sürüklenen kutunun kendisi grid'e oturması için
+// hep BOX_W×BOX_H sabit kalıyor (gerçek daire/dikdörtgen yapmak grid'i bozar); şekil, kutunun
+// içindeki küçük bir rozetle (durum rengiyle boyalı) gösteriliyor — önceki halde köşe
+// yuvarlaklığı denenmişti, "hâlâ kart gibi açılıyor" ve kare seçimi yuvarlak görünüyordu.
+const SEKILLER: { shape: Shape; label: string }[] = [
+  { shape: "yuvarlak", label: "Yuvarlak" },
+  { shape: "kare", label: "Kare" },
+  { shape: "dikdortgen", label: "Dikdörtgen" },
 ];
-// Şekle göre kutu köşe yuvarlaklığı — gerçek daire/dikdörtgen değil (grid hizası bozulmasın
-// diye kutu boyutu hep BOX_W×BOX_H sabit), ama üç şekil görsel olarak ayırt edilebiliyor.
-const SEKIL_RADIUS: Record<Shape, number> = { yuvarlak: 999, kare: 14, dikdortgen: 6 };
+const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
+// Şekil rozeti — gerçek en/boy oranıyla (yuvarlak: eşit kenar + tam yuvarlak, kare: eşit
+// kenar + hafif köşe, dikdörtgen: geniş + hafif köşe). Hem seçim ekranında hem masanın
+// kendi kutusunda AYNI fonksiyon kullanılıyor ki ikisi birbirini tutsun.
+const sekilRozeti = (shape: Shape, taban: number): React.CSSProperties => {
+  if (shape === "yuvarlak") return { width: taban, height: taban, borderRadius: "50%" };
+  if (shape === "kare") return { width: taban, height: taban, borderRadius: 4 };
+  return { width: taban * 1.5, height: taban * 0.7, borderRadius: 4 };
+};
 
 const BOX_W = 148;
 const BOX_H = 108;
@@ -71,7 +77,8 @@ export default function SalonPage() {
   const [newAreaName, setNewAreaName] = useState("");
   const [addingTable, setAddingTable] = useState(false);
   const [newTableName, setNewTableName] = useState("");
-  const [newTableSecim, setNewTableSecim] = useState(0); // MASA_ONTANIMLARI içindeki index
+  const [newTableShape, setNewTableShape] = useState<Shape>("kare");
+  const [newTableSeats, setNewTableSeats] = useState("4");
   const [koltukInput, setKoltukInput] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; table: TableRow | null } | null>(null);
@@ -137,15 +144,16 @@ export default function SalonPage() {
 
   const addTable = async () => {
     if (!restaurantId || !selectedAreaId || !newTableName.trim()) return;
+    const seats = parseInt(newTableSeats, 10);
+    if (!Number.isFinite(seats) || seats < 1 || seats > 50) { setErr("Koltuk sayısı 1 ile 50 arasında olmalı."); return; }
     setErr(null);
     const count = tables.filter((t) => t.area_id === selectedAreaId).length;
-    const secim = MASA_ONTANIMLARI[newTableSecim];
     const { error } = await supabase.from("restaurant_tables").insert({
       restaurant_id: restaurantId, name: toTitleTr(newTableName), area_id: selectedAreaId, status: "empty", sort_order: count,
-      shape: secim.shape, seat_count: secim.seats,
+      shape: newTableShape, seat_count: seats,
     });
     if (error) { setErr(error.message); return; }
-    setNewTableName(""); setNewTableSecim(0); setAddingTable(false);
+    setNewTableName(""); setNewTableShape("kare"); setNewTableSeats("4"); setAddingTable(false);
     await load(restaurantId);
   };
   const renameTable = async (id: string, name: string) => {
@@ -319,9 +327,9 @@ export default function SalonPage() {
         </>
       )}
 
-      {/* MASA EKLE KATMANI — kart değil, gerçek masa şekli seçiliyor (Gökhan, 2026-08-04:
-          "masa ekle deyince kart değil masa şekli çıksın"). Şekil × kişi sayısı ön tanımlı
-          5 seçenek, her biri kendi görseliyle (yuvarlak/kare/dikdörtgen). */}
+      {/* MASA EKLE KATMANI — şekil ve kişi sayısı AYRI seçiliyor (Gökhan: "yuvarlak altı
+          kişilik masada olabilir" — sabit eşleşme yanlıştı). Şekil rozetleri gerçek en/boy
+          oranıyla çiziliyor (sekilRozeti), kare artık yuvarlak görünmüyor. */}
       {addingTable && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => { setAddingTable(false); setNewTableName(""); }}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 340, maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
@@ -336,25 +344,46 @@ export default function SalonPage() {
             />
 
             <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 14, marginBottom: 8 }}>Masa şekli</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {MASA_ONTANIMLARI.map((secim, i) => (
+            <div style={{ display: "flex", gap: 10 }}>
+              {SEKILLER.map((s) => (
                 <button
-                  key={secim.label}
-                  onClick={() => setNewTableSecim(i)}
+                  key={s.shape}
+                  onClick={() => setNewTableShape(s.shape)}
                   style={{
-                    all: "unset", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                    padding: 10, borderRadius: 12,
-                    border: newTableSecim === i ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
-                    background: newTableSecim === i ? "var(--recede)" : "transparent",
+                    all: "unset", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: 10, width: 82, height: 66, borderRadius: 12,
+                    border: newTableShape === s.shape ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
+                    background: newTableShape === s.shape ? "var(--recede)" : "transparent",
                   }}
                 >
-                  <div style={{
-                    width: secim.shape === "dikdortgen" ? 44 : 32, height: secim.shape === "yuvarlak" ? 32 : secim.shape === "kare" ? 32 : 26,
-                    borderRadius: SEKIL_RADIUS[secim.shape], background: "var(--tan-300)", border: "1px solid var(--line-2)",
-                  }} />
-                  <span style={{ fontSize: 11, color: "var(--ink)", whiteSpace: "nowrap" }}>{secim.label}</span>
+                  <div style={{ ...sekilRozeti(s.shape, 30), background: "var(--tan-300)", border: "1px solid var(--line-2)" }} />
+                  <span style={{ fontSize: 11, color: "var(--ink)" }}>{s.label}</span>
                 </button>
               ))}
+            </div>
+
+            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 16, marginBottom: 8 }}>Koltuk sayısı</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {KOLTUK_SECENEKLERI.map((n) => (
+                <button
+                  key={n}
+                  onClick={() => setNewTableSeats(String(n))}
+                  style={{
+                    all: "unset", cursor: "pointer", minWidth: 36, textAlign: "center", padding: "7px 0", borderRadius: 980, fontSize: 13,
+                    border: newTableSeats === String(n) ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
+                    background: newTableSeats === String(n) ? "var(--recede)" : "transparent",
+                    color: "var(--ink)", fontWeight: newTableSeats === String(n) ? 600 : 400,
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+              <input
+                value={newTableSeats}
+                onChange={(e) => setNewTableSeats(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum"
+                style={{ ...inp, width: 56, textAlign: "center", marginLeft: 6 }}
+              />
             </div>
 
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
@@ -411,14 +440,16 @@ function TableBox({
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
       style={{
-        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: SEKIL_RADIUS[table.shape] ?? 14, padding: 12,
+        position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H, borderRadius: 14, padding: 12,
         cursor: "grab", touchAction: "none", userSelect: "none",
         background: occupied ? "var(--tan-300)" : reserved ? "var(--info-bg)" : "var(--recede)",
         border: "1px solid var(--line)", boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-        <span style={{ width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
+      {/* Şekil rozeti — kutunun kendisi grid'e oturması için hep aynı boyda kalıyor,
+          gerçek şekil (yuvarlak/kare/dikdörtgen) burada, durum rengiyle boyalı. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        <span style={{ ...sekilRozeti(table.shape, 13), background: dotColor, flexShrink: 0 }} />
         <div style={{ fontWeight: 600, fontSize: 14, minWidth: 0, flex: 1 }} onPointerDown={(e) => e.stopPropagation()}>
           <EditableText value={table.name} onSave={onRename} />
         </div>
