@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Eye, EyeOff } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { toTitleTr } from "@/lib/text";
 
@@ -38,6 +38,37 @@ const ISLETME_TURLERI = ["Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "
 // açılıp kapanır. Ayrı bir "ertesi gün" kutucuğu YOK, saatlerden kendiliğinden çıkarılıyor.
 const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) && Boolean(kapanis) && kapanis < acilis;
 
+// Güçlü parola standardı — kabul gören en yaygın kural: en az 8 karakter, bir büyük harf,
+// bir küçük harf, bir rakam, bir sembol. Kayıt formunda canlı gösteriliyor (kutu yazarken
+// değişir, bu bir "hatırlatma listesi"), giriş (login) tarafında zorlanmıyor — eski
+// hesaplar farklı bir kuralla açılmış olabilir, login sadece şifreyi doğrular.
+const SIFRE_KURALLARI: { label: string; test: (pw: string) => boolean }[] = [
+  { label: "En az 8 karakter", test: (pw) => pw.length >= 8 },
+  { label: "Büyük harf", test: (pw) => /[A-ZÇĞİÖŞÜ]/.test(pw) },
+  { label: "Küçük harf", test: (pw) => /[a-zçğıöşü]/.test(pw) },
+  { label: "Rakam", test: (pw) => /[0-9]/.test(pw) },
+  { label: "Sembol (!, @, # gibi)", test: (pw) => /[^A-Za-zÇĞİÖŞÜçğıöşü0-9]/.test(pw) },
+];
+
+// "Güçlü şifre öner" — SIFRE_KURALLARI'ndaki her kuraldan en az bir karakter garanti edip
+// geri kalanı rastgele dolduruyor, sonra karıştırıyor. Karıştırma harfleri okunabilir
+// tutmak için karışık büyük/küçük I/O gibi harfler havuzdan çıkarıldı.
+function gucluSifreOner(): string {
+  const buyuk = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const kucuk = "abcdefghijkmnopqrstuvwxyz";
+  const rakam = "23456789";
+  const sembol = "!@#$%^&*-_=+?";
+  const rastgele = (havuz: string) => havuz[Math.floor(Math.random() * havuz.length)];
+  const karakterler = [rastgele(buyuk), rastgele(kucuk), rastgele(rakam), rastgele(sembol)];
+  const tumHavuz = buyuk + kucuk + rakam + sembol;
+  while (karakterler.length < 12) karakterler.push(rastgele(tumHavuz));
+  for (let i = karakterler.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [karakterler[i], karakterler[j]] = [karakterler[j], karakterler[i]];
+  }
+  return karakterler.join("");
+}
+
 const errMap: Record<string, string> = {
   invalid_credentials: "E-posta veya şifre hatalı.",
   email_not_confirmed: "E-postanı henüz onaylamamışsın — gelen kutunu kontrol et.",
@@ -62,6 +93,7 @@ export default function RezervasyonGirisPage() {
   // Hesap
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
 
   // İşletme / marka
   const [businessName, setBusinessName] = useState("");
@@ -100,10 +132,11 @@ export default function RezervasyonGirisPage() {
 
   const submitKayit = async () => {
     if (busy) return;
-    if (!businessName.trim() || !contactName.trim() || !phone.trim() || !email.trim() || password.length < 6) {
-      setErr(`${subeTipi === "cok" ? "Marka" : "İşletme"} adı, yetkili adı soyadı, telefon, e-posta ve en az 6 haneli şifre gerekli.`);
+    if (!businessName.trim() || !contactName.trim() || !phone.trim() || !email.trim() || !password) {
+      setErr(`${subeTipi === "cok" ? "Marka" : "İşletme"} adı, yetkili adı soyadı, telefon, e-posta ve şifre gerekli.`);
       return;
     }
+    if (!SIFRE_KURALLARI.every((k) => k.test(password))) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
     if (!businessType) { setErr("İşletme türünü seç."); return; }
     if (subeTipi === "cok" && !branchName.trim()) { setErr("Şube adı gerekli."); return; }
     if (!il.trim() || !ilce.trim() || !address.trim()) { setErr("İl, ilçe ve açık adres gerekli."); return; }
@@ -228,7 +261,39 @@ export default function RezervasyonGirisPage() {
             <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={onBlurTitle(setContactName)} onKeyDown={onEnterBlur} placeholder="Yetkili adı soyadı" style={inp} />
             <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder={subeTipi === "cok" ? "Merkez telefon numarası" : "Telefon numarası"} style={inp} />
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={subeTipi === "cok" ? "Merkez e-posta adresi" : "E-posta adresi"} style={inp} />
-            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Şifre" style={inp} />
+            <div style={{ position: "relative" }}>
+              <input
+                value={password} onChange={(e) => setPassword(e.target.value)}
+                type={showPw ? "text" : "password"} placeholder="Şifre"
+                style={{ ...inp, paddingRight: 38 }}
+              />
+              <button
+                type="button" onClick={() => setShowPw((v) => !v)}
+                aria-label={showPw ? "Şifreyi gizle" : "Şifreyi göster"}
+                style={{ all: "unset", cursor: "pointer", position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", display: "flex" }}
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+            {/* Gereksinim listesi — kutuya yazdıkça canlı güncellenir, karşılanan madde
+                yeşile döner. Şifrenin kendisi hiçbir yere loglanmıyor, sadece burada. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "2px 12px", marginTop: -2 }}>
+              {SIFRE_KURALLARI.map((k) => {
+                const met = k.test(password);
+                return (
+                  <span key={k.label} style={{ fontSize: 11, color: met ? "var(--brand)" : "var(--muted-2)" }}>
+                    {met ? "✓ " : ""}{k.label}
+                  </span>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setPassword(gucluSifreOner()); setShowPw(true); }}
+              style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)", alignSelf: "flex-start" }}
+            >
+              Güçlü şifre öner
+            </button>
 
             {subeTipi === "cok" && (
               <>
