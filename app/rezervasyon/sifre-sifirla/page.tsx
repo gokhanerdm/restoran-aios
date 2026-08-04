@@ -16,6 +16,7 @@ export default function SifreSifirlaPage() {
   const router = useRouter();
   const [hazir, setHazir] = useState<boolean | null>(null); // null = kontrol ediliyor
   const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -37,6 +38,7 @@ export default function SifreSifirlaPage() {
   const kaydet = async () => {
     if (busy) return;
     if (!sifreGecerliMi(password)) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
+    if (password !== password2) { setErr("Şifreler birbiriyle uyuşmuyor."); return; }
     setBusy(true); setErr(null);
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(false);
@@ -104,6 +106,13 @@ export default function SifreSifirlaPage() {
                   Güçlü şifre öner
                 </button>
               </div>
+
+              <input
+                value={password2} onChange={(e) => setPassword2(e.target.value)}
+                type={showPw ? "text" : "password"} placeholder="Yeni şifre (tekrar)"
+                onKeyDown={(e) => e.key === "Enter" && kaydet()}
+                style={inp}
+              />
 
               <button onClick={kaydet} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, marginTop: 6 }}>
                 {busy ? "…" : "Şifreyi kaydet"}

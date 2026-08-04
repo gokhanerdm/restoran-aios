@@ -48,6 +48,9 @@ const errMap: Record<string, string> = {
   invalid_credentials: "E-posta veya şifre hatalı.",
   email_not_confirmed: "E-postanı henüz onaylamamışsın — gelen kutunu kontrol et.",
   user_already_exists: "Bu e-posta ile zaten bir hesap var, giriş yapmayı dene.",
+  // Supabase peş peşe denemede kendiliğinden devreye giriyor (Gökhan, 2026-08-04:
+  // "rate limite takıldı") — kod hatası değil, birkaç dakika beklemek yeterli.
+  over_email_send_rate_limit: "Çok kısa sürede çok fazla mail istendi — birkaç dakika bekleyip tekrar dene.",
 };
 
 // Seçili günlere aynı açılış/kapanış saatini uygulayan tek bir OpeningHours üretir —
