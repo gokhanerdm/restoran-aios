@@ -154,8 +154,11 @@ export default function SalonPage() {
   const pendingAnchor = useRef<{ contentX: number; contentY: number; clientX: number; clientY: number } | null>(null);
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
   // Ref değil state — react-hooks/refs kuralı render sırasında ref okuma/yazmayı da yasaklıyor,
-  // bu yüzden "bir kez çalıştım" bayrağı da state olarak tutuluyor.
-  const [autoFitDone, setAutoFitDone] = useState<string | null>(null);
+  // bu yüzden "bu salon ziyaretinde bir kez sığdırdım" bayrağı da state olarak tutuluyor.
+  // SADECE salon değişince sıfırlanır (aşağıda) — viewportSize'a bağlı DEĞİL, yoksa
+  // yakınlaşınca beliren kaydırma çubuğu viewportSize'ı değiştirip zoom'u sürekli "tüm salonu
+  // göster" seviyesine geri çekiyordu (Gökhan: "mouse ile uzaklaşıyor ama yaklaşmıyor").
+  const [autoFitDone, setAutoFitDone] = useState(false);
 
   // Salon değişince ölçü kutusu ve zoom sıfırlanır — bunu bir effect yerine render sırasında
   // yapıyoruz (React'in "prop değişince state sıfırla" deseni), yoksa react-hooks/set-state-in-effect
@@ -169,6 +172,7 @@ export default function SalonPage() {
       derinlik: a?.derinlik_cm ? String(Math.round(a.derinlik_cm) / 100) : "",
     });
     setZoom(1);
+    setAutoFitDone(false);
   }
 
   useEffect(() => {
@@ -484,14 +488,12 @@ export default function SalonPage() {
   // Gerçek ölçü girilmiş bir salon açıldığında (ya da ölçü az önce girildiğinde) varsayılan
   // görünüm doğrudan "tüm salonu göster" olsun (Gökhan: "salonun minyatürünü görecek, sonra
   // zoom yaparak istediği masaya gidecek") — zoom=1 ile açılıp elle sığdırması beklenmesin.
-  // Effect değil render-sırası koşullu setState (autoFitDone aynı kombinasyon için bir kez
-  // çalışmasını garanti ediyor) — react-hooks/set-state-in-effect'i tetiklememek için.
-  if (selectedAreaId && selectedArea?.genislik_cm && selectedArea?.derinlik_cm && viewportSize.w > 0 && viewportSize.h > 0) {
-    const anahtar = `${selectedAreaId}:${selectedArea.genislik_cm}:${selectedArea.derinlik_cm}:${viewportSize.w}:${viewportSize.h}`;
-    if (autoFitDone !== anahtar) {
-      setAutoFitDone(anahtar);
-      zoomUygula(fitZoom());
-    }
+  // Bu SALON ZİYARETİNDE bir kez çalışır (autoFitDone yukarıda salon değişince sıfırlanır) —
+  // Effect değil render-sırası koşullu setState, react-hooks/set-state-in-effect'i tetiklememek
+  // için.
+  if (!autoFitDone && selectedAreaId && selectedArea?.genislik_cm && selectedArea?.derinlik_cm && viewportSize.w > 0 && viewportSize.h > 0) {
+    setAutoFitDone(true);
+    zoomUygula(fitZoom());
   }
 
   const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
@@ -635,7 +637,7 @@ export default function SalonPage() {
                   {/* Salonun gerçek ölçüsü girildiyse çerçeve — "gerçek oturumun minyatürü"
                       (Gökhan: "salonun gerçek oturumunu minyatürde görmek"). */}
                   {odaGenislikPx && odaDerinlikPx && (
-                    <div style={{ position: "absolute", left: 0, top: 0, width: odaGenislikPx, height: odaDerinlikPx, border: "3px solid var(--brand-strong)", borderRadius: 4, boxSizing: "border-box", pointerEvents: "none" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, width: odaGenislikPx, height: odaDerinlikPx, border: "3px solid var(--brand-strong)", borderRadius: 20, boxSizing: "border-box", pointerEvents: "none" }}>
                       <div className="tnum" style={{ position: "absolute", top: -22, left: -3, fontSize: 12, fontWeight: 700, color: "var(--ink-green)" }}>
                         {(selectedArea!.genislik_cm! / 100).toFixed(1)} × {(selectedArea!.derinlik_cm! / 100).toFixed(1)} m
                       </div>
