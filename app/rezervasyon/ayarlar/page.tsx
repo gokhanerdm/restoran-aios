@@ -215,9 +215,9 @@ export default function RezervasyonAyarlarPage() {
     const sure = Math.max(15, Math.min(600, parseInt(oturmaSuresi.replace(/\D/g, ""), 10) || 90));
 
     const { error: rErr } = await supabase.from("restaurants").update({
-      name: isim.trim() || "İşletme",
+      name: isim.trim() ? toTitleTr(isim) : "İşletme",
       phone: telefon.trim() || null,
-      address: adres.trim() || null,
+      address: adres.trim() ? toTitleTr(adres) : null,
     }).eq("id", restaurantId);
     if (rErr) { setBusy(false); setErr(rErr.message); return; }
 

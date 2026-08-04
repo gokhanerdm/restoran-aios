@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { toTitleTr } from "@/lib/text";
 
 // REZERVASYON — kendi giriş/kayıt ekranı (Gökhan, 2026-08-04). AIOS'un /giris ekranıyla
 // AYNI görsel dili (kart, pill toggle, input stilleri) kullanılıyor ama mekanizma tamamen
@@ -110,16 +111,16 @@ export default function RezervasyonGirisPage() {
     const { error: bootErr } = await supabase.rpc("bootstrap_reservation_account", {
       p_user_id: data.user.id,
       p_kind: subeTipi,
-      p_business_name: businessName.trim(),
+      p_business_name: toTitleTr(businessName),
       p_business_type: businessType,
-      p_contact_name: contactName.trim(),
+      p_contact_name: toTitleTr(contactName),
       p_phone: phone.trim(),
       p_email: email.trim(),
-      p_branch_name: subeTipi === "cok" ? branchName.trim() : businessName.trim(),
+      p_branch_name: subeTipi === "cok" ? toTitleTr(branchName) : toTitleTr(businessName),
       p_branch_phone: subeTipi === "cok" ? (branchPhone.trim() || phone.trim()) : phone.trim(),
-      p_il: il.trim(),
-      p_ilce: ilce.trim(),
-      p_address: address.trim(),
+      p_il: toTitleTr(il),
+      p_ilce: toTitleTr(ilce),
+      p_address: toTitleTr(address),
       p_opening_hours: buildOpeningHours(acikGunler, acilis, kapanis),
     });
     setBusy(false);
