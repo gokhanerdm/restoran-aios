@@ -256,6 +256,31 @@ export default function SalonPage() {
     return () => { el.removeEventListener("touchstart", onTouchStart); el.removeEventListener("touchmove", onTouchMove); };
   }, [selectedAreaId]);
 
+  // Fare tekerleği ile yakınlaştır — React'in onWheel JSX prop'u tarayıcıda PASİF olarak
+  // bağlanıyor, preventDefault sessizce yok sayılıyor ve native sayfa kaydırması zoom'la
+  // birlikte çalışıp çakışıyordu (Gökhan: "mouse ile yaklaştırmada da problem var") — bu
+  // yüzden native, passive:false bir dinleyici gerekiyor.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const prevZoom = zoomRef.current;
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      const newZoom = Math.min(6, Math.max(0.1, prevZoom * factor));
+      pendingAnchor.current = {
+        contentX: (e.clientX - rect.left + el.scrollLeft) / prevZoom,
+        contentY: (e.clientY - rect.top + el.scrollTop) / prevZoom,
+        clientX: e.clientX - rect.left,
+        clientY: e.clientY - rect.top,
+      };
+      setZoom(newZoom);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [selectedAreaId]);
+
   const saveOlcu = async () => {
     if (!selectedAreaId) return;
     const g = parseFloat(olcuInput.genislik.replace(",", "."));
@@ -424,8 +449,11 @@ export default function SalonPage() {
   const odaGenislikPx = selectedArea?.genislik_cm ? selectedArea.genislik_cm * PX_PER_CM : null;
   const odaDerinlikPx = selectedArea?.derinlik_cm ? selectedArea.derinlik_cm * PX_PER_CM : null;
 
-  const containerWidth = Math.max(600, ...positioned.map((p) => p.x + BOX_W + GAP), addBoxPos.x + BOX_W + GAP, ...ogeSagSinirlari, odaGenislikPx ?? 0);
-  const containerHeight = Math.max(360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP, ...ogeAltSinirlari, odaDerinlikPx ?? 0);
+  // 600/360 taban değeri sadece gerçek ölçü YOKKEN uygulanıyor — varsa tuval gerçek odaya
+  // sıkı otursun (Gökhan: "ölçeklemede problem var, masalar ve salon aynı oranda değiller" —
+  // sabit taban gerçek küçük bir salonu gereksiz büyütüp oranı bozuyordu).
+  const containerWidth = Math.max(odaGenislikPx ? 0 : 600, ...positioned.map((p) => p.x + BOX_W + GAP), addBoxPos.x + BOX_W + GAP, ...ogeSagSinirlari, odaGenislikPx ?? 0);
+  const containerHeight = Math.max(odaDerinlikPx ? 0 : 360, ...positioned.map((p) => p.y + BOX_H + GAP), addBoxPos.y + BOX_H + GAP, ...ogeAltSinirlari, odaDerinlikPx ?? 0);
 
   // "Tüm salonu göster" — tuvalin tamamı görünür kutuya sığacak zoom oranı (gerekirse
   // yakınlaştırarak da, küçük bir salon büyük bir ekranda kaybolmasın).
@@ -437,25 +465,6 @@ export default function SalonPage() {
   const tumunuGoster = () => {
     zoomUygula(fitZoom());
     if (viewportRef.current) { viewportRef.current.scrollLeft = 0; viewportRef.current.scrollTop = 0; }
-  };
-
-  // Fare tekerleği ile yakınlaştır — imlecin altındaki nokta yerinde kalsın diye kaydırma
-  // konumu da (aşağıdaki useEffect'te) ayarlanıyor.
-  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const el = viewportRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const prevZoom = zoomRef.current;
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const newZoom = Math.min(6, Math.max(0.1, prevZoom * factor));
-    pendingAnchor.current = {
-      contentX: (e.clientX - rect.left + el.scrollLeft) / prevZoom,
-      contentY: (e.clientY - rect.top + el.scrollTop) / prevZoom,
-      clientX: e.clientX - rect.left,
-      clientY: e.clientY - rect.top,
-    };
-    setZoom(newZoom);
   };
 
   // Boş tuval alanından tutup kaydırma (pan) — sadece tıklanan yer gerçekten boşluksa
@@ -500,7 +509,7 @@ export default function SalonPage() {
     <div style={{ padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden", background: "var(--canvas)" }}>
       {confirmDialog}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}>
         <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Salon</div>
@@ -516,6 +525,39 @@ export default function SalonPage() {
         >
           <Plus size={14} /> Masa ekle
         </button>
+
+        {/* Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — Masa ekle'nin
+            yanında, ayrı bir satır açıp tuvali küçültmesin diye (Gökhan: "üstten butonlar
+            eklediğin için salon ekranımız küçülmüş"). */}
+        {selectedAreaId && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)" }}>
+              <span>Ölçü:</span>
+              <input
+                value={olcuInput.genislik}
+                onChange={(e) => setOlcuInput((v) => ({ ...v, genislik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                placeholder="en" inputMode="decimal" className="tnum"
+                style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+              />
+              <span>×</span>
+              <input
+                value={olcuInput.derinlik}
+                onChange={(e) => setOlcuInput((v) => ({ ...v, derinlik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                placeholder="boy" inputMode="decimal" className="tnum"
+                style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+              />
+              <span>m</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button onClick={() => zoomUygula(zoom / 1.25)} aria-label="Uzaklaştır" style={zoomBtn}>−</button>
+              <span className="tnum" style={{ fontSize: 12, width: 38, textAlign: "center", color: "var(--muted)" }}>{Math.round(zoom * 100)}%</span>
+              <button onClick={() => zoomUygula(zoom * 1.25)} aria-label="Yakınlaştır" style={zoomBtn}>+</button>
+              <button onClick={tumunuGoster} style={{ ...btnSecondaryHeader, padding: "6px 12px", fontSize: 12.5 }}>Tüm salonu göster</button>
+            </div>
+          </>
+        )}
 
         {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
             çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
@@ -575,37 +617,8 @@ export default function SalonPage() {
 
         {/* Kat planı — sürükle bırak, sağ tık menü, ölçekli yakınlaştırma. */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          {selectedAreaId && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 8, flexShrink: 0, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)" }}>
-                <span>Salon ölçüsü:</span>
-                <input
-                  value={olcuInput.genislik}
-                  onChange={(e) => setOlcuInput((v) => ({ ...v, genislik: e.target.value.replace(/[^0-9.,]/g, "") }))}
-                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                  placeholder="en" inputMode="decimal" className="tnum"
-                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 48, background: "var(--card)", color: "var(--ink)", outline: "none" }}
-                />
-                <span>×</span>
-                <input
-                  value={olcuInput.derinlik}
-                  onChange={(e) => setOlcuInput((v) => ({ ...v, derinlik: e.target.value.replace(/[^0-9.,]/g, "") }))}
-                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                  placeholder="boy" inputMode="decimal" className="tnum"
-                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 48, background: "var(--card)", color: "var(--ink)", outline: "none" }}
-                />
-                <span>m</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button onClick={() => zoomUygula(zoom / 1.25)} aria-label="Uzaklaştır" style={zoomBtn}>−</button>
-                <span className="tnum" style={{ fontSize: 12, width: 42, textAlign: "center", color: "var(--muted)" }}>{Math.round(zoom * 100)}%</span>
-                <button onClick={() => zoomUygula(zoom * 1.25)} aria-label="Yakınlaştır" style={zoomBtn}>+</button>
-                <button onClick={tumunuGoster} style={{ ...btnSecondaryHeader, padding: "6px 12px", fontSize: 12.5 }}>Tüm salonu göster</button>
-              </div>
-            </div>
-          )}
           <div
-            ref={viewportRef} onWheel={selectedAreaId ? onWheel : undefined}
+            ref={viewportRef}
             style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}
           >
             {!selectedAreaId ? (
