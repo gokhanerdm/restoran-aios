@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { getMyRestaurantId } from "@/lib/supabase/restaurant";
-import { getStaffSession } from "@/lib/supabase/staffSession";
+import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import { toTitleTr } from "@/lib/text";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
@@ -11,19 +11,18 @@ import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../components/ListRow";
 
-// Karşılama — ROADMAP §O2, birleşik akış (2026-07-31, Gökhan onayı).
-// Eskiden Rezervasyon (ileri tarih, isim/telefon/saat) ve Karşılama (bekleme listesi, "şimdi")
-// AYRI ekranlar ve ayrı tablolardı — aynı işi yapıyorlardı, kafa karıştırıyordu. Artık tek
-// tablo (reservations), tek ekran: rezervasyon da al, kapıdan doğrudan gireni de al, ikisi de
-// aynı listede aynı durum zincirinden geçer: bekleniyor -> geldi -> oturdu (ya da gelmedi/iptal).
+// REZERVASYON — kendi başına çalışan ayrı program (Gökhan onayı, 2026-08-04).
 //
-// "bekleniyor" = misafir henüz gelmedi (ileri tarih/saat rezervasyonu). "geldi" = misafir kapıda,
-// masa bekliyor (vale'den ya da doğrudan buradan girilmiş olabilir) — eski iki sistemdeki "bekliyor"
-// kelimesinin ters anlamlarını karıştırmamak için bilerek farklı etiketler.
+// Eskiden bu ekran AIOS'un içindeydi (/karsilama), sol menüden açılıyordu ve misafir
+// oturunca adisyon açıyordu. Karar değişti: rezervasyon ayrı satılabilecek bir ürün, AIOS
+// ile işi yok. Bu yüzden:
+//   - Giriş yok, sol menü yok. Mutfak/Vale gibi linkle açılır: ?r=işletme-kodu
+//   - Hesap/adisyon yok. Akış kendi içinde kapanır: bekleniyor -> geldi -> oturdu -> kalktı
+//   - Masayı bu program yönetir: oturunca dolu, kalkınca boş (bkz. seat_reservation ve
+//     end_reservation_visit — artık orders tablosuna hiç dokunmuyorlar).
 //
-// Vale entegrasyonu: vale girişte isim+kişi sayısı girince (add_valet_entry p_party_size ile)
-// sistem bugünün "bekleniyor" rezervasyonlarıyla eşleştirmeyi dener; bulamazsa rezervasyonsuz
-// yeni bir "geldi" kaydı açar. İkisi de burada, aynı listede, öne çıkarak belirir.
+// "bekleniyor" = misafir henüz gelmedi. "geldi" = kapıda, masa bekliyor. "oturdu" = masada.
+// "kalktı" = masa boşaldı. Kapıdan rezervasyonsuz gelen de aynı listeye, aynı zincire girer.
 
 type Rez = {
   id: string; guest_name: string; guest_phone: string | null; party_size: number;
@@ -52,43 +51,29 @@ const bekleyenSure = (from: string, now: number) => {
   const dk = Math.max(0, Math.round((now - Date.parse(from)) / 60000));
   return dk < 60 ? `${dk} dk` : `${Math.floor(dk / 60)}s ${dk % 60}dk`;
 };
-// Kapasite/Yedek hesabı gün tek havuz değil, öğle/akşam diye iki ayrı dönem sayar (Gökhan:
-// "akşam 17 sonrası bir dönem, öncesi bir dönem" — sınır Ayarlar'dan değiştirilebilir).
 const saatIstanbul = (iso: string) => parseInt(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/Istanbul" }).format(new Date(iso)), 10);
 const donem = (iso: string, aksamBaslangic: number): "ogle" | "aksam" => (saatIstanbul(iso) >= aksamBaslangic ? "aksam" : "ogle");
 
-// bg — satır kartının arka planı (Gökhan: "her duruma bir renk verelim"). İlk halde
-// mavi/kırmızı/yeşil karışımıydı — "renk skalamızla alakası yok" dendi, açık kahve
-// tonlarının (--tan-100..400) dereceli ailesine çevrildi; hepsi aynı konseptin içinde.
-// geldi, bekleniyor ile AYNI tonu kullanıyor — rezervasyon dışı (kapıdan doğrudan) gelen
-// misafirler de bu durumda düşüyor, Gökhan bunların "normal liste ile aynı" görünmesini
-// istedi (öne çıkan renk yerine düz durmalı) — zaten "X dk önce geldi" notu ve
-// Oturdu/İptal butonları o satırı yeterince ayırt ediyor, renge gerek yok.
+// Satır kartının arka planı — açık kahve tonlarının dereceli ailesi (--tan-100..500).
+// Sıra "ne kadar bitmiş" mantığında: aktif olanlar en açık, iptal en koyu.
+// "kalktı" masası boşalmış ama normal biten bir ziyaret — oturdu ile gelmedi arasında.
 const DURUM_INFO: Record<string, { label: string; color: string; bg: string }> = {
   bekleniyor: { label: "Bekleniyor", color: "var(--ink)", bg: "var(--tan-100)" },
   geldi: { label: "Geldi", color: "var(--danger)", bg: "var(--tan-100)" },
   oturdu: { label: "Oturdu", color: "var(--brand)", bg: "var(--tan-300)" },
+  kalkti: { label: "Kalktı", color: "var(--ink)", bg: "var(--tan-200)" },
   gelmedi: { label: "Gelmedi", color: "var(--gold-text)", bg: "var(--tan-400)" },
-  // İptal artık arşive gizlenmiyor, ana listede en altta duruyor (Gökhan: "iptalleri de
-  // renklendirip aşağıda sıralayalım... olağan sıralamada iptaller en altta, gelmediler onun
-  // üstünde") — kahve skalasının en koyu tonu, en "bitmiş" durum.
   iptal: { label: "İptal", color: "var(--ink)", bg: "var(--tan-500)" },
 };
-// Bu rezervasyon gerçek bir rezervasyon mu, yoksa kapıdan doğrudan mı girildi — istatistik
-// için önemli, kayıt oluşurken bir kere yazılıyor (bkz. check_in_arrival RPC). Sadece
-// sonuçlanmış (aktif olmayan) satırlarda gösteriliyor — bekleniyor/geldi'de zaten üç-dört
-// buton var, dördüncü bir etiket sığmaz.
+// Kayıt nereden geldi — istatistik için kayıt anında bir kere yazılır, sonra değişmez.
 const SOURCE_INFO: Record<string, { label: string; color: string }> = {
   rezervasyon: { label: "RVZ", color: "var(--brand)" },
   kapi: { label: "Kapı", color: "var(--gold-text)" },
-  // Misafirin kendi kendine, girişsiz genel sayfadan (/rezervasyon-yap) girdiği rezervasyon.
-  // var(--info) (mavi) BİLEREK kullanılmadı — "renk skalamızla alakası yok" (Gökhan) dendiği
-  // için paletteki mevcut koyu yeşil tonu kullanıldı, yeni/yabancı bir renk eklenmedi.
   online: { label: "Online", color: "var(--ink-green)" },
 };
 
-// Yeni "geldi" olan kaydı fark edince kısa bir bip — mutfak/garson bildirimiyle (Faz 10) aynı
-// kalıp: Web Audio API, ilk dokunuşta izin alınır, dosya yok.
+// Yeni "geldi" olan kaydı fark edince kısa bir bip — dosya yok, Web Audio ile üretiliyor,
+// izin ilk dokunuşta alınıyor (tarayıcılar sesi kullanıcı hareketi olmadan başlatmıyor).
 let sharedAudioCtx: AudioContext | null = null;
 function getAudioCtxCtor(): typeof AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -120,9 +105,7 @@ function playArrivalBeep() {
   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([150, 80, 150]);
 }
 
-// Misafir geçmişi (CRM) — pazar araştırmasında öne çıkan "dönen misafiri tanı" özelliği
-// (Gökhan: "3'ü de ciddi özellikler ekleyelim"). Telefon 10 haneye ulaşınca (yazma bitince)
-// 500ms bekleyip guest_history RPC'sini çağırır — her tuşta sorgu atmasın diye.
+// Misafir geçmişi — telefon 10 haneye ulaşınca 500ms bekleyip sorar (her tuşta sorgu atmasın).
 type Gecmis = { ziyaretSayisi: number; sonNot: string | null } | null;
 function useMisafirGecmisi(phone: string, restaurantId: string | null): Gecmis {
   const [gecmis, setGecmis] = useState<Gecmis>(null);
@@ -140,17 +123,26 @@ function useMisafirGecmisi(phone: string, restaurantId: string | null): Gecmis {
   return gecmis;
 }
 
-// Rezervasyon onay/hatırlatma bildirimi — SMS/WhatsApp sağlayıcısı henüz bağlanmadı, Edge
-// Function şu an her zaman "gönderilmedi" döner (bkz. supabase/functions/send-reservation-
-// notification). Arka planda, sonucunu beklemeden çağırıyoruz — bildirim gitmese de
-// rezervasyon akışı asla bundan etkilenmesin (Gökhan: "sağlayıcılara bağlanacakmışın gibi
-// devam et, sonrasına bakarız").
+// Onay/hatırlatma bildirimi — SMS/WhatsApp sağlayıcısı henüz bağlı değil, şu an her zaman
+// "gönderilmedi" döner. Sonucu beklemeden çağırıyoruz: bildirim gitmese de akış etkilenmesin.
 const bildirimGonder = (reservationId: string, tip: "onay" | "hatirlatma") => {
   supabase.functions.invoke("send-reservation-notification", { body: { reservation_id: reservationId, type: tip } }).catch(() => {});
 };
 
-export default function KarsilamaPage() {
+export default function RezervasyonPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: "100vh", background: "var(--canvas)" }} />}>
+      <RezervasyonInner />
+    </Suspense>
+  );
+}
+
+function RezervasyonInner() {
+  const searchParams = useSearchParams();
+  const rSlug = searchParams.get("r");
+
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  const [restaurantName, setRestaurantName] = useState("");
   const [gun, setGun] = useState("");
   const [rows, setRows] = useState<Rez[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
@@ -160,9 +152,6 @@ export default function KarsilamaPage() {
   const [kvkkNotice, setKvkkNotice] = useState("");
   const [kvkkAcik, setKvkkAcik] = useState(false);
   const [aksamBaslangic, setAksamBaslangic] = useState(17);
-  // Kapasite tam bu kayıtla dolduğunda gösterilen, kendiliğinden kapanan bilgi notu (Gökhan:
-  // "kapasite bu rezervasyonla doluyor, alacağınız rezervasyonlar yedek olarak kaydedilecektir
-  // demeli"). Yedek olan tek bir kayıt içinse onay penceresi (confirm) kullanılıyor.
   const [capacityNotice, setCapacityNotice] = useState<string | null>(null);
   const bildirCapacityNotice = (msg: string) => {
     setCapacityNotice(msg);
@@ -170,8 +159,7 @@ export default function KarsilamaPage() {
   };
   const { confirm, dialog: confirmDialog } = useConfirm();
 
-  // Yeni rezervasyon formu — buton tıklanınca açılan katman (Gökhan: satır her zaman açık
-  // durmasın, "Yeni rezervasyon" butonu üstte olsun, Ekle ile kayıt gerçekleşsin).
+  // Yeni rezervasyon formu — buton tıklanınca açılan katman.
   const [newResOpen, setNewResOpen] = useState(false);
   const [fName, setFName] = useState("");
   const [fPhone, setFPhone] = useState("");
@@ -181,9 +169,8 @@ export default function KarsilamaPage() {
   const [fNote, setFNote] = useState("");
   const fGecmis = useMisafirGecmisi(fPhone, restaurantId);
 
-  // Kayıtsız doğrudan gir (rezervasyonsuz, kapıdan) — küçük bir pencere, ayrı panel değil.
-  // Rezervasyon formuyla aynı bilgileri toplar (telefon, not) — sadece tarih/saat yok, "şimdi"
-  // (Gökhan: "rezervasyon dışı kayıt ekranı da rezervasyonda alınan bilgileri almalı").
+  // Rezervasyonsuz, kapıdan gelen — rezervasyon formuyla aynı bilgileri toplar, sadece
+  // tarih/saat yok ("şimdi").
   const [walkInOpen, setWalkInOpen] = useState(false);
   const [wName, setWName] = useState("");
   const [wPhone, setWPhone] = useState("");
@@ -191,26 +178,28 @@ export default function KarsilamaPage() {
   const [wNote, setWNote] = useState("");
   const wGecmis = useMisafirGecmisi(wPhone, restaurantId);
 
-  // Masa ata (satır bazlı, inline seçim — Vale ekranındaki "Masaya bağla" ile aynı desen)
   const [assigningId, setAssigningId] = useState<string | null>(null);
-  // Oturt katmanı (masa seçimi — sadece boş masalar)
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
-  // İptal artık ayrı bir arşive gizlenmiyor — ana listede en altta, kendi renginde duruyor.
-  // İptal — sebep sormadan direkt onaya gitmiyor (Gökhan: "iptal edilenlere iptal sebebi
-  // girilsin"). Sebep boş bırakılabilir, zorunlu değil.
   const [iptalFor, setIptalFor] = useState<Rez | null>(null);
   const [iptalReason, setIptalReason] = useState("");
-  // Sağ üst filtre — iptal artık ana listede gizli olmadığı için, günü kalabalıklaştırmadan
-  // belirli bir gruba (rezervasyonlar/kapı/gelmedi/iptal) bakabilmek için (Gökhan: "sağ üstte
-  // filtre koyalım, ordan seçilsin rezervasyonlar iptaller rezervasyonsuz gelenler gelmediler").
   const [filtre, setFiltre] = useState("tumu");
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
 
-  const load = useCallback(async (targetGun: string) => {
-    const restId = await getMyRestaurantId();
-    if (!restId) return;
-    setRestaurantId(restId);
+  // İşletme linkteki koddan çözülür — bu program giriş istemiyor.
+  useEffect(() => {
+    let active = true;
+    resolveRestaurantIdBySlug(rSlug).then((res) => {
+      if (!active) return;
+      if ("error" in res) { setErr(res.error); return; }
+      setRestaurantId(res.id);
+      supabase.from("restaurants").select("name").eq("id", res.id).maybeSingle()
+        .then(({ data }) => { if (active) setRestaurantName((data as { name: string } | null)?.name ?? ""); });
+    });
+    return () => { active = false; };
+  }, [rSlug]);
+
+  const load = useCallback(async (restId: string, targetGun: string) => {
     const { start, end } = gunSiniri(targetGun);
     const [{ data: r, error }, { data: t }, { data: s }] = await Promise.all([
       supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, created_at, cancel_reason, source")
@@ -242,13 +231,13 @@ export default function KarsilamaPage() {
     }
   }, []);
 
-  useEffect(() => { const g = bugunIstanbul(); setGun(g); }, []);
+  useEffect(() => { setGun(bugunIstanbul()); }, []);
   useEffect(() => {
-    if (!gun) return;
-    load(gun);
-    const id = setInterval(() => load(gun), 6000);
+    if (!restaurantId || !gun) return;
+    load(restaurantId, gun);
+    const id = setInterval(() => load(restaurantId, gun), 6000);
     return () => clearInterval(id);
-  }, [gun, load]);
+  }, [restaurantId, gun, load]);
   useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
   useEffect(() => {
     const onFirstTouch = () => { unlockAudio(); document.removeEventListener("pointerdown", onFirstTouch); };
@@ -256,11 +245,9 @@ export default function KarsilamaPage() {
     return () => document.removeEventListener("pointerdown", onFirstTouch);
   }, []);
 
+  const yenile = async () => { if (restaurantId && gun) await load(restaurantId, gun); };
   const gunDegistir = (g: string) => setGun(g);
 
-  // DatePicker eskiden sadece görünüşte "gün"ü gösterip fDate'i boş bırakıyordu — kutu dolu
-  // GÖRÜNÜYOR ama gerçek değeri boştu, Ekle'ye basınca sessizce reddediliyordu. Artık pencere
-  // açılırken fDate gerçekten görünen güne eşitleniyor.
   const openNewRes = () => {
     setFName(""); setFPhone(""); setFParty("2"); setFDate(gun); setFTime("19:00"); setFNote("");
     setErr(null);
@@ -276,8 +263,8 @@ export default function KarsilamaPage() {
     }
     setErr(null);
 
-    // Kapasite kontrolü — sadece şu an görüntülenen gün için (elimizde başka günün verisi yok).
-    // Bu rezervasyon kapasiteyi aşıyorsa Yedek olacağını GİRİŞ ANINDA söyleriz (Gökhan).
+    // Kapasite kontrolü sadece görüntülenen gün için yapılabiliyor (elimizde başka günün
+    // verisi yok). Kapasiteyi aşıyorsa Yedek olacağını giriş anında söylüyoruz.
     let mevcut = 0;
     if (fDate === gun) {
       mevcut = donemDoluPax(new Date(`${fDate}T${fTime}:00+03:00`).toISOString());
@@ -304,7 +291,7 @@ export default function KarsilamaPage() {
     if (fDate === gun && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
       bildirCapacityNotice(`Kapasite bu rezervasyonla doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);
     }
-    if (fDate !== gun) gunDegistir(fDate); else await load(gun);
+    if (fDate !== gun) gunDegistir(fDate); else await yenile();
   };
 
   const dogrudanGir = async () => {
@@ -332,16 +319,15 @@ export default function KarsilamaPage() {
     if (bugunMu && mevcut < toplamKapasite && mevcut + kisi >= toplamKapasite) {
       bildirCapacityNotice(`Kapasite bu misafirle doldu (${toplamKapasite}/${toplamKapasite} pax) — bundan sonraki rezervasyonlar Yedek olarak kaydedilecek.`);
     }
-    if (gun !== bugunIstanbul()) gunDegistir(bugunIstanbul()); else await load(gun);
+    if (gun !== bugunIstanbul()) gunDegistir(bugunIstanbul()); else await yenile();
   };
 
-  // Durum değişikliği (Geldi/Gelmedi/İptal) RPC üzerinden — Gelmedi/İptal olunca atanmış
-  // masa hâlâ "reserved" ise (henüz oturtulmadıysa) otomatik boşa çıkar (set_reservation_status).
+  // Gelmedi/İptal olunca atanmış masa hâlâ rezerveyse otomatik boşa çıkar.
   const durumDegistir = async (r: Rez, next: string, cancelReason?: string) => {
     setErr(null);
     const { error } = await supabase.rpc("set_reservation_status", { p_reservation_id: r.id, p_status: next, p_cancel_reason: cancelReason ?? null });
     if (error) { setErr(error.message); return; }
-    await load(gun);
+    await yenile();
   };
 
   const iptalEt = (r: Rez) => { setIptalReason(""); setIptalFor(r); };
@@ -351,64 +337,60 @@ export default function KarsilamaPage() {
     setIptalFor(null);
   };
 
-  // Masa ata — SADECE bugün için anlamlı (Gökhan: "işletme masa planını aynı gün yapar,
-  // ileri tarihli rezervasyona masa atamaz"). Atanan masa hemen "rezerve" görünür görünmez
-  // (assign_reservation_table RPC'si restaurant_tables.status/reservation_note'u da günceller).
+  // Masa ata — sadece bugün için anlamlı: işletme masa planını aynı gün yapar.
   const masaAta = async (r: Rez, tableId: string) => {
     setErr(null);
     const { error } = await supabase.rpc("assign_reservation_table", { p_reservation_id: r.id, p_table_id: tableId });
     setAssigningId(null);
     if (error) { setErr(error.message); return; }
-    await load(gun);
+    await yenile();
   };
 
+  // Oturtma artık hesap açmıyor — sadece masayı dolu işaretliyor (seat_reservation).
   const oturt = async (tableId: string) => {
     if (!seatingFor) return;
     setBusy(true); setErr(null);
-    const staff = getStaffSession();
-    const { error } = await supabase.rpc("seat_reservation", { p_reservation_id: seatingFor.id, p_table_id: tableId, p_staff_id: staff?.id ?? null });
+    const { error } = await supabase.rpc("seat_reservation", { p_reservation_id: seatingFor.id, p_table_id: tableId });
     setBusy(false);
     if (error) { setErr(error.message); return; }
     setSeatingFor(null);
-    await load(gun);
+    await yenile();
   };
 
-  // Rezervasyona zaten bir masa atanmışsa Geldi/Oturt tek tıkla o masaya oturtur — pratiklik
-  // için varsayılan "rezerve edilen masaya oturdu" (Gökhan). Misafir başka masa isterse
-  // personel Masa hücresine tıklayıp ataması değiştirir, sonra Geldi/Oturt YENİ masaya oturtur.
+  // Masası zaten atanmışsa tek tıkla o masaya oturur. Misafir başka masa isterse personel
+  // önce Masa hücresinden atamayı değiştirir.
   const oturtDirekt = async (r: Rez) => {
     if (!r.table_id) return;
     setBusy(true); setErr(null);
-    const staff = getStaffSession();
-    const { error } = await supabase.rpc("seat_reservation", { p_reservation_id: r.id, p_table_id: r.table_id, p_staff_id: staff?.id ?? null });
+    const { error } = await supabase.rpc("seat_reservation", { p_reservation_id: r.id, p_table_id: r.table_id });
     setBusy(false);
     if (error) { setErr(error.message); return; }
-    await load(gun);
+    await yenile();
   };
 
-  // Kayıt sonrası düzenleme — yanlışlık yapılmış olabilir (Gökhan). Çift tıkla düzenleme
-  // (PAGE_STANDARDS #5, EditableText) isim/telefon/kişi/not/saat için.
+  // Misafir kalktı — masa boşalır, akış kapanır. Bu programın son adımı.
+  const kalkti = async (r: Rez) => {
+    setBusy(true); setErr(null);
+    const { error } = await supabase.rpc("end_reservation_visit", { p_reservation_id: r.id });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    await yenile();
+  };
+
   const updateField = async (r: Rez, patch: Partial<Pick<Rez, "guest_name" | "guest_phone" | "party_size" | "note" | "reserved_at">>) => {
     setErr(null);
     const { error } = await supabase.from("reservations").update(patch).eq("id", r.id);
     if (error) { setErr(error.message); return; }
-    await load(gun);
+    await yenile();
   };
 
   const bosMasalar = tables.filter((t) => t.status === "empty");
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? null;
   const bugunMu = gun === bugunIstanbul();
-  // Artık hiçbir şey ayrı bir arşiv penceresine gizlenmiyor — hepsi ana listede, kendi
-  // renginde (Gökhan: "iptalleri de renklendirip aşağıda sıralayalım"). Sıralama üç
-  // kademeli: normal akış (bekleniyor/geldi/oturdu) üstte kendi created_at sırasında,
-  // gelmedi onun altında, iptal en altta (Gökhan: "olağan sıralamada iptaller en altta,
-  // gelmedilerde onun üstünde"). Array.sort stable olduğu için her kademe içinde created_at
-  // sırası bozulmuyor.
-  const siraKademe = (s: string) => (s === "iptal" ? 2 : s === "gelmedi" ? 1 : 0);
+  // Sıralama dört kademeli: aktif akış üstte (kayıt sırasında), sonra kalkanlar, sonra
+  // gelmeyenler, en altta iptaller. Array.sort stable — her kademe kendi içinde sırasını korur.
+  const siraKademe = (s: string) => (s === "iptal" ? 3 : s === "gelmedi" ? 2 : s === "kalkti" ? 1 : 0);
   const visibleRows = [...rows].sort((a, b) => siraKademe(a.status) - siraKademe(b.status));
-  // Filtre — "Rezervasyonlar"/"Rezervasyonsuz gelenler" sadece hâlâ akıştaki (iptal/gelmedi
-  // olmayan) kayıtları gösterir; onlar zaten kendi ayrı seçeneklerinde. Her satır tam olarak
-  // bir gruba düşsün diye (Gökhan: "rezervasyonlar iptaller rezervasyonsuz gelenler gelmediler").
   const filtreliRows = visibleRows.filter((r) => {
     if (filtre === "tumu") return true;
     if (filtre === "gelmedi") return r.status === "gelmedi";
@@ -419,12 +401,9 @@ export default function KarsilamaPage() {
     return true;
   });
 
-  // Kapasite/Yedek — günü tek havuz değil öğle/akşam diye iki dönem sayar. Sadece gerçekten
-  // yer kaplayan durumlar (bekleniyor/geldi/oturdu) kapasiteye girer; gelmedi/iptal saymaz.
-  // Öncelik SAAT sırasına göre değil, KAYIT sırasına (created_at) göre — "kim önce rezervasyon
-  // yaptırdıysa o avantajlı" (Gökhan). Saat sırasına göre sıralasaydık, sonradan aranıp erken
-  // saate rezervasyon yaptıran biri, önceden aranıp geç saate rezervasyon yaptıranın önüne
-  // geçerdi — bu yanlış, gerçek hayatta ilk arayan ilk kazanır.
+  // Kapasite/Yedek — gün tek havuz değil, öğle/akşam iki ayrı dönem. Sadece gerçekten yer
+  // kaplayan durumlar sayılır; kalkan misafir masayı boşalttığı için artık saymaz.
+  // Öncelik saate göre değil KAYIT sırasına göre — ilk arayan ilk kazanır.
   const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
   const kapasiteliRows = rows.filter((r) => r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu");
   const yedekIds = new Set<string>();
@@ -439,29 +418,34 @@ export default function KarsilamaPage() {
       });
   });
   const donemPax = (d: "ogle" | "aksam") => kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).reduce((s, r) => s + r.party_size, 0);
-  // Bugün + o dönem için, YENİ bir rezervasyon eklenecek olsa şu an kaç pax dolu — ekleme
-  // formlarında "bu rezervasyon Yedek olacak" uyarısı için (sadece bugünü görüntülerken anlamlı).
-  const donemDoluPax = (iso: string) => {
-    const d = donem(iso, aksamBaslangic);
-    return donemPax(d);
-  };
+  const donemDoluPax = (iso: string) => donemPax(donem(iso, aksamBaslangic));
 
-  // 17:00'i (ya da ayarlanan saati) geçtiyse ve akşam rezervasyonu olan bir masaya önceden
-  // masa atanmışsa ama o masa hâlâ "occupied" ise (hesap kapanmadı) — Karşılama'ya uyarı
-  // (Gökhan: "saat 5 olduğunda akşam rezervasyonu olan masada hâlâ birileri oturuyorsa
-  // hesap kapanmamışsa uyarı gider karşılamaya").
+  // Akşam saati geldiyse ve akşam rezervasyonu olan masada hâlâ biri oturuyorsa uyarı.
   const suAnSaat = bugunMu ? saatIstanbul(new Date().toISOString()) : -1;
   const masaHalaDolu = (r: Rez) =>
     bugunMu && suAnSaat >= aksamBaslangic && donem(r.reserved_at, aksamBaslangic) === "aksam"
     && !!r.table_id && (r.status === "bekleniyor" || r.status === "geldi")
     && tables.find((t) => t.id === r.table_id)?.status === "occupied";
 
+  // Link kodu verilmediyse/yanlışsa hiçbir veri gösterilemez — tek başına hata ekranı.
+  if (!restaurantId) {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ maxWidth: 380, textAlign: "center", fontSize: 13.5, color: err ? "var(--danger)" : "var(--muted)", lineHeight: 1.6 }}>
+          {err ?? "Yükleniyor…"}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ background: "var(--canvas)", padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
-      <div style={{ marginBottom: 16, flexShrink: 0 }}>
-        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyonlar</div>
+      {/* Kendi başlığı — AIOS kabuğu (sol menü) bu programda yok, işletme adı burada durur. */}
+      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "baseline", gap: 10 }}>
+        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Rezervasyon</div>
+        {restaurantName && <div style={{ fontSize: 13, color: "var(--muted)" }}>{restaurantName}</div>}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -472,8 +456,6 @@ export default function KarsilamaPage() {
       )}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-        {/* Tarih gezinmesi + ekleme yolları burada, listenin hemen üstünde — sayfa başlığından
-            ayrı, doğrudan listenin kontrolleri (Gökhan: "tarihi buraya al"). */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
@@ -492,9 +474,7 @@ export default function KarsilamaPage() {
             <option value="iptal">İptaller</option>
           </select>
         </div>
-        {/* Kapasite özeti — gün tek havuz değil öğle/akşam diye iki dönem (Gökhan). Biz sadece
-            bilgilendiririz, engellemeyiz. Sayaç kapasitede DURUR, kapasite üstü "Yedek" olarak
-            ayrı sayılır (Gökhan: "kapasite dolduğunda dursun, yanına yedek olarak saymaya başlasın"). */}
+
         <div style={{ display: "flex", gap: 18, marginBottom: 10, flexShrink: 0, fontSize: 12.5 }}>
           {(["ogle", "aksam"] as const).map((d) => {
             const toplam = donemPax(d);
@@ -509,6 +489,7 @@ export default function KarsilamaPage() {
             );
           })}
         </div>
+
         <ListHeader>
           <HeaderCell width={46} marginLeft="1cm">Zaman</HeaderCell>
           <HeaderSep />
@@ -525,6 +506,7 @@ export default function KarsilamaPage() {
           <Spacer />
           <HeaderCell width={210} align="center">Rezervasyon durumu</HeaderCell>
         </ListHeader>
+
         <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
           {filtreliRows.length === 0 && (
             <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>
@@ -553,10 +535,6 @@ export default function KarsilamaPage() {
                 </Cell>
                 <RowSep />
                 <Cell width={170} marginLeft={14}>
-                  {/* "X dk önce geldi" eskiden ismin altında ayrı bir satırdı — sadece "geldi"
-                      durumundaki satırları (rezervasyonsuz gelenler + az önce gelmiş rezervasyonlar)
-                      tek başına kalınlaştırıyordu (Gökhan: "satır kalınlıkları farklı, ayarla").
-                      Artık ismin yanında, aynı satırda — bilgi kayıp değil, satır tek satır kalıyor. */}
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                     <EditableText
                       value={r.guest_name}
@@ -590,10 +568,6 @@ export default function KarsilamaPage() {
                 </Cell>
                 <RowSep />
                 <Cell width={150} align="center" marginLeft={38}>
-                  {/* Masa atama YERİNDE olur — tıklanınca bu hücrenin içi, atandığında adının
-                      yazacağı aynı yerde, açılır seçime döner (Gökhan: doğru yer burası).
-                      Atanmış olsa bile bugün+aktifken tıklanabilir — misafir rezerve edilen
-                      masayı istemezse personel buradan değiştirir. */}
                   {assigningId === r.id ? (
                     <select autoFocus onBlur={() => setAssigningId(null)} onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: "100%", padding: "5px 8px", fontSize: 12.5 }}>
                       <option value="" disabled>Masa seç…</option>
@@ -623,13 +597,6 @@ export default function KarsilamaPage() {
                 <RowSep />
                 <Spacer />
                 <ActionsCell width={210} align="center">
-                  {/* Karşılama "geldi" dedikten sonra iş bitmiş olmalı — ayrı bir "Oturt"
-                      adımı çıkmasın (Gökhan: "geldi dedikten sonra işi bitmeli, müşteriyi
-                      garsona yönlendirdikten ya da yerine oturttuktan sonra zaten geldi
-                      diyecek"). Masa zaten atanmışsa Geldi/Oturt tek tıkla o masaya oturtur
-                      (pratiklik); atanmamışsa masa seçim penceresi açılır. "geldi" durumu
-                      sadece vale/kapıdan otomatik eşleşmede ayrı görünür (orada arrival
-                      host'un elinden bağımsız gerçekleşiyor). */}
                   {bugunMu && r.status === "bekleniyor" && (
                     <>
                       <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmallRow, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Geldi</button>
@@ -639,20 +606,20 @@ export default function KarsilamaPage() {
                   {bugunMu && r.status === "geldi" && (
                     <button onClick={() => r.table_id ? oturtDirekt(r) : setSeatingFor(r)} disabled={!r.table_id && bosMasalar.length === 0} style={{ ...btnSmallRow, opacity: !r.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}>Oturdu</button>
                   )}
+                  {/* Oturan misafirin masasını boşaltan tek adım — bu programın akışını kapatır. */}
+                  {r.status === "oturdu" && (
+                    <button onClick={() => kalkti(r)} disabled={busy} style={btnSmallRow}>Kalktı</button>
+                  )}
                   {aktif ? (
                     <button onClick={() => iptalEt(r)} style={btnGhostRow}>İptal</button>
-                  ) : (
+                  ) : r.status !== "oturdu" ? (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                       <span title={r.status === "iptal" ? r.cancel_reason ?? undefined : undefined} style={{ fontSize: 11, fontWeight: 700, color: info.color }}>{info.label}</span>
-                      {/* Kaynak etiketi — rezervasyon mu, kapıdan mı (Gökhan: "oturdunun
-                          yanında RVZ yazsın, diğerinin yanında da kapı, ikisinin rengi de
-                          farklı olsun"). Sadece sonuçlanmış satırlarda — bekleniyor/geldi'de
-                          zaten 2-3 buton var, sığmaz. */}
                       <span style={{ fontSize: 9.5, fontWeight: 700, color: SOURCE_INFO[r.source]?.color ?? inkSoft }}>
                         ({SOURCE_INFO[r.source]?.label ?? r.source})
                       </span>
                     </span>
-                  )}
+                  ) : null}
                 </ActionsCell>
               </ListRow>
             );
@@ -688,7 +655,7 @@ export default function KarsilamaPage() {
                   {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
                 </button>
               ) : (
-                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.</span>
+                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş.</span>
               )}
               {kvkkAcik && kvkkNotice.trim() && (
                 <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
@@ -735,7 +702,7 @@ export default function KarsilamaPage() {
                   {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
                 </button>
               ) : (
-                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş — Ayarlar &gt; İşletme bölümünden ekleyin.</span>
+                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş.</span>
               )}
               {kvkkAcik && kvkkNotice.trim() && (
                 <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
@@ -771,8 +738,7 @@ export default function KarsilamaPage() {
         </div>
       )}
 
-      {/* İPTAL KATMANI — sebep sormadan direkt iptal etmiyor (Gökhan: "iptal edilenlere
-          iptal sebebi girilsin"). Sebep opsiyonel, boş bırakılabilir. */}
+      {/* İPTAL KATMANI — sebep opsiyonel, boş bırakılabilir. */}
       {iptalFor && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setIptalFor(null)}>
           <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
@@ -789,7 +755,6 @@ export default function KarsilamaPage() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
@@ -799,13 +764,7 @@ const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "c
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--ink)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
-// Liste satırı içindeki butonlar (Masa ata, Geldi/Oturdu, Gelmedi, İptal) — sıradaki dikey
-// padding'le (7px) düz yazı hücrelerinden belirgin kalın duruyordu (Gökhan: "yeni rezervasyon
-// ve rezervasyonsuz gelen müşteri satırları kalın, diğerlerine göre ayarla" — masa atanmamış/
-// aktif satırlarda buton var, diğerlerinde düz yazı). Aynı butonlar, sadece dikeyde daha ince.
 const btnSmallRow: React.CSSProperties = { ...btnSmall, padding: "4px 14px" };
 const btnGhostRow: React.CSSProperties = { ...btnGhost, padding: "4px 12px" };
-// Soluk yeşilimsi gri (var(--muted)) yerine — Gökhan: "siyah ve tonlarını kullan." Sadece
-// gerçekten ikincil (tarih/boş yer tutucu gibi) küçük bilgiler için, ana metin var(--ink).
 const inkSoft = "#5c5c58";
 const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };

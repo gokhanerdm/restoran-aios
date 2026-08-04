@@ -1,1 +1,2 @@
+@günaydın.md
 @AGENTS.md

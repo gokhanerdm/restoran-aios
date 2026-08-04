@@ -17,7 +17,6 @@ import {
   Settings,
   LogOut,
   AlertTriangle,
-  DoorOpen,
 } from "lucide-react";
 
 // Adisyon = servis (salon/masa/açık hesap, hesap alma).
@@ -26,7 +25,6 @@ import {
 const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
   { href: "/", icon: LayoutGrid, label: "Adisyon" },
-  { href: "/karsilama", icon: DoorOpen, label: "Karşılama" },
   { href: "/kasa", icon: Wallet, label: "Kasa" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
   { href: "/sef", icon: AlertTriangle, label: "Şef paneli" },
@@ -44,10 +42,11 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const [authChecked, setAuthChecked] = useState(false);
   const [hasSession, setHasSession] = useState(false);
 
-  // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü, mutfak/bar ve vale
-  // (kulübe tableti/telefon — link+PIN modeli, Gökhan 2026-07-31) ve giriş ekranının kendisi
+  // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü, mutfak/bar, vale
+  // (kulübe tableti/telefon — link+PIN modeli, Gökhan 2026-07-31), REZERVASYON (2026-08-04'te
+  // ayrı program oldu — /rezervasyon ve /rezervasyon-yap) ve giriş ekranının kendisi
   // yönetim kabuğunu/oturum kontrolünü kullanmaz.
-  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/rezervasyon-yap/") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
+  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/rezervasyon") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
 
   useEffect(() => {
     // isPublic ise render zaten aşağıda erken dönüyor (authChecked/hasSession hiç okunmuyor).
