@@ -86,6 +86,12 @@ export default function RezervasyonGirisPage() {
 
   const friendlyErr = (code: string | undefined, fallback: string) => (code && errMap[code]) || fallback;
 
+  // İsim/il/ilçe/adres gibi alanlar kutudan çıkınca (Tab, tıklayıp başka kutuya geçme,
+  // Enter) kelime başı büyük harfe çevrilir — Gökhan: yazarken değil ama "kutuyu bitirir
+  // bitirmez" görmek istiyor. Enter'da doğal blur olmadığı için Enter'ı blur'a bağlıyoruz.
+  const onBlurTitle = (setter: (v: string) => void) => (e: React.FocusEvent<HTMLInputElement>) => setter(toTitleTr(e.target.value));
+  const onEnterBlur = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") e.currentTarget.blur(); };
+
   const toggleGun = (k: DayKey) => setAcikGunler((s) => {
     const next = new Set(s);
     if (next.has(k)) next.delete(k); else next.add(k);
@@ -189,7 +195,7 @@ export default function RezervasyonGirisPage() {
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 6 }}>
               {subeTipi === "cok" ? "İşletme bilgileri" : "İşletme"}
             </div>
-            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder={subeTipi === "cok" ? "İşletme veya marka adı" : "İşletme adı"} style={inp} />
+            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} onBlur={onBlurTitle(setBusinessName)} onKeyDown={onEnterBlur} placeholder={subeTipi === "cok" ? "İşletme veya marka adı" : "İşletme adı"} style={inp} />
 
             {/* İşletme türü — native select yerine, aynı kutunun içinde aşağı doğru açılan
                 kendi akordiyonumuz (Ayarlar'daki salon akordiyonuyla aynı dil). */}
@@ -219,7 +225,7 @@ export default function RezervasyonGirisPage() {
               )}
             </div>
 
-            <input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Yetkili adı soyadı" style={inp} />
+            <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={onBlurTitle(setContactName)} onKeyDown={onEnterBlur} placeholder="Yetkili adı soyadı" style={inp} />
             <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder={subeTipi === "cok" ? "Merkez telefon numarası" : "Telefon numarası"} style={inp} />
             <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={subeTipi === "cok" ? "Merkez e-posta adresi" : "E-posta adresi"} style={inp} />
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Şifre" style={inp} />
@@ -227,16 +233,16 @@ export default function RezervasyonGirisPage() {
             {subeTipi === "cok" && (
               <>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>Şube bilgileri</div>
-                <input value={branchName} onChange={(e) => setBranchName(e.target.value)} placeholder="Şube adı" style={inp} />
+                <input value={branchName} onChange={(e) => setBranchName(e.target.value)} onBlur={onBlurTitle(setBranchName)} onKeyDown={onEnterBlur} placeholder="Şube adı" style={inp} />
                 <input value={branchPhone} onChange={(e) => setBranchPhone(e.target.value)} inputMode="tel" placeholder="Şube telefon numarası (opsiyonel)" style={inp} />
               </>
             )}
 
             <div style={{ display: "flex", gap: 8 }}>
-              <input value={il} onChange={(e) => setIl(e.target.value)} placeholder="İl" style={{ ...inp, flex: 1 }} />
-              <input value={ilce} onChange={(e) => setIlce(e.target.value)} placeholder="İlçe" style={{ ...inp, flex: 1 }} />
+              <input value={il} onChange={(e) => setIl(e.target.value)} onBlur={onBlurTitle(setIl)} onKeyDown={onEnterBlur} placeholder="İl" style={{ ...inp, flex: 1 }} />
+              <input value={ilce} onChange={(e) => setIlce(e.target.value)} onBlur={onBlurTitle(setIlce)} onKeyDown={onEnterBlur} placeholder="İlçe" style={{ ...inp, flex: 1 }} />
             </div>
-            <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Açık adres" style={inp} />
+            <input value={address} onChange={(e) => setAddress(e.target.value)} onBlur={onBlurTitle(setAddress)} onKeyDown={onEnterBlur} placeholder="Açık adres" style={inp} />
 
             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>Çalışma günleri</div>
             <div style={{ display: "flex", gap: 5 }}>
