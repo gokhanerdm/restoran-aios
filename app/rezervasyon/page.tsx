@@ -551,7 +551,7 @@ export default function RezervasyonPage() {
         </div>
 
         <ListHeader>
-          <HeaderCell width={28} align="center">#</HeaderCell>
+          <HeaderCell width={34} align="center">SNO</HeaderCell>
           <HeaderSep />
           <HeaderCell width={46} marginLeft="1cm">Zaman</HeaderCell>
           <HeaderSep />
@@ -583,8 +583,8 @@ export default function RezervasyonPage() {
             const doluUyari = masaHalaDolu(r);
             return (
               <ListRow key={r.id} bg={info.bg} muted={r.status === "gelmedi" || r.status === "iptal"}>
-                <Cell width={28} align="center">
-                  <span className="tnum" style={{ fontSize: 12, color: inkSoft }}>{i + 1}</span>
+                <Cell width={34} align="center">
+                  <span className="tnum" style={{ fontSize: 12.5, color: "var(--ink)" }}>{i + 1}</span>
                 </Cell>
                 <RowSep />
                 <Cell width={46} marginLeft="1cm">
