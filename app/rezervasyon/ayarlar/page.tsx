@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
@@ -27,6 +27,25 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 
 type Area = { id: string; name: string; sort_order: number };
 type Table = { id: string; name: string; area_id: string | null; seat_count: number; sort_order: number };
+
+// Masa ölçüleri (Gökhan, 2026-08-05: "masa ölçülerini de girsinler ayarlardan, hangi
+// masaları varsa onları seçip ölçü girsin") — Salon ekranındaki (app/rezervasyon/salon)
+// standart değerlerle AYNI, işletme burada kendi ölçüsünü girmezse bunlar kullanılır.
+type MasaSekli = "yuvarlak" | "kare" | "dikdortgen" | "loca";
+const MASA_SEKILLERI: { shape: MasaSekli; label: string }[] = [
+  { shape: "yuvarlak", label: "Yuvarlak" },
+  { shape: "kare", label: "Kare" },
+  { shape: "dikdortgen", label: "Dikdörtgen" },
+  { shape: "loca", label: "Loca" },
+];
+const MASA_KOLTUK_TIERLERI = [2, 4, 6, 8];
+const VARSAYILAN_OLCU: Record<MasaSekli, Record<number, { w: number; h: number }>> = {
+  yuvarlak: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 150, h: 150 }, 8: { w: 180, h: 180 } },
+  kare: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
+  loca: { 2: { w: 110, h: 90 }, 4: { w: 150, h: 110 }, 6: { w: 190, h: 120 }, 8: { w: 230, h: 130 } },
+  dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 70 }, 8: { w: 220, h: 70 } },
+};
+type MasaOlcusu = { shape: MasaSekli; seat_tier: number; width_cm: number; height_cm: number };
 
 type DayKey = "pzt" | "sal" | "car" | "per" | "cum" | "cmt" | "paz";
 type DayHours = { acilis: string; kapanis: string; kapali: boolean };
@@ -85,6 +104,11 @@ export default function RezervasyonAyarlarPage() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [kapali, setKapali] = useState<Set<string>>(new Set());
+
+  const [masaOlculeri, setMasaOlculeri] = useState<MasaOlcusu[]>([]);
+  const [duzenlenenHucre, setDuzenlenenHucre] = useState<{ shape: MasaSekli; tier: number } | null>(null);
+  const [taslakGenislik, setTaslakGenislik] = useState("");
+  const [taslakBoy, setTaslakBoy] = useState("");
 
   const [newAreaName, setNewAreaName] = useState("");
   // Hangi salona masa ekleniyor — satır içi mini form, ayrı pencere değil.
@@ -183,11 +207,12 @@ export default function RezervasyonAyarlarPage() {
   };
 
   const load = useCallback(async (restId: string) => {
-    const [{ data: a }, { data: t }, { data: r }, { data: s }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: r }, { data: s }, { data: mo }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, seat_count, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurants").select("name, phone, address").eq("id", restId).maybeSingle(),
       supabase.from("restaurant_settings").select("opening_hours, evening_start_hour, kvkk_notice, default_duration_minutes").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
     ]);
     setAreas((a as Area[]) ?? []);
     setTables((t as Table[]) ?? []);
@@ -200,11 +225,45 @@ export default function RezervasyonAyarlarPage() {
     setAksamBaslangic(String(sRow?.evening_start_hour ?? 17));
     setOturmaSuresi(String(sRow?.default_duration_minutes ?? 90));
     setKvkkNotice(sRow?.kvkk_notice ?? "");
+    setMasaOlculeri((mo as MasaOlcusu[]) ?? []);
   }, []);
 
   useEffect(() => { if (restaurantId) load(restaurantId); }, [restaurantId, load]);
 
   const yenile = async () => { if (restaurantId) await load(restaurantId); };
+
+  // --- Masa ölçüleri ---
+  const masaOlcusuBul = (shape: MasaSekli, tier: number) => masaOlculeri.find((o) => o.shape === shape && o.seat_tier === tier);
+  const hucreDuzenlemeyeBasla = (shape: MasaSekli, tier: number) => {
+    const mevcut = masaOlcusuBul(shape, tier);
+    setTaslakGenislik(String(mevcut?.width_cm ?? VARSAYILAN_OLCU[shape][tier].w));
+    setTaslakBoy(String(mevcut?.height_cm ?? VARSAYILAN_OLCU[shape][tier].h));
+    setErr(null);
+    setDuzenlenenHucre({ shape, tier });
+  };
+  const hucreKaydet = async () => {
+    if (!restaurantId || !duzenlenenHucre) return;
+    const w = parseFloat(taslakGenislik.replace(",", "."));
+    const h = parseFloat(taslakBoy.replace(",", "."));
+    if (!Number.isFinite(w) || w <= 0 || !Number.isFinite(h) || h <= 0) { setErr("Genişlik ve boy geçerli birer sayı olmalı."); return; }
+    setErr(null);
+    const { error } = await supabase.from("masa_olculeri").upsert({
+      restaurant_id: restaurantId, shape: duzenlenenHucre.shape, seat_tier: duzenlenenHucre.tier,
+      width_cm: w, height_cm: h, updated_at: new Date().toISOString(),
+    }, { onConflict: "restaurant_id,shape,seat_tier" });
+    if (error) { setErr(error.message); return; }
+    setDuzenlenenHucre(null);
+    await yenile();
+  };
+  const hucreSifirla = async (shape: MasaSekli, tier: number) => {
+    if (!restaurantId) return;
+    setErr(null);
+    const { error } = await supabase.from("masa_olculeri").delete()
+      .eq("restaurant_id", restaurantId).eq("shape", shape).eq("seat_tier", tier);
+    if (error) { setErr(error.message); return; }
+    setDuzenlenenHucre(null);
+    await yenile();
+  };
 
   // --- Salonlar ---
   const addArea = async () => {
@@ -592,6 +651,74 @@ export default function RezervasyonAyarlarPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {/* Masa ölçüleri (Gökhan: "masa ölçülerini de girsinler ayarlardan, hangi
+                masaları varsa onları seçip ölçü girsin") — hücreye tıkla, düzenle, kaydet.
+                Değiştirmezsen standart ölçü (VARSAYILAN_OLCU) kullanılmaya devam eder. */}
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 4 }}>Masa ölçüleri</div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.5 }}>
+              Salon ekranındaki masaların gerçek santim (en×boy) ölçüsü. Değiştirmezsen standart ölçüler kullanılır.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "62px repeat(4, 1fr)", gap: 4, marginBottom: 10, fontSize: 11 }}>
+              <div />
+              {MASA_KOLTUK_TIERLERI.map((tier) => (
+                <div key={tier} className="tnum" style={{ textAlign: "center", color: inkSoft, fontWeight: 600 }}>{tier} kişi</div>
+              ))}
+              {MASA_SEKILLERI.map((s) => (
+                <Fragment key={s.shape}>
+                  <div style={{ color: inkSoft, fontWeight: 600, display: "flex", alignItems: "center" }}>{s.label}</div>
+                  {MASA_KOLTUK_TIERLERI.map((tier) => {
+                    const ozel = masaOlcusuBul(s.shape, tier);
+                    const v = ozel ?? { width_cm: VARSAYILAN_OLCU[s.shape][tier].w, height_cm: VARSAYILAN_OLCU[s.shape][tier].h };
+                    const secili = duzenlenenHucre?.shape === s.shape && duzenlenenHucre?.tier === tier;
+                    return (
+                      <button
+                        key={tier}
+                        onClick={() => hucreDuzenlemeyeBasla(s.shape, tier)}
+                        className="tnum"
+                        title={ozel ? "Özel ölçü girildi" : "Standart ölçü kullanılıyor"}
+                        style={{
+                          all: "unset", cursor: "pointer", textAlign: "center", padding: "6px 2px", borderRadius: 6, boxSizing: "border-box",
+                          background: secili ? "var(--recede)" : ozel ? "var(--info-bg)" : "transparent",
+                          border: secili ? "1px solid var(--brand-strong)" : "1px solid var(--line-2)",
+                          color: ozel ? "var(--brand-strong)" : "var(--ink)", fontWeight: ozel ? 700 : 400,
+                        }}
+                      >
+                        {v.width_cm}×{v.height_cm}
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              ))}
+            </div>
+            {duzenlenenHucre && (
+              <div style={{ border: "1px solid var(--line-2)", borderRadius: 12, padding: 12, marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {MASA_SEKILLERI.find((s) => s.shape === duzenlenenHucre.shape)?.label} · <span className="tnum">{duzenlenenHucre.tier}</span> kişilik — santim
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    value={taslakGenislik} onChange={(e) => setTaslakGenislik(e.target.value.replace(/[^0-9.,]/g, ""))}
+                    onKeyDown={(e) => e.key === "Enter" && hucreKaydet()}
+                    placeholder="En" inputMode="decimal" className="tnum" autoFocus style={{ ...inp, width: 70 }}
+                  />
+                  <span style={{ color: "var(--muted-2)" }}>×</span>
+                  <input
+                    value={taslakBoy} onChange={(e) => setTaslakBoy(e.target.value.replace(/[^0-9.,]/g, ""))}
+                    onKeyDown={(e) => e.key === "Enter" && hucreKaydet()}
+                    placeholder="Boy" inputMode="decimal" className="tnum" style={{ ...inp, width: 70 }}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--muted-2)" }}>cm</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  {masaOlcusuBul(duzenlenenHucre.shape, duzenlenenHucre.tier) && (
+                    <button onClick={() => hucreSifirla(duzenlenenHucre.shape, duzenlenenHucre.tier)} style={{ ...btnSecondary, color: "var(--danger)" }}>Standarda dön</button>
+                  )}
+                  <button onClick={() => setDuzenlenenHucre(null)} style={btnSecondary}>Vazgeç</button>
+                  <button onClick={hucreKaydet} style={btnPrimary}>Kaydet</button>
+                </div>
+              </div>
             )}
 
             {/* Çalışma saatleri — misafir sayfası bu saatlerin dışına rezervasyon aldırmayacak. */}

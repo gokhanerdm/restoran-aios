@@ -81,23 +81,28 @@ const SEKILLER: { shape: Shape; label: string }[] = [
 ];
 const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
 
-// Standart masa ölçüleri (Gökhan: "standart masa ölçüleri bul ona göre işle") — restoran
-// mobilyası literatüründeki yaygın santim değerleri (ör. 2 kişilik kare ~60×60, 8 kişilik
-// dikdörtgen ~220×90). Piksele PX_PER_CM ile çevriliyor ki büyük masa küçükten GERÇEKTEN
-// büyük görünsün — önceki halde her masa şekli sabit tek boyuttaydı, kişi sayısının hiç
-// etkisi yoktu. Loca ~150×110cm banket standardından (duvara dayalı çift banket + masa).
+// Standart masa ölçüleri (Gökhan düzeltmesi, 2026-08-05) — restoran mobilyası literatüründeki
+// yaygın santim değerleri. Piksele PX_PER_CM ile çevriliyor ki büyük masa küçükten GERÇEKTEN
+// büyük görünsün. Loca ~150×110cm banket standardından (duvara dayalı çift banket + masa).
+// Bunlar sadece VARSAYILAN — işletme Ayarlar'dan kendi ölçüsünü girerse (masa_olculeri
+// tablosu) onun yerini alır, bkz. govdeOlcusu'nun ozelOlculer parametresi.
 const CM_OLCU: Record<Shape, Record<number, { w: number; h: number }>> = {
   yuvarlak: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 150, h: 150 }, 8: { w: 180, h: 180 } },
-  kare: { 2: { w: 60, h: 60 }, 4: { w: 80, h: 80 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
+  kare: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
   loca: { 2: { w: 110, h: 90 }, 4: { w: 150, h: 110 }, 6: { w: 190, h: 120 }, 8: { w: 230, h: 130 } },
-  dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 75 }, 8: { w: 220, h: 90 } },
+  dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 70 }, 8: { w: 220, h: 70 } },
 };
 const MIN_GOVDE_PX = 46;
 // En yakın tanımlı kişi sayısına yuvarlar (2/4/6/8 arası serbest sayı da girilebiliyor —
 // örn. 5 kişilik masa 4'ün ölçüsünü kullanır, tam santim hassasiyeti önemli değil).
 const enYakinKoltuk = (seats: number) => KOLTUK_SECENEKLERI.reduce((a, b) => (Math.abs(b - seats) < Math.abs(a - seats) ? b : a));
-const govdeOlcusu = (shape: Shape, seats: number): { width: number; height: number } => {
-  const cm = CM_OLCU[shape][enYakinKoltuk(seats)];
+// İşletmeye özel ölçü (Gökhan: "masa ölçülerini de girsinler ayarlardan, hangi masaları
+// varsa onları seçip ölçü girsin") — girilmişse CM_OLCU varsayılanının yerine geçer.
+type MasaOlcusu = { shape: Shape; seat_tier: number; width_cm: number; height_cm: number };
+const govdeOlcusu = (shape: Shape, seats: number, ozelOlculer: MasaOlcusu[] = []): { width: number; height: number } => {
+  const tier = enYakinKoltuk(seats);
+  const ozel = ozelOlculer.find((o) => o.shape === shape && o.seat_tier === tier);
+  const cm = ozel ? { w: ozel.width_cm, h: ozel.height_cm } : CM_OLCU[shape][tier];
   return { width: Math.max(MIN_GOVDE_PX, Math.round(cm.w * PX_PER_CM)), height: Math.max(MIN_GOVDE_PX, Math.round(cm.h * PX_PER_CM)) };
 };
 // Şekil rozeti — gerçek en/boy oranıyla (yuvarlak: eşit kenar + tam yuvarlak, kare: eşit
@@ -150,6 +155,9 @@ export default function SalonPage() {
   const [cogaltAdet, setCogaltAdet] = useState("3");
   const [cogaltAralik, setCogaltAralik] = useState("0");
   const [ogeler, setOgeler] = useState<SalonOge[]>([]);
+  // İşletmeye özel masa ölçüleri (Ayarlar > Masa Ölçüleri'nde girilir) — girilmeyen
+  // kombinasyonlar CM_OLCU varsayılanını kullanmaya devam eder.
+  const [ozelOlculer, setOzelOlculer] = useState<MasaOlcusu[]>([]);
   const [ogeMenuAcik, setOgeMenuAcik] = useState(false);
   const [ogeCtxMenu, setOgeCtxMenu] = useState<{ x: number; y: number; oge: SalonOge } | null>(null);
   // Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — gerçek en/boy (m)
@@ -196,17 +204,19 @@ export default function SalonPage() {
 
   const load = useCallback(async (restId: string) => {
     const { start, end } = bugunSiniri();
-    const [{ data: a }, { data: t }, { data: r }, { data: o }] = await Promise.all([
+    const [{ data: a }, { data: t }, { data: r }, { data: o }, { data: m }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order, genislik_cm, derinlik_cm").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
         .gte("reserved_at", start).lt("reserved_at", end),
       supabase.from("salon_ogeleri").select("id, area_id, type, name, x1, y1, x2, y2").eq("restaurant_id", restId).is("deleted_at", null),
+      supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
     ]);
     const areaRows = (a as Area[]) ?? [];
     setAreas(areaRows);
     setTables((t as TableRow[]) ?? []);
     setOgeler((o as SalonOge[]) ?? []);
+    setOzelOlculer((m as MasaOlcusu[]) ?? []);
     const map: Record<string, OturanBilgi> = {};
     ((r as { table_id: string | null; guest_name: string; party_size: number }[]) ?? []).forEach((row) => {
       if (row.table_id) map[row.table_id] = { guestName: row.guest_name, partySize: row.party_size };
@@ -383,7 +393,7 @@ export default function SalonPage() {
     if (!Number.isFinite(adet) || adet < 1 || adet > 50) { setErr("Çoğaltma adedi 1 ile 50 arasında olmalı."); return; }
     if (!Number.isFinite(aralikCm) || aralikCm < 0) { setErr("Aralık geçerli bir sayı olmalı."); return; }
     setErr(null);
-    const olcu = govdeOlcusu(kaynak.shape, kaynak.seat_count);
+    const olcu = govdeOlcusu(kaynak.shape, kaynak.seat_count, ozelOlculer);
     const govde = kaynak.shape === "dikdortgen" && kaynak.rotated ? { width: olcu.height, height: olcu.width } : olcu;
     const adim = COGALT_ADIM[cogaltYon];
     const stepX = adim.dx * (govde.width + aralikCm * PX_PER_CM);
@@ -485,7 +495,7 @@ export default function SalonPage() {
   // masanın sol/orta/sağ (X) ve üst/orta/alt (Y) kenarları, sürüklenen masa bunlara
   // yaklaşınca yapışması için aday çizgiler olarak TableBox'lara veriliyor.
   const hizaVerisi = positioned.map(({ table: t, x, y }) => {
-    const olcu = govdeOlcusu(t.shape, t.seat_count);
+    const olcu = govdeOlcusu(t.shape, t.seat_count, ozelOlculer);
     const g = t.shape === "dikdortgen" && t.rotated ? { width: olcu.height, height: olcu.width } : olcu;
     return { id: t.id, left: x, centerX: x + g.width / 2, right: x + g.width, top: y, centerY: y + g.height / 2, bottom: y + g.height };
   });
@@ -731,6 +741,7 @@ export default function SalonPage() {
                       x={x} y={y} zoom={zoom}
                       hizaXNoktalari={hizaVerisi.filter((h) => h.id !== t.id).flatMap((h) => [h.left, h.centerX, h.right])}
                       hizaYNoktalari={hizaVerisi.filter((h) => h.id !== t.id).flatMap((h) => [h.top, h.centerY, h.bottom])}
+                      ozelOlculer={ozelOlculer}
                       oturan={oturanlar[t.id] ?? null}
                       onMove={moveTable}
                       onRename={(v) => renameTable(t.id, v)}
@@ -930,9 +941,9 @@ export default function SalonPage() {
 }
 
 function TableBox({
-  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, oturan, onMove, onRename, onRotate, onContextMenu,
+  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, ozelOlculer, oturan, onMove, onRename, onRotate, onContextMenu,
 }: {
-  table: TableRow; x: number; y: number; zoom: number; hizaXNoktalari: number[]; hizaYNoktalari: number[]; oturan: OturanBilgi | null;
+  table: TableRow; x: number; y: number; zoom: number; hizaXNoktalari: number[]; hizaYNoktalari: number[]; ozelOlculer: MasaOlcusu[]; oturan: OturanBilgi | null;
   onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onRotate: () => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
@@ -949,7 +960,7 @@ function TableBox({
   // (Gökhan: "dikdörtgen masalar çevrilebilsin") en/boy takas edilir — duvara dayalı masa
   // yatay ya da dikey durabilsin.
   const dikdortgen = table.shape === "dikdortgen";
-  const olcu = govdeOlcusu(table.shape, table.seat_count);
+  const olcu = govdeOlcusu(table.shape, table.seat_count, ozelOlculer);
   const govde = dikdortgen && table.rotated ? { width: olcu.height, height: olcu.width } : olcu;
 
   const onPointerDown = (e: React.PointerEvent) => {
