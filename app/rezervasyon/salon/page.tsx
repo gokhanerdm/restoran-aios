@@ -380,10 +380,13 @@ export default function SalonPage() {
   const COGALT_ADIM: Record<string, { dx: number; dy: number }> = {
     sag: { dx: 1, dy: 0 }, sol: { dx: -1, dy: 0 }, asagi: { dx: 0, dy: 1 }, yukari: { dx: 0, dy: -1 },
   };
-  // İsimdeki sondaki sayıyı bulup artırır (A1 → A2, A3…); sayı yoksa " 2", " 3" diye ekler.
+  // İsimdeki sondaki sayıyı bulup artırır (Masa 1 → Masa 2, Masa 3…); sayı yoksa " 2", " 3"
+  // diye ekler. i (döngü sayacı) 0'dan başlıyor, bu yüzden +1 şart — yoksa ilk kopya
+  // kaynakla AYNI adı alıyordu (Gökhan: "masa 1 çoğalt dedim, sonraki masa 2 olmalı,
+  // şuan masa 1 diye başlıyor").
   const cogaltIsimUret = (isim: string, i: number) => {
     const m = isim.match(/^(.*?)(\d+)$/);
-    if (m) return `${m[1]}${parseInt(m[2], 10) + i}`;
+    if (m) return `${m[1]}${parseInt(m[2], 10) + i + 1}`;
     return `${isim} ${i + 1}`;
   };
   const cogaltTable = async (kaynak: TableRow, baseX: number, baseY: number) => {
