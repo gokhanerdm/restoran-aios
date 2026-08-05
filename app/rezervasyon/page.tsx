@@ -293,6 +293,10 @@ export default function RezervasyonPage() {
   const [masaDigerAcik, setMasaDigerAcik] = useState(false);
   // Masa birleştirme seçimi — birden fazla masaya tıklanıp "Ata" ile onaylanır.
   const [masaSecimi, setMasaSecimi] = useState<string[]>([]);
+  // Masa ata penceresinin ekran konumu (Gökhan: "masa ata dediğim zaman akordiyon
+  // rezervasyonların altında kalıyor, olması gereken yere koyacaksın") — position:fixed,
+  // tıklanan noktaya göre, satırların ARKASINDA kalmasın diye.
+  const [masaAtaKonum, setMasaAtaKonum] = useState<{ x: number; y: number } | null>(null);
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
   const [iptalFor, setIptalFor] = useState<Rez | null>(null);
   const [iptalReason, setIptalReason] = useState("");
@@ -540,6 +544,14 @@ export default function RezervasyonPage() {
 
   const bosMasalar = tables.filter((t) => t.status === "empty");
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? null;
+  // Açılır pencere ekran dışına/satırların arkasına taşmasın — tıklanan noktanın sağında/
+  // altında yeterli yer yoksa sola/yukarı açılır (Salon ekranındaki menuKonum ile aynı desen).
+  const menuKonum = (clientX: number, clientY: number, tahminiGenislik: number, tahminiYukseklik: number) => {
+    const kenar = 8;
+    const x = clientX + tahminiGenislik > window.innerWidth - kenar ? Math.max(kenar, clientX - tahminiGenislik) : clientX;
+    const y = clientY + tahminiYukseklik > window.innerHeight - kenar ? Math.max(kenar, clientY - tahminiYukseklik) : clientY;
+    return { x, y };
+  };
   const bugunMu = gun === bugunIstanbul();
   // Sıralama dört kademeli: aktif akış üstte (kayıt sırasında), sonra kalkanlar, sonra
   // gelmeyenler, en altta iptaller. Array.sort stable — her kademe kendi içinde sırasını korur.
@@ -821,67 +833,83 @@ export default function RezervasyonPage() {
                 <RowSep />
                 <Cell width={150} align="center" marginLeft={38}>
                   {assigningId === r.id ? (
-                    <div style={{ position: "relative", display: "inline-block" }}>
-                      <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => { setAssigningId(null); setMasaDigerAcik(false); setMasaSecimi([]); }} />
-                      <button style={btnGhostRow}>Masa seç…</button>
-                      <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 4, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 190, maxHeight: 280, overflowY: "auto", textAlign: "left" }}>
-                        {/* Masa birleştirme (Gökhan: "on kişi kapasite dolana kadar masa
-                            seçecek, mesela yan yana 3 masayı birleştirdi") — birden fazla
-                            masa işaretlenip "Ata" ile onaylanır, tek masalık rezervasyon da
-                            aynı yoldan tek seçimle gider. */}
-                        {uygunMasalar.length === 0 && digerMasalar.length === 0 && <div style={{ fontSize: 11.5, color: inkSoft, padding: "6px 8px" }}>Boş masa yok.</div>}
-                        {uygunMasalar.map((t) => (
-                          <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
-                            <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
-                            {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
-                          </button>
-                        ))}
-                        {digerMasalar.length > 0 && (
-                          masaDigerAcik ? (
-                            <>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", padding: "6px 8px 2px", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}>Diğerleri</div>
-                              {digerMasalar.map((t) => (
-                                <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
-                                  <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
-                                  {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
-                                </button>
-                              ))}
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => setMasaDigerAcik(true)}
-                              style={{ ...masaSecBtn, color: "var(--brand)", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}
-                            >
-                              Diğerleri (<span className="tnum">{digerMasalar.length}</span>)
-                            </button>
-                          )
-                        )}
-                        <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 8px 2px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span className="tnum" style={{ fontSize: 11, color: seciliKisi >= r.party_size ? "var(--brand-strong)" : inkSoft }}>
-                            {masaSecimi.length} masa · {seciliKisi}/{r.party_size} kişi{seciliKisi >= r.party_size ? " ✓" : ""}
-                          </span>
-                          <button
-                            onClick={() => masaAta(r, masaSecimi)}
-                            disabled={masaSecimi.length === 0}
-                            style={{ border: "none", borderRadius: 8, padding: "5px 12px", background: "var(--brand-strong)", color: "#fff", fontSize: 12, cursor: "pointer", opacity: masaSecimi.length === 0 ? 0.5 : 1 }}
-                          >
-                            Ata
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <button style={btnGhostRow}>Masa seç…</button>
                   ) : masaAdi ? (
                     bugunMu && aktif ? (
-                      <button onClick={() => { setMasaDigerAcik(false); setMasaSecimi(buRezMasalari); setAssigningId(r.id); }} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{masaAdi}</button>
+                      <button
+                        onClick={(e) => { setMasaDigerAcik(false); setMasaSecimi(buRezMasalari); setMasaAtaKonum(menuKonum(e.clientX, e.clientY, 220, 320)); setAssigningId(r.id); }}
+                        style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}
+                      >
+                        {masaAdi}
+                      </button>
                     ) : (
                       <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{masaAdi}</span>
                     )
                   ) : bugunMu && aktif ? (
-                    <button onClick={() => { setMasaDigerAcik(false); setMasaSecimi([]); setAssigningId(r.id); }} style={btnGhostRow}>Masa ata</button>
+                    <button
+                      onClick={(e) => { setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(menuKonum(e.clientX, e.clientY, 220, 320)); setAssigningId(r.id); }}
+                      style={btnGhostRow}
+                    >
+                      Masa ata
+                    </button>
                   ) : (
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
                 </Cell>
+
+                {/* Masa ata penceresi — satırların ARKASINDA/altında kalmasın diye position:fixed,
+                    Salon ekranındaki sağ tık menüsüyle aynı desen (Gökhan: "olması gereken yere
+                    koyacaksın, üst üste anlamsız eklemeler yapmayacaksın"). */}
+                {assigningId === r.id && masaAtaKonum && (
+                  <>
+                    <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => { setAssigningId(null); setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(null); }} />
+                    <div style={{ position: "fixed", left: masaAtaKonum.x, top: masaAtaKonum.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 190, maxHeight: 280, overflowY: "auto" }}>
+                      {/* Masa birleştirme (Gökhan: "on kişi kapasite dolana kadar masa
+                          seçecek, mesela yan yana 3 masayı birleştirdi") — birden fazla
+                          masa işaretlenip "Ata" ile onaylanır, tek masalık rezervasyon da
+                          aynı yoldan tek seçimle gider. */}
+                      {uygunMasalar.length === 0 && digerMasalar.length === 0 && <div style={{ fontSize: 11.5, color: inkSoft, padding: "6px 8px" }}>Boş masa yok.</div>}
+                      {uygunMasalar.map((t) => (
+                        <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
+                          <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
+                          {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
+                        </button>
+                      ))}
+                      {digerMasalar.length > 0 && (
+                        masaDigerAcik ? (
+                          <>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", padding: "6px 8px 2px", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}>Diğerleri</div>
+                            {digerMasalar.map((t) => (
+                              <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
+                                <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
+                                {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
+                              </button>
+                            ))}
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => setMasaDigerAcik(true)}
+                            style={{ ...masaSecBtn, color: "var(--brand)", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}
+                          >
+                            Diğerleri (<span className="tnum">{digerMasalar.length}</span>)
+                          </button>
+                        )
+                      )}
+                      <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 8px 2px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                        <span className="tnum" style={{ fontSize: 11, color: seciliKisi >= r.party_size ? "var(--brand-strong)" : inkSoft }}>
+                          {masaSecimi.length} masa · {seciliKisi}/{r.party_size} kişi{seciliKisi >= r.party_size ? " ✓" : ""}
+                        </span>
+                        <button
+                          onClick={() => { masaAta(r, masaSecimi); setMasaAtaKonum(null); }}
+                          disabled={masaSecimi.length === 0}
+                          style={{ border: "none", borderRadius: 8, padding: "5px 12px", background: "var(--brand-strong)", color: "#fff", fontSize: 12, cursor: "pointer", opacity: masaSecimi.length === 0 ? 0.5 : 1 }}
+                        >
+                          Ata
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <RowSep />
                 <Cell width={160}>
                   <EditableText
