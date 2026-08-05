@@ -551,6 +551,8 @@ export default function RezervasyonPage() {
         </div>
 
         <ListHeader>
+          <HeaderCell width={28} align="center">#</HeaderCell>
+          <HeaderSep />
           <HeaderCell width={46} marginLeft="1cm">Zaman</HeaderCell>
           <HeaderSep />
           <HeaderCell width={170} marginLeft={14}>Misafir</HeaderCell>
@@ -573,7 +575,7 @@ export default function RezervasyonPage() {
               {visibleRows.length === 0 ? "Bu gün için kayıt yok." : "Bu filtreye uyan kayıt yok."}
             </div>
           )}
-          {filtreliRows.map((r) => {
+          {filtreliRows.map((r, i) => {
             const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
             const canli = r.status === "geldi";
             const aktif = r.status === "bekleniyor" || r.status === "geldi";
@@ -581,6 +583,10 @@ export default function RezervasyonPage() {
             const doluUyari = masaHalaDolu(r);
             return (
               <ListRow key={r.id} bg={info.bg} muted={r.status === "gelmedi" || r.status === "iptal"}>
+                <Cell width={28} align="center">
+                  <span className="tnum" style={{ fontSize: 12, color: inkSoft }}>{i + 1}</span>
+                </Cell>
+                <RowSep />
                 <Cell width={46} marginLeft="1cm">
                   <EditableText
                     value={saat(r.reserved_at)}
