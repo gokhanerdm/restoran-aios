@@ -245,6 +245,8 @@ export default function RezervasyonPage() {
   const [gun, setGun] = useState("");
   const [rows, setRows] = useState<Rez[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
+  // reservation_id -> o rezervasyona bağlı TÜM masa id'leri (masa birleştirme).
+  const [rezMasalar, setRezMasalar] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -289,6 +291,8 @@ export default function RezervasyonPage() {
 
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [masaDigerAcik, setMasaDigerAcik] = useState(false);
+  // Masa birleştirme seçimi — birden fazla masaya tıklanıp "Ata" ile onaylanır.
+  const [masaSecimi, setMasaSecimi] = useState<string[]>([]);
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
   const [iptalFor, setIptalFor] = useState<Rez | null>(null);
   const [iptalReason, setIptalReason] = useState("");
@@ -348,6 +352,19 @@ export default function RezervasyonPage() {
     setAksamBaslangic(settingsRow?.evening_start_hour ?? 17);
     setOturmaSuresi(settingsRow?.default_duration_minutes ?? 90);
     setErr(null);
+
+    // Masa birleştirme (Gökhan: "10 kişi kapasite dolana kadar masa seçecek, birden fazla
+    // masayı birleştirebilecek") — bir rezervasyona bağlı TÜM masalar, sadece birincisi değil.
+    if (list.length > 0) {
+      const { data: rt } = await supabase.from("reservation_tables").select("reservation_id, table_id").in("reservation_id", list.map((row) => row.id));
+      const map: Record<string, string[]> = {};
+      ((rt as { reservation_id: string; table_id: string }[]) ?? []).forEach((row) => {
+        (map[row.reservation_id] ??= []).push(row.table_id);
+      });
+      setRezMasalar(map);
+    } else {
+      setRezMasalar({});
+    }
 
     if (targetGun === bugunIstanbul()) {
       let yeni = false;
@@ -470,10 +487,15 @@ export default function RezervasyonPage() {
   };
 
   // Masa ata — sadece bugün için anlamlı: işletme masa planını aynı gün yapar.
-  const masaAta = async (r: Rez, tableId: string) => {
+  // Masa birleştirme (Gökhan: "on kişi kapasite dolana kadar masa seçecek, birden fazla
+  // masa birleştirebilecek") — tek masa da olsa, birleştirilmiş birden fazla masa da olsa
+  // aynı yoldan gider.
+  const masaAta = async (r: Rez, tableIds: string[]) => {
+    if (tableIds.length === 0) return;
     setErr(null);
-    const { error } = await supabase.rpc("assign_reservation_table", { p_reservation_id: r.id, p_table_id: tableId });
+    const { error } = await supabase.rpc("assign_reservation_tables", { p_reservation_id: r.id, p_table_ids: tableIds });
     setAssigningId(null);
+    setMasaSecimi([]);
     if (error) { setErr(error.message); return; }
     await yenile();
   };
@@ -730,9 +752,16 @@ export default function RezervasyonPage() {
             const doluUyari = masaHalaDolu(r);
             // Masa ata — önce kişi sayısına uygun (yeterli kapasiteli, en yakından) masalar,
             // "Diğerleri" ile geri kalanı da erişilebilir (Gökhan: "kişi sayısına uygun masalar
-            // listelensin, listenin başında diğerleri seçeneği olsun").
-            const uygunMasalar = bosMasalar.filter((t) => t.seat_count >= r.party_size).sort((a, b) => a.seat_count - b.seat_count);
-            const digerMasalar = bosMasalar.filter((t) => t.seat_count < r.party_size).sort((a, b) => b.seat_count - a.seat_count);
+            // listelensin, listenin başında diğerleri seçeneği olsun"). Boş masalara ek olarak
+            // BU rezervasyona zaten bağlı masalar da seçilebilir listede kalır (yeniden
+            // düzenlerken kaybolmasınlar) — masa birleştirme burada, birden fazla seçilebilir.
+            const buRezMasalari = rezMasalar[r.id] ?? [];
+            const secilebilirMasalar = tables.filter((t) => t.status === "empty" || buRezMasalari.includes(t.id));
+            const uygunMasalar = secilebilirMasalar.filter((t) => t.seat_count >= r.party_size).sort((a, b) => a.seat_count - b.seat_count);
+            const digerMasalar = secilebilirMasalar.filter((t) => t.seat_count < r.party_size).sort((a, b) => b.seat_count - a.seat_count);
+            const masaAdi = buRezMasalari.map((id) => tableName(id)).filter(Boolean).join(" + ") || tableName(r.table_id);
+            const seciliKisi = masaSecimi.reduce((s, id) => s + (tables.find((t) => t.id === id)?.seat_count ?? 0), 0);
+            const masaToggle = (id: string) => setMasaSecimi((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
             return (
               <ListRow key={r.id} bg={info.bg} muted={r.status === "gelmedi" || r.status === "iptal"}>
                 <Cell width={34} align="center">
@@ -793,12 +822,17 @@ export default function RezervasyonPage() {
                 <Cell width={150} align="center" marginLeft={38}>
                   {assigningId === r.id ? (
                     <div style={{ position: "relative", display: "inline-block" }}>
-                      <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => { setAssigningId(null); setMasaDigerAcik(false); }} />
+                      <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => { setAssigningId(null); setMasaDigerAcik(false); setMasaSecimi([]); }} />
                       <button style={btnGhostRow}>Masa seç…</button>
-                      <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 4, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 170, maxHeight: 260, overflowY: "auto", textAlign: "left" }}>
-                        {uygunMasalar.length === 0 && <div style={{ fontSize: 11.5, color: inkSoft, padding: "6px 8px" }}>Kişi sayısına uygun boş masa yok.</div>}
+                      <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 4, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 190, maxHeight: 280, overflowY: "auto", textAlign: "left" }}>
+                        {/* Masa birleştirme (Gökhan: "on kişi kapasite dolana kadar masa
+                            seçecek, mesela yan yana 3 masayı birleştirdi") — birden fazla
+                            masa işaretlenip "Ata" ile onaylanır, tek masalık rezervasyon da
+                            aynı yoldan tek seçimle gider. */}
+                        {uygunMasalar.length === 0 && digerMasalar.length === 0 && <div style={{ fontSize: 11.5, color: inkSoft, padding: "6px 8px" }}>Boş masa yok.</div>}
                         {uygunMasalar.map((t) => (
-                          <button key={t.id} onClick={() => { masaAta(r, t.id); setAssigningId(null); setMasaDigerAcik(false); }} style={masaSecBtn}>
+                          <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
+                            <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
                             {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
                           </button>
                         ))}
@@ -807,7 +841,8 @@ export default function RezervasyonPage() {
                             <>
                               <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", padding: "6px 8px 2px", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}>Diğerleri</div>
                               {digerMasalar.map((t) => (
-                                <button key={t.id} onClick={() => { masaAta(r, t.id); setAssigningId(null); setMasaDigerAcik(false); }} style={masaSecBtn}>
+                                <button key={t.id} onClick={() => masaToggle(t.id)} style={{ ...masaSecBtn, display: "flex", alignItems: "center", gap: 6, background: masaSecimi.includes(t.id) ? "var(--recede)" : undefined }}>
+                                  <span className="tnum" style={{ width: 14, color: masaSecimi.includes(t.id) ? "var(--brand-strong)" : inkSoft }}>{masaSecimi.includes(t.id) ? "✓" : ""}</span>
                                   {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
                                 </button>
                               ))}
@@ -821,16 +856,28 @@ export default function RezervasyonPage() {
                             </button>
                           )
                         )}
+                        <div style={{ borderTop: "1px solid var(--line)", marginTop: 4, padding: "8px 8px 2px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span className="tnum" style={{ fontSize: 11, color: seciliKisi >= r.party_size ? "var(--brand-strong)" : inkSoft }}>
+                            {masaSecimi.length} masa · {seciliKisi}/{r.party_size} kişi{seciliKisi >= r.party_size ? " ✓" : ""}
+                          </span>
+                          <button
+                            onClick={() => masaAta(r, masaSecimi)}
+                            disabled={masaSecimi.length === 0}
+                            style={{ border: "none", borderRadius: 8, padding: "5px 12px", background: "var(--brand-strong)", color: "#fff", fontSize: 12, cursor: "pointer", opacity: masaSecimi.length === 0 ? 0.5 : 1 }}
+                          >
+                            Ata
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  ) : tableName(r.table_id) ? (
+                  ) : masaAdi ? (
                     bugunMu && aktif ? (
-                      <button onClick={() => { setMasaDigerAcik(false); setAssigningId(r.id); }} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{tableName(r.table_id)}</button>
+                      <button onClick={() => { setMasaDigerAcik(false); setMasaSecimi(buRezMasalari); setAssigningId(r.id); }} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{masaAdi}</button>
                     ) : (
-                      <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
+                      <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{masaAdi}</span>
                     )
                   ) : bugunMu && aktif ? (
-                    <button onClick={() => { setMasaDigerAcik(false); setAssigningId(r.id); }} style={btnGhostRow}>Masa ata</button>
+                    <button onClick={() => { setMasaDigerAcik(false); setMasaSecimi([]); setAssigningId(r.id); }} style={btnGhostRow}>Masa ata</button>
                   ) : (
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
