@@ -547,6 +547,17 @@ export default function SalonPage() {
     zoomUygula(fitZoom());
   }
 
+  // Sağ tık menüsü ekran dışına taşmasın (Gökhan: "menü sağ alta açılıyor, ekran dışına
+  // açılmasın, taşarsa başka yöne açılsın") — tıklanan noktanın sağında/altında yeterli
+  // yer yoksa sola/yukarı açılıyor. Menü DOM'a henüz eklenmediği için boyutu ölçülemiyor,
+  // tahmini (gerçekte olabileceğinden büyük) bir üst sınırla hesaplanıyor.
+  const menuKonum = (clientX: number, clientY: number, tahminiGenislik: number, tahminiYukseklik: number) => {
+    const kenar = 8;
+    const x = clientX + tahminiGenislik > window.innerWidth - kenar ? Math.max(kenar, clientX - tahminiGenislik) : clientX;
+    const y = clientY + tahminiYukseklik > window.innerHeight - kenar ? Math.max(kenar, clientY - tahminiYukseklik) : clientY;
+    return { x, y };
+  };
+
   const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
   const doluSayisi = tables.filter((t) => t.status !== "empty").length;
 
@@ -702,7 +713,7 @@ export default function SalonPage() {
                       onMoveBody={(x1, y1, x2, y2) => moveOgeBody(o.id, x1, y1, x2, y2)}
                       onMoveEndpoint={(which, x, y) => moveOgeEndpoint(o.id, which, x, y)}
                       onRename={(v) => renameOge(o.id, v)}
-                      onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                      onContextMenu={(x2, y2) => setOgeCtxMenu({ ...menuKonum(x2, y2, 210, 60), oge: o })}
                     />
                   ))}
                   {ogelerInArea.filter((o) => o.type !== "duvar" && o.type !== "bar").map((o) => (
@@ -710,7 +721,7 @@ export default function SalonPage() {
                       key={o.id} oge={o} zoom={zoom}
                       onMove={(x1, y1) => moveOge(o.id, x1, y1)}
                       onRename={(v) => renameOge(o.id, v)}
-                      onContextMenu={(x2, y2) => setOgeCtxMenu({ x: x2, y: y2, oge: o })}
+                      onContextMenu={(x2, y2) => setOgeCtxMenu({ ...menuKonum(x2, y2, 210, 60), oge: o })}
                     />
                   ))}
                   {positioned.map(({ table: t, x, y }) => (
@@ -724,7 +735,7 @@ export default function SalonPage() {
                       onMove={moveTable}
                       onRename={(v) => renameTable(t.id, v)}
                       onRotate={() => rotateTable(t.id, t.rotated)}
-                      onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCogaltAcik(false); setCtxMenu({ x: x2, y: y2, table: t }); }}
+                      onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCogaltAcik(false); setCtxMenu({ ...menuKonum(x2, y2, 230, 420), table: t }); }}
                     />
                   ))}
                 </div>
