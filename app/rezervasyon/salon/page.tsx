@@ -747,6 +747,7 @@ export default function SalonPage() {
               onChange={(e) => setNewTableName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") addTable(); if (e.key === "Escape") { setAddingTable(false); setNewTableName(""); } }}
               placeholder="Masa adı (Masa 9, Teras 2…)" style={inp} autoFocus
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
             />
 
             <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 14, marginBottom: 8 }}>Masa şekli</div>
@@ -818,6 +819,7 @@ function TableBox({
   const durumEtiket = occupied ? "Dolu" : reserved ? "Rzv" : "Boş";
 
   const onPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
     startRef.current = { x: e.clientX, y: e.clientY, moved: false };
     setDragOffset({ dx: 0, dy: 0 });
@@ -915,6 +917,7 @@ function SabitOge({
   const gorunum = SABIT_GORUNUM[oge.type];
 
   const onPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
     startRef.current = { x: e.clientX, y: e.clientY, moved: false };
     setDragOffset({ dx: 0, dy: 0 });
@@ -993,6 +996,7 @@ function CekilebilirOge({
   const ortaX = (curX1 + curX2) / 2, ortaY = (curY1 + curY2) / 2;
 
   const onBodyPointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* dokunmatik/senkron olmayan işaretçilerde yakalama başarısız olabilir, sürükleme yine de çalışır */ }
     bodyStart.current = { x: e.clientX, y: e.clientY, moved: false };
     setBodyDrag({ dx: 0, dy: 0 });

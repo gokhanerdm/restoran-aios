@@ -40,6 +40,7 @@ export default function EditableText({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onBlur={commit}
+        autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); commit(); }
           if (e.key === "Escape") { setDraft(value); setEditing(false); }
