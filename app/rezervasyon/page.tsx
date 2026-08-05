@@ -837,7 +837,7 @@ export default function RezervasyonPage() {
                   ) : masaAdi ? (
                     bugunMu && aktif ? (
                       <button
-                        onClick={(e) => { setMasaDigerAcik(false); setMasaSecimi(buRezMasalari); setMasaAtaKonum(menuKonum(e.clientX, e.clientY, 220, 320)); setAssigningId(r.id); }}
+                        onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi(buRezMasalari); setMasaAtaKonum(menuKonum(rect.left, rect.bottom + 4, 220, 320)); setAssigningId(r.id); }}
                         style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}
                       >
                         {masaAdi}
@@ -847,7 +847,7 @@ export default function RezervasyonPage() {
                     )
                   ) : bugunMu && aktif ? (
                     <button
-                      onClick={(e) => { setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(menuKonum(e.clientX, e.clientY, 220, 320)); setAssigningId(r.id); }}
+                      onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(menuKonum(rect.left, rect.bottom + 4, 220, 320)); setAssigningId(r.id); }}
                       style={btnGhostRow}
                     >
                       Masa ata
