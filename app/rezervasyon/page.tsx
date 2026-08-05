@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId, getMyReservationRestaurants, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -108,22 +108,126 @@ function playArrivalBeep() {
   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([150, 80, 150]);
 }
 
-// Misafir geçmişi — telefon 10 haneye ulaşınca 500ms bekleyip sorar (her tuşta sorgu atmasın).
-type Gecmis = { ziyaretSayisi: number; sonNot: string | null } | null;
-function useMisafirGecmisi(phone: string, restaurantId: string | null): Gecmis {
-  const [gecmis, setGecmis] = useState<Gecmis>(null);
+// Kişi Kartı (Gökhan, 2026-08-05: "sistem müşteriyi tanıyacak... kişi kartında beraber
+// geldikleri gibi bir seçenek olacak") — telefon numarasına bağlı geçmiş (geldi/gelmedi/
+// iptal sayıları), kalıcı not ve elle bağlanmış diğer numaralar. Telefon 10 haneye ulaşınca
+// 500ms bekleyip sorar (her tuşta sorgu atmasın).
+type KisiKarti = {
+  kartId: string | null; isim: string | null; kartNotu: string | null;
+  ziyaretSayisi: number; gelmediSayisi: number; iptalSayisi: number; sonZiyaret: string | null;
+  baglantilar: { id: string; telefon: string; aciklama: string | null }[];
+} | null;
+function useKisiKarti(phone: string, restaurantId: string | null, refreshKey: number): KisiKarti {
+  const [kart, setKart] = useState<KisiKarti>(null);
+  const digits = phone.replace(/\D/g, "");
+  const gecerli = !!restaurantId && digits.length >= 10;
+
+  // Numara 10 haneden kısaldıysa (silindi/değişti) kartı hemen temizle — render sırasında,
+  // effect içinde değil (react-hooks/set-state-in-effect'i tetiklememek için).
+  const [oncekiGecerli, setOncekiGecerli] = useState(gecerli);
+  if (gecerli !== oncekiGecerli) {
+    setOncekiGecerli(gecerli);
+    if (!gecerli) setKart(null);
+  }
+
   useEffect(() => {
-    const digits = phone.replace(/\D/g, "");
-    if (!restaurantId || digits.length < 10) { setGecmis(null); return; }
+    if (!gecerli || !restaurantId) return;
     const id = setTimeout(() => {
-      supabase.rpc("guest_history", { p_restaurant: restaurantId, p_phone: phone }).then(({ data }) => {
-        const row = (data as { ziyaret_sayisi: number; son_not: string | null }[] | null)?.[0];
-        setGecmis(row && row.ziyaret_sayisi > 0 ? { ziyaretSayisi: row.ziyaret_sayisi, sonNot: row.son_not } : null);
+      supabase.rpc("kisi_karti_getir", { p_restaurant: restaurantId, p_phone: phone }).then(({ data }) => {
+        const row = (data as {
+          kart_id: string | null; isim: string | null; kart_notu: string | null;
+          ziyaret_sayisi: number; gelmedi_sayisi: number; iptal_sayisi: number; son_ziyaret: string | null;
+          baglantilar: { id: string; telefon: string; aciklama: string | null }[];
+        }[] | null)?.[0];
+        if (!row) { setKart(null); return; }
+        setKart({
+          kartId: row.kart_id, isim: row.isim, kartNotu: row.kart_notu,
+          ziyaretSayisi: row.ziyaret_sayisi, gelmediSayisi: row.gelmedi_sayisi, iptalSayisi: row.iptal_sayisi,
+          sonZiyaret: row.son_ziyaret, baglantilar: row.baglantilar ?? [],
+        });
       });
     }, 500);
     return () => clearTimeout(id);
-  }, [phone, restaurantId]);
-  return gecmis;
+  }, [phone, restaurantId, refreshKey, gecerli]);
+  return kart;
+}
+
+// Kişi kartı özeti + not düzenleme + numara bağlama — hem yeni rezervasyon formlarında hem
+// mevcut bir kayıt için açılan kart penceresinde kullanılıyor.
+function KisiKartiOzet({
+  kart, phone, restaurantId, onChanged,
+}: { kart: KisiKarti; phone: string; restaurantId: string | null; onChanged: () => void }) {
+  const [notTaslak, setNotTaslak] = useState(kart?.kartNotu ?? "");
+  const [bagAcik, setBagAcik] = useState(false);
+  const [bagTelefon, setBagTelefon] = useState("");
+  const [bagAciklama, setBagAciklama] = useState("");
+
+  // kart değişince (RPC tazelenince) taslağı senkronla — effect değil render-sırası koşullu
+  // setState (React'in "prop değişince state sıfırla" deseni), react-hooks/set-state-in-effect
+  // uyarısını tetiklememek için.
+  const [oncekiKartNotu, setOncekiKartNotu] = useState(kart?.kartNotu ?? "");
+  if ((kart?.kartNotu ?? "") !== oncekiKartNotu) {
+    setOncekiKartNotu(kart?.kartNotu ?? "");
+    setNotTaslak(kart?.kartNotu ?? "");
+  }
+
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 10) return null;
+
+  const notKaydet = async () => {
+    if (!restaurantId) return;
+    if ((notTaslak.trim() || "") === (kart?.kartNotu ?? "")) return;
+    await supabase.from("kisi_kartlari").upsert(
+      { restaurant_id: restaurantId, phone, kart_notu: notTaslak.trim() || null, updated_at: new Date().toISOString() },
+      { onConflict: "restaurant_id,phone" },
+    );
+    onChanged();
+  };
+  const numaraBagla = async () => {
+    if (!restaurantId || !bagTelefon.trim()) return;
+    const { data: kartRow, error: kartErr } = await supabase.from("kisi_kartlari")
+      .upsert({ restaurant_id: restaurantId, phone, kart_notu: notTaslak.trim() || null }, { onConflict: "restaurant_id,phone" })
+      .select("id").single();
+    if (kartErr || !kartRow) return;
+    await supabase.from("kisi_kart_baglantilari").insert({ kisi_karti_id: (kartRow as { id: string }).id, baglanti_telefon: bagTelefon.trim(), aciklama: bagAciklama.trim() || null });
+    setBagTelefon(""); setBagAciklama(""); setBagAcik(false);
+    onChanged();
+  };
+
+  const gecmisVar = !!kart && (kart.ziyaretSayisi > 0 || kart.gelmediSayisi > 0 || kart.iptalSayisi > 0);
+
+  return (
+    <div style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+      {gecmisVar ? (
+        <div style={{ fontSize: 11.5, color: "var(--gold-text)" }}>
+          {kart!.ziyaretSayisi > 0 && `${kart!.ziyaretSayisi} kez geldi`}
+          {kart!.gelmediSayisi > 0 && ` · ${kart!.gelmediSayisi} kez gelmedi`}
+          {kart!.iptalSayisi > 0 && ` · ${kart!.iptalSayisi} kez iptal`}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: inkSoft }}>Bu numarayla ilk kez geliyor.</div>
+      )}
+      {kart && kart.baglantilar.length > 0 && (
+        <div style={{ fontSize: 11, color: inkSoft }}>
+          Bağlı numaralar: {kart.baglantilar.map((b) => `${b.telefon}${b.aciklama ? ` (${b.aciklama})` : ""}`).join(", ")}
+        </div>
+      )}
+      <input
+        value={notTaslak} onChange={(e) => setNotTaslak(e.target.value)} onBlur={notKaydet}
+        placeholder="Kişi notu (pencere kenarı sever, alerjisi var…)"
+        style={{ ...inp, fontSize: 12 }}
+      />
+      {!bagAcik ? (
+        <button onClick={() => setBagAcik(true)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>+ Numara bağla</button>
+      ) : (
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={bagTelefon} onChange={(e) => setBagTelefon(e.target.value)} placeholder="Diğer numara" inputMode="tel" style={{ ...inp, fontSize: 12, flex: 1 }} />
+          <input value={bagAciklama} onChange={(e) => setBagAciklama(e.target.value)} placeholder="Not (birlikte geldiler…)" style={{ ...inp, fontSize: 12, flex: 1 }} />
+          <button onClick={numaraBagla} style={btnSmallRow}>Ekle</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Onay/hatırlatma bildirimi — SMS/WhatsApp sağlayıcısı henüz bağlı değil, şu an her zaman
@@ -164,7 +268,8 @@ export default function RezervasyonPage() {
   const [fDate, setFDate] = useState("");
   const [fTime, setFTime] = useState("");
   const [fNote, setFNote] = useState("");
-  const fGecmis = useMisafirGecmisi(fPhone, restaurantId);
+  const [fKartRefresh, setFKartRefresh] = useState(0);
+  const fKart = useKisiKarti(fPhone, restaurantId, fKartRefresh);
 
   // Rezervasyonsuz, kapıdan gelen — rezervasyon formuyla aynı bilgileri toplar, sadece
   // tarih/saat yok ("şimdi").
@@ -173,13 +278,28 @@ export default function RezervasyonPage() {
   const [wPhone, setWPhone] = useState("");
   const [wParty, setWParty] = useState("2");
   const [wNote, setWNote] = useState("");
-  const wGecmis = useMisafirGecmisi(wPhone, restaurantId);
+  const [wKartRefresh, setWKartRefresh] = useState(0);
+  const wKart = useKisiKarti(wPhone, restaurantId, wKartRefresh);
+
+  // Kişi kartı penceresi — mevcut bir rezervasyon satırından açılır (Gökhan: "numara
+  // aradığında yine isim soyisim çıkacak, ... beraber gelmişlerdi felan").
+  const [kartFor, setKartFor] = useState<Rez | null>(null);
+  const [kartRefresh, setKartRefresh] = useState(0);
+  const kartForKart = useKisiKarti(kartFor?.guest_phone ?? "", restaurantId, kartRefresh);
 
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [masaDigerAcik, setMasaDigerAcik] = useState(false);
   const [seatingFor, setSeatingFor] = useState<Rez | null>(null);
   const [iptalFor, setIptalFor] = useState<Rez | null>(null);
   const [iptalReason, setIptalReason] = useState("");
   const [filtre, setFiltre] = useState("tumu");
+  // Salon ekranında düzenleme kapalıyken masaya tıklayınca buraya ?arama=<masa adı> ile
+  // gelinir (Gökhan: "masaya tıkladığında rezervasyon listesi açılsın") — arama kutusu
+  // başlangıç değerini URL'den okuyor (lazy initializer, effect değil).
+  const [arama, setArama] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("arama") ?? "";
+  });
 
   const notifiedGeldi = useRef<Set<string>>(new Set());
   const router = useRouter();
@@ -403,19 +523,11 @@ export default function RezervasyonPage() {
   // gelmeyenler, en altta iptaller. Array.sort stable — her kademe kendi içinde sırasını korur.
   const siraKademe = (s: string) => (s === "iptal" ? 3 : s === "gelmedi" ? 2 : s === "kalkti" ? 1 : 0);
   const visibleRows = [...rows].sort((a, b) => siraKademe(a.status) - siraKademe(b.status));
-  const filtreliRows = visibleRows.filter((r) => {
-    if (filtre === "tumu") return true;
-    if (filtre === "gelmedi") return r.status === "gelmedi";
-    if (filtre === "iptal") return r.status === "iptal";
-    if (filtre === "rezervasyon" || filtre === "kapi" || filtre === "online") {
-      return r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi";
-    }
-    return true;
-  });
 
   // Kapasite/Yedek — gün tek havuz değil, öğle/akşam iki ayrı dönem. Sadece gerçekten yer
   // kaplayan durumlar sayılır; kalkan misafir masayı boşalttığı için artık saymaz.
-  // Öncelik saate göre değil KAYIT sırasına göre — ilk arayan ilk kazanır.
+  // Öncelik saate göre değil KAYIT sırasına göre — ilk arayan ilk kazanır (otomatik/akıllı
+  // yerleştirme önceliği ayrıca konuşulacak — Gökhan: "öncelik durumunu sonra konuşalım").
   const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
   const kapasiteliRows = rows.filter((r) => r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu");
   const yedekIds = new Set<string>();
@@ -430,6 +542,27 @@ export default function RezervasyonPage() {
       });
   });
   const donemPax = (d: "ogle" | "aksam") => kapasiteliRows.filter((r) => donem(r.reserved_at, aksamBaslangic) === d).reduce((s, r) => s + r.party_size, 0);
+
+  // Arama — isim, telefon, masa adı, not — herhangi birine göre eşleşirse gösterilir
+  // (Gökhan: "her kritere göre arama yapılabilsin").
+  const aramaQ = arama.trim().toLocaleLowerCase("tr");
+  const filtreliRows = visibleRows.filter((r) => {
+    if (filtre === "tumu") { /* devam */ }
+    else if (filtre === "yedek") { if (!yedekIds.has(r.id)) return false; }
+    else if (filtre === "gelmedi") { if (r.status !== "gelmedi") return false; }
+    else if (filtre === "iptal") { if (r.status !== "iptal") return false; }
+    else if (filtre === "rezervasyon" || filtre === "kapi" || filtre === "online") {
+      if (!(r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi")) return false;
+    }
+    if (!aramaQ) return true;
+    const masaAdi = tableName(r.table_id) ?? "";
+    return (
+      r.guest_name.toLocaleLowerCase("tr").includes(aramaQ)
+      || (r.guest_phone ?? "").toLocaleLowerCase("tr").includes(aramaQ)
+      || masaAdi.toLocaleLowerCase("tr").includes(aramaQ)
+      || (r.note ?? "").toLocaleLowerCase("tr").includes(aramaQ)
+    );
+  });
   const donemDoluPax = (iso: string) => donemPax(donem(iso, aksamBaslangic));
 
   // Akşam saati geldiyse ve akşam rezervasyonu olan masada hâlâ biri oturuyorsa uyarı.
@@ -523,6 +656,19 @@ export default function RezervasyonPage() {
             <DatePicker value={gun} onChange={gunDegistir} />
             <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
           </div>
+          <div style={{ position: "relative", width: 200 }}>
+            <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: inkSoft, pointerEvents: "none" }} />
+            <input
+              value={arama} onChange={(e) => setArama(e.target.value)}
+              placeholder="İsim, telefon, masa, not ara…"
+              style={{ ...inp, width: "100%", paddingLeft: 30, paddingRight: arama ? 26 : 10, boxSizing: "border-box" }}
+            />
+            {arama && (
+              <button onClick={() => setArama("")} aria-label="Aramayı temizle" style={{ all: "unset", cursor: "pointer", position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: inkSoft, display: "flex" }}>
+                <X size={13} />
+              </button>
+            )}
+          </div>
           <button onClick={openNewRes} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
           <button onClick={() => { setWName(""); setWPhone(""); setWParty("2"); setWNote(""); setErr(null); setWalkInOpen(true); }} style={btnPrimary}><Plus size={14} /> Rezervasyon dışı</button>
           <select value={filtre} onChange={(e) => setFiltre(e.target.value)} style={{ ...inp, marginLeft: "auto", width: 190 }}>
@@ -530,6 +676,7 @@ export default function RezervasyonPage() {
             <option value="rezervasyon">Rezervasyonlar</option>
             <option value="kapi">Rezervasyonsuz gelenler</option>
             <option value="online">Online gelenler</option>
+            <option value="yedek">Bekleyenler (Yedek)</option>
             <option value="gelmedi">Gelmediler</option>
             <option value="iptal">İptaller</option>
           </select>
@@ -581,6 +728,11 @@ export default function RezervasyonPage() {
             const aktif = r.status === "bekleniyor" || r.status === "geldi";
             const yedek = yedekIds.has(r.id);
             const doluUyari = masaHalaDolu(r);
+            // Masa ata — önce kişi sayısına uygun (yeterli kapasiteli, en yakından) masalar,
+            // "Diğerleri" ile geri kalanı da erişilebilir (Gökhan: "kişi sayısına uygun masalar
+            // listelensin, listenin başında diğerleri seçeneği olsun").
+            const uygunMasalar = bosMasalar.filter((t) => t.seat_count >= r.party_size).sort((a, b) => a.seat_count - b.seat_count);
+            const digerMasalar = bosMasalar.filter((t) => t.seat_count < r.party_size).sort((a, b) => b.seat_count - a.seat_count);
             return (
               <ListRow key={r.id} bg={info.bg} muted={r.status === "gelmedi" || r.status === "iptal"}>
                 <Cell width={34} align="center">
@@ -607,6 +759,11 @@ export default function RezervasyonPage() {
                       onSave={(next) => updateField(r, { guest_name: toTitleTr(next) })}
                       style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                     />
+                    {r.guest_phone && (
+                      <button onClick={() => setKartFor(r)} title="Kişi kartı" aria-label="Kişi kartı" style={{ all: "unset", cursor: "pointer", display: "inline-flex", color: inkSoft, flexShrink: 0 }}>
+                        <User size={12} />
+                      </button>
+                    )}
                     {yedek && <span title="Kapasite dolduktan sonra alınmış" style={{ fontSize: 9.5, fontWeight: 700, color: "var(--gold-text)", border: "1px solid var(--gold)", borderRadius: 4, padding: "1px 4px", flexShrink: 0 }}>YEDEK</span>}
                     {canli && r.arrived_at && (
                       <span style={{ fontSize: 11, color: inkSoft, flexShrink: 0 }}>· {bekleyenSure(r.arrived_at, now)} önce geldi</span>
@@ -635,18 +792,45 @@ export default function RezervasyonPage() {
                 <RowSep />
                 <Cell width={150} align="center" marginLeft={38}>
                   {assigningId === r.id ? (
-                    <select autoFocus onBlur={() => setAssigningId(null)} onChange={(e) => masaAta(r, e.target.value)} defaultValue="" style={{ ...inp, width: "100%", padding: "5px 8px", fontSize: 12.5 }}>
-                      <option value="" disabled>Masa seç…</option>
-                      {bosMasalar.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.seat_count} pax)</option>)}
-                    </select>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => { setAssigningId(null); setMasaDigerAcik(false); }} />
+                      <button style={btnGhostRow}>Masa seç…</button>
+                      <div style={{ position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)", marginTop: 4, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 170, maxHeight: 260, overflowY: "auto", textAlign: "left" }}>
+                        {uygunMasalar.length === 0 && <div style={{ fontSize: 11.5, color: inkSoft, padding: "6px 8px" }}>Kişi sayısına uygun boş masa yok.</div>}
+                        {uygunMasalar.map((t) => (
+                          <button key={t.id} onClick={() => { masaAta(r, t.id); setAssigningId(null); setMasaDigerAcik(false); }} style={masaSecBtn}>
+                            {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
+                          </button>
+                        ))}
+                        {digerMasalar.length > 0 && (
+                          masaDigerAcik ? (
+                            <>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", padding: "6px 8px 2px", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}>Diğerleri</div>
+                              {digerMasalar.map((t) => (
+                                <button key={t.id} onClick={() => { masaAta(r, t.id); setAssigningId(null); setMasaDigerAcik(false); }} style={masaSecBtn}>
+                                  {t.name} <span className="tnum" style={{ color: inkSoft }}>({t.seat_count} pax)</span>
+                                </button>
+                              ))}
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => setMasaDigerAcik(true)}
+                              style={{ ...masaSecBtn, color: "var(--brand)", borderTop: uygunMasalar.length ? "1px solid var(--line)" : undefined, marginTop: uygunMasalar.length ? 4 : 0 }}
+                            >
+                              Diğerleri (<span className="tnum">{digerMasalar.length}</span>)
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
                   ) : tableName(r.table_id) ? (
                     bugunMu && aktif ? (
-                      <button onClick={() => setAssigningId(r.id)} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{tableName(r.table_id)}</button>
+                      <button onClick={() => { setMasaDigerAcik(false); setAssigningId(r.id); }} style={{ all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--ink)", textDecoration: "underline", textDecorationColor: "var(--line-2)" }}>{tableName(r.table_id)}</button>
                     ) : (
                       <span style={{ fontSize: 12.5, color: "var(--ink)" }}>{tableName(r.table_id)}</span>
                     )
                   ) : bugunMu && aktif ? (
-                    <button onClick={() => setAssigningId(r.id)} style={btnGhostRow}>Masa ata</button>
+                    <button onClick={() => { setMasaDigerAcik(false); setAssigningId(r.id); }} style={btnGhostRow}>Masa ata</button>
                   ) : (
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   )}
@@ -702,11 +886,7 @@ export default function RezervasyonPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <input autoFocus value={fName} onChange={(e) => setFName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={inp} />
               <input value={fPhone} onChange={(e) => setFPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
-              {fGecmis && (
-                <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: -4 }}>
-                  Bu numarayla daha önce {fGecmis.ziyaretSayisi} kez geldi{fGecmis.sonNot ? ` · Son not: ${fGecmis.sonNot}` : ""}
-                </div>
-              )}
+              <KisiKartiOzet kart={fKart} phone={fPhone} restaurantId={restaurantId} onChanged={() => setFKartRefresh((v) => v + 1)} />
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...inp, flex: 1 }} />
                 <DatePicker value={fDate} onChange={setFDate} style={{ flex: 1 }} />
@@ -754,11 +934,7 @@ export default function RezervasyonPage() {
                 <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
               </div>
               <input value={wPhone} onChange={(e) => setWPhone(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
-              {wGecmis && (
-                <div style={{ fontSize: 11.5, color: "var(--gold-text)", marginTop: -4 }}>
-                  Bu numarayla daha önce {wGecmis.ziyaretSayisi} kez geldi{wGecmis.sonNot ? ` · Son not: ${wGecmis.sonNot}` : ""}
-                </div>
-              )}
+              <KisiKartiOzet kart={wKart} phone={wPhone} restaurantId={restaurantId} onChanged={() => setWKartRefresh((v) => v + 1)} />
               <input value={wNote} onChange={(e) => setWNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Özel not (opsiyonel)" style={inp} />
             </div>
 
@@ -780,6 +956,22 @@ export default function RezervasyonPage() {
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
               <button onClick={() => setWalkInOpen(false)} style={btnSecondary}>Vazgeç</button>
               <button onClick={dogrudanGir} disabled={busy || !wName.trim()} style={{ ...btnPrimary, opacity: !wName.trim() ? 0.5 : 1 }}>Ekle</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KİŞİ KARTI PENCERESİ — mevcut bir rezervasyondaki misafir ikonuna tıklayınca açılır. */}
+      {kartFor && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 55 }} onClick={() => setKartFor(null)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 2 }}>{kartFor.guest_name}</div>
+            <div className="tnum" style={{ fontSize: 12, color: inkSoft, marginBottom: 12 }}>{kartFor.guest_phone}</div>
+            {kartFor.guest_phone && (
+              <KisiKartiOzet kart={kartForKart} phone={kartFor.guest_phone} restaurantId={restaurantId} onChanged={() => setKartRefresh((v) => v + 1)} />
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setKartFor(null)} style={btnSecondary}>Kapat</button>
             </div>
           </div>
         </div>
@@ -833,4 +1025,5 @@ const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borde
 const btnSmallRow: React.CSSProperties = { ...btnSmall, padding: "4px 14px" };
 const btnGhostRow: React.CSSProperties = { ...btnGhost, padding: "4px 12px" };
 const inkSoft = "#5c5c58";
+const masaSecBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "block", width: "100%", boxSizing: "border-box", padding: "7px 8px", borderRadius: 8, fontSize: 12.5, color: "var(--ink)" };
 const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };

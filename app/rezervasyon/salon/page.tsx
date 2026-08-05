@@ -135,6 +135,21 @@ export default function SalonPage() {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  // Salon düzenleme modu (Gökhan, 2026-08-05: "salonda şekillendirme bittiğinde özellik
+  // kapansın, masaya tıkladığında rezervasyon listesi açılsın") — açıkken masalar/öğeler
+  // sürüklenip düzenlenebilir (eski davranış); kapalıyken tuval kilitli, masaya tıklamak
+  // o masanın rezervasyonlarını açar. Tercih tarayıcıda kalıcı (localStorage).
+  const [duzenlemeModu, setDuzenlemeModu] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("rzv_salon_duzenleme_modu") !== "kapali"; } catch { return true; }
+  });
+  const duzenlemeModuDegistir = () => {
+    setDuzenlemeModu((v) => {
+      const yeni = !v;
+      try { localStorage.setItem("rzv_salon_duzenleme_modu", yeni ? "acik" : "kapali"); } catch { /* localStorage yoksa (gizli sekme vb.) kalıcı olmaz, sorun değil */ }
+      return yeni;
+    });
+  };
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
   const [oturanlar, setOturanlar] = useState<Record<string, OturanBilgi>>({});
@@ -593,75 +608,91 @@ export default function SalonPage() {
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{doluSayisi}/{tables.length} masa dolu · {toplamKoltuk} koltuk</div>
         </div>
         <div style={{ flex: 1 }} />
-        {/* Sağ tık gizli kalıyordu (Gökhan: "masa ekleyemiyorum", "masa ekleyi sağ üste koy")
-            — görünür buton başlıkta, sağ tık da hâlâ çalışıyor. */}
+
+        {/* Salon düzenleme modu (Gökhan: "salonda şekillendirme bittiğinde özellik kapansın,
+            masaya tıkladığında rezervasyon listesi açılsın") — kapalıyken tuval kilitli,
+            masaya tıklamak o masanın rezervasyonlarını açar. Tercih tarayıcıda kalıcı. */}
         <button
-          onClick={() => { if (!selectedAreaId) return; setAddingTable(true); setErr(null); }}
-          disabled={!selectedAreaId}
-          style={{ ...btnSmall, opacity: !selectedAreaId ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 5 }}
+          onClick={duzenlemeModuDegistir}
+          style={{ ...btnSecondaryHeader, background: duzenlemeModu ? "var(--recede)" : "var(--card)", color: duzenlemeModu ? "var(--brand-strong)" : "var(--ink-green)" }}
         >
-          <Plus size={14} /> Masa ekle
+          {duzenlemeModu ? "Düzenlemeyi bitir" : "Salonu düzenle"}
         </button>
 
-        {/* Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — Masa ekle'nin
-            yanında, ayrı bir satır açıp tuvali küçültmesin diye (Gökhan: "üstten butonlar
-            eklediğin için salon ekranımız küçülmüş"). */}
-        {selectedAreaId && (
+        {duzenlemeModu && (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)" }}>
-              <span>Ölçü:</span>
-              <input
-                value={olcuInput.genislik}
-                onChange={(e) => setOlcuInput((v) => ({ ...v, genislik: e.target.value.replace(/[^0-9.,]/g, "") }))}
-                onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                placeholder="en" inputMode="decimal" className="tnum"
-                style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
-              />
-              <span>×</span>
-              <input
-                value={olcuInput.derinlik}
-                onChange={(e) => setOlcuInput((v) => ({ ...v, derinlik: e.target.value.replace(/[^0-9.,]/g, "") }))}
-                onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                placeholder="boy" inputMode="decimal" className="tnum"
-                style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
-              />
-              <span>m</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button onClick={() => zoomUygula(zoom / 1.25)} aria-label="Uzaklaştır" style={zoomBtn}>−</button>
-              <span className="tnum" style={{ fontSize: 12, width: 38, textAlign: "center", color: "var(--muted)" }}>{Math.round(zoom * 100)}%</span>
-              <button onClick={() => zoomUygula(zoom * 1.25)} aria-label="Yakınlaştır" style={zoomBtn}>+</button>
-              <button onClick={tumunuGoster} style={{ ...btnSecondaryHeader, padding: "6px 12px", fontSize: 12.5 }}>Tüm salonu göster</button>
+            {/* Sağ tık gizli kalıyordu (Gökhan: "masa ekleyemiyorum", "masa ekleyi sağ üste koy")
+                — görünür buton başlıkta, sağ tık da hâlâ çalışıyor. */}
+            <button
+              onClick={() => { if (!selectedAreaId) return; setAddingTable(true); setErr(null); }}
+              disabled={!selectedAreaId}
+              style={{ ...btnSmall, opacity: !selectedAreaId ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 5 }}
+            >
+              <Plus size={14} /> Masa ekle
+            </button>
+
+            {/* Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — Masa
+                ekle'nin yanında, ayrı bir satır açıp tuvali küçültmesin diye. */}
+            {selectedAreaId && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--muted)" }}>
+                <span>Ölçü:</span>
+                <input
+                  value={olcuInput.genislik}
+                  onChange={(e) => setOlcuInput((v) => ({ ...v, genislik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder="en" inputMode="decimal" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+                <span>×</span>
+                <input
+                  value={olcuInput.derinlik}
+                  onChange={(e) => setOlcuInput((v) => ({ ...v, derinlik: e.target.value.replace(/[^0-9.,]/g, "") }))}
+                  onBlur={saveOlcu} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                  placeholder="boy" inputMode="decimal" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "5px 7px", fontSize: 12.5, width: 44, background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+                <span>m</span>
+              </div>
+            )}
+
+            {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
+                çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => { if (!selectedAreaId) return; setOgeMenuAcik((v) => !v); }}
+                disabled={!selectedAreaId}
+                style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
+              >
+                <Plus size={14} /> Öğe ekle
+              </button>
+              {ogeMenuAcik && (
+                <>
+                  <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeMenuAcik(false)} />
+                  <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "6px 10px 2px" }}>Çekip uzatılır</div>
+                    {CEKME_TIPLERI.map((t) => (
+                      <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
+                    ))}
+                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "8px 10px 2px", borderTop: "1px solid var(--line)", marginTop: 4 }}>Sürüklenir</div>
+                    {SABIT_TIPLERI.map((t) => (
+                      <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </>
         )}
 
-        {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
-            çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => { if (!selectedAreaId) return; setOgeMenuAcik((v) => !v); }}
-            disabled={!selectedAreaId}
-            style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
-          >
-            <Plus size={14} /> Öğe ekle
-          </button>
-          {ogeMenuAcik && (
-            <>
-              <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeMenuAcik(false)} />
-              <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "6px 10px 2px" }}>Çekip uzatılır</div>
-                {CEKME_TIPLERI.map((t) => (
-                  <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
-                ))}
-                <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "8px 10px 2px", borderTop: "1px solid var(--line)", marginTop: 4 }}>Sürüklenir</div>
-                {SABIT_TIPLERI.map((t) => (
-                  <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+        {/* Zoom kontrolleri bir görünüm aracı — düzenleme modu kapalıyken de kullanılabilir. */}
+        {selectedAreaId && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => zoomUygula(zoom / 1.25)} aria-label="Uzaklaştır" style={zoomBtn}>−</button>
+            <span className="tnum" style={{ fontSize: 12, width: 38, textAlign: "center", color: "var(--muted)" }}>{Math.round(zoom * 100)}%</span>
+            <button onClick={() => zoomUygula(zoom * 1.25)} aria-label="Yakınlaştır" style={zoomBtn}>+</button>
+            <button onClick={tumunuGoster} style={{ ...btnSecondaryHeader, padding: "6px 12px", fontSize: 12.5 }}>Tüm salonu göster</button>
+          </div>
+        )}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -722,7 +753,7 @@ export default function SalonPage() {
                       masalar hep tıklanabilir üstte kalsın. */}
                   {ogelerInArea.filter((o) => o.type === "duvar" || o.type === "bar").map((o) => (
                     <CekilebilirOge
-                      key={o.id} oge={o} zoom={zoom}
+                      key={o.id} oge={o} zoom={zoom} duzenlemeModu={duzenlemeModu}
                       onMoveBody={(x1, y1, x2, y2) => moveOgeBody(o.id, x1, y1, x2, y2)}
                       onMoveEndpoint={(which, x, y) => moveOgeEndpoint(o.id, which, x, y)}
                       onRename={(v) => renameOge(o.id, v)}
@@ -731,7 +762,7 @@ export default function SalonPage() {
                   ))}
                   {ogelerInArea.filter((o) => o.type !== "duvar" && o.type !== "bar").map((o) => (
                     <SabitOge
-                      key={o.id} oge={o} zoom={zoom}
+                      key={o.id} oge={o} zoom={zoom} duzenlemeModu={duzenlemeModu}
                       onMove={(x1, y1) => moveOge(o.id, x1, y1)}
                       onRename={(v) => renameOge(o.id, v)}
                       onContextMenu={(x2, y2) => setOgeCtxMenu({ ...menuKonum(x2, y2, 210, 60), oge: o })}
@@ -746,10 +777,12 @@ export default function SalonPage() {
                       hizaYNoktalari={hizaVerisi.filter((h) => h.id !== t.id).flatMap((h) => [h.top, h.centerY, h.bottom])}
                       ozelOlculer={ozelOlculer}
                       oturan={oturanlar[t.id] ?? null}
+                      duzenlemeModu={duzenlemeModu}
                       onMove={moveTable}
                       onRename={(v) => renameTable(t.id, v)}
                       onRotate={() => rotateTable(t.id, t.rotated)}
                       onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCogaltAcik(false); setCtxMenu({ ...menuKonum(x2, y2, 230, 420), table: t }); }}
+                      onKullanimTikla={() => router.push(`/rezervasyon?arama=${encodeURIComponent(t.name)}`)}
                     />
                   ))}
                 </div>
@@ -944,10 +977,12 @@ export default function SalonPage() {
 }
 
 function TableBox({
-  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, ozelOlculer, oturan, onMove, onRename, onRotate, onContextMenu,
+  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, ozelOlculer, oturan, duzenlemeModu, onMove, onRename, onRotate, onContextMenu, onKullanimTikla,
 }: {
   table: TableRow; x: number; y: number; zoom: number; hizaXNoktalari: number[]; hizaYNoktalari: number[]; ozelOlculer: MasaOlcusu[]; oturan: OturanBilgi | null;
+  duzenlemeModu: boolean;
   onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onRotate: () => void; onContextMenu: (x: number, y: number) => void;
+  onKullanimTikla: () => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const [hover, setHover] = useState(false);
@@ -977,7 +1012,7 @@ function TableBox({
     const dx = e.clientX - startRef.current.x;
     const dy = e.clientY - startRef.current.y;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) startRef.current.moved = true;
-    setDragOffset({ dx, dy });
+    if (duzenlemeModu) setDragOffset({ dx, dy });
   };
 
   // Hizalama kılavuzları (Gökhan: "bir masayı aynı hizaya koyarken yardımcı olmalı, program
@@ -1008,11 +1043,14 @@ function TableBox({
 
   // Gökhan: "çektiğim yerde durmalı, otomatik yerleşme kapansın" — artık grid'e yapışmıyor,
   // bırakıldığı tam piksele yerleşiyor (snapCoord kaldırıldı) — hizalama kılavuzu hariç.
+  // Düzenleme modu kapalıyken sürükleme yok — tıklamak (Gökhan: "masaya tıkladığında
+  // rezervasyon listesi açılsın") o masanın rezervasyon listesini açar.
   const onPointerUp = () => {
     if (!startRef.current) return;
     const moved = startRef.current.moved;
     startRef.current = null;
     setDragOffset(null);
+    if (!duzenlemeModu) { if (!moved) onKullanimTikla(); return; }
     if (moved) onMove(table.id, Math.max(0, snapX), Math.max(0, snapY));
   };
 
@@ -1040,14 +1078,14 @@ function TableBox({
       )}
       <div
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (duzenlemeModu) onContextMenu(e.clientX, e.clientY); }}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         position: "absolute", left: curX, top: curY, width: BOX_W, height: BOX_H,
-        cursor: "grab", touchAction: "none", userSelect: "none",
+        cursor: duzenlemeModu ? "grab" : "pointer", touchAction: "none", userSelect: "none",
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
       }}
-      title={occupied && oturan ? `${oturan.guestName} · ${oturan.partySize} kişi` : undefined}
+      title={occupied && oturan ? `${oturan.guestName} · ${oturan.partySize} kişi` : duzenlemeModu ? undefined : "Rezervasyon listesini aç"}
     >
       <div
         style={{
@@ -1062,7 +1100,7 @@ function TableBox({
         <div style={{ fontSize: 10.5 * yaziOlcek, color: "var(--muted-2)" }} className="tnum">{table.seat_count} kişilik</div>
         <div style={{ fontSize: 11 * yaziOlcek, fontWeight: 700, color: durumRengi }}>{durumEtiket}</div>
 
-        {dikdortgen && hover && (
+        {dikdortgen && hover && duzenlemeModu && (
           <button
             onClick={(e) => { e.stopPropagation(); onRotate(); }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -1086,9 +1124,9 @@ function TableBox({
 // durum takibi yok, sadece salonun gerçek halini göstersin diye. TableBox'la aynı Pointer Events
 // sürükleme deseni.
 function SabitOge({
-  oge, zoom, onMove, onRename, onContextMenu,
+  oge, zoom, duzenlemeModu, onMove, onRename, onContextMenu,
 }: {
-  oge: SalonOge; zoom: number; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
+  oge: SalonOge; zoom: number; duzenlemeModu: boolean; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
@@ -1129,6 +1167,7 @@ function SabitOge({
         cursor: "grab", touchAction: "none", userSelect: "none", boxSizing: "border-box",
         borderRadius: oge.type === "kapi" ? 6 : 10, background: gorunum.renk, opacity: 0.82,
         display: "flex", alignItems: "center", justifyContent: "center", padding: 4,
+        pointerEvents: duzenlemeModu ? "auto" : "none",
       }}
     >
       <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", textAlign: "center", lineHeight: 1.15 }} onPointerDown={(e) => e.stopPropagation()}>
@@ -1144,10 +1183,11 @@ function SabitOge({
 // moveOgeEndpoint). Tutamaçlar kendi Pointer Events'lerini gövdeninkine karışmasın diye
 // stopPropagation ile izole ediyor.
 function CekilebilirOge({
-  oge, zoom, onMoveBody, onMoveEndpoint, onRename, onContextMenu,
+  oge, zoom, duzenlemeModu, onMoveBody, onMoveEndpoint, onRename, onContextMenu,
 }: {
   oge: SalonOge;
   zoom: number;
+  duzenlemeModu: boolean;
   onMoveBody: (x1: number, y1: number, x2: number, y2: number) => void;
   onMoveEndpoint: (which: 1 | 2, x: number, y: number) => void;
   onRename: (v: string) => void;
@@ -1244,6 +1284,7 @@ function CekilebilirOge({
           background: gorunum.renk, borderRadius: oge.type === "bar" ? 6 : 3, opacity: 0.85,
           cursor: "grab", touchAction: "none", userSelect: "none", boxSizing: "border-box",
           display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: duzenlemeModu ? "auto" : "none",
         }}
       >
         <div
@@ -1253,8 +1294,12 @@ function CekilebilirOge({
           <EditableText value={oge.name} onSave={onRename} />
         </div>
       </div>
-      <div onPointerDown={(e) => endPointerDown(1, e)} onPointerMove={(e) => endPointerMove(1, e)} onPointerUp={(e) => endPointerUp(1, e)} style={handleStyle(curX1, curY1)} />
-      <div onPointerDown={(e) => endPointerDown(2, e)} onPointerMove={(e) => endPointerMove(2, e)} onPointerUp={(e) => endPointerUp(2, e)} style={handleStyle(curX2, curY2)} />
+      {duzenlemeModu && (
+        <>
+          <div onPointerDown={(e) => endPointerDown(1, e)} onPointerMove={(e) => endPointerMove(1, e)} onPointerUp={(e) => endPointerUp(1, e)} style={handleStyle(curX1, curY1)} />
+          <div onPointerDown={(e) => endPointerDown(2, e)} onPointerMove={(e) => endPointerMove(2, e)} onPointerUp={(e) => endPointerUp(2, e)} style={handleStyle(curX2, curY2)} />
+        </>
+      )}
     </>
   );
 }
