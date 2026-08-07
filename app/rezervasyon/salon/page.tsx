@@ -9,6 +9,7 @@ import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount"
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import EditableText from "../../components/EditableText";
 import { useConfirm } from "../../components/useConfirm";
+import { PX_PER_CM, KOLTUK_SECENEKLERI, BOX_W, BOX_H, govdeOlcusu, type Shape as MasaSekli, type MasaOlcusu } from "../masaOlcu";
 
 // REZERVASYON > SALON — görsel masa planı (Gökhan, 2026-08-04: "sürükleyip yerleştirebileceğim,
 // salon düzeninin aynısını yapabileceğim bir ekran"). AIOS'un Kasa/Adisyon ekranındaki kat planıyla
@@ -25,12 +26,12 @@ import { useConfirm } from "../../components/useConfirm";
 type Area = { id: string; name: string; sort_order: number; genislik_cm: number | null; derinlik_cm: number | null };
 // Loca gerçek bir masa şekli (Gökhan: "locayı masa ekleye koyacağız" — dekoratif öğe değil,
 // doğrudan kişi sayısı/rezervasyon durumu taşıyan bir masa gibi işlem görsün).
-type Shape = "yuvarlak" | "kare" | "dikdortgen" | "loca";
+type Shape = MasaSekli;
 type TableRow = {
   id: string; name: string; area_id: string | null; status: string; sort_order: number;
   position_x: number | null; position_y: number | null; seat_count: number; shape: Shape; rotated: boolean;
 };
-type OturanBilgi = { guestName: string; partySize: number };
+type OturanBilgi = { guestName: string; partySize: number; status: string };
 
 // Masa dışı salon öğeleri (Gökhan, 2026-08-04: "bar ikonu koyarız duvar koyarız... kolon
 // koyalım bide servis koyalım kapı koyalım"). Rezervasyon/durum takibi yok, sadece salonun
@@ -49,9 +50,8 @@ const SABIT_TIPLERI: { type: OgeType; label: string }[] = [
   { type: "servis", label: "Servis" },
   { type: "kapi", label: "Kapı" },
 ];
-// 1cm gerçek ölçünün piksel karşılığı — masa (Loca dahil) ve Duvar/Bar kalınlığı aynı oranı
-// kullanır ki büyük/küçük karşılaştırması tutarlı olsun.
-const PX_PER_CM = 0.8;
+// 1cm gerçek ölçünün piksel karşılığı ve masa gövde ölçüleri artık ../masaOlcu.ts'te —
+// planlayıcı birleşen masaları yan yana koyarken aynı ölçüyü kullanıyor, iki kopya kalmasın.
 // Duvar/Bar kalınlığı — standart duvar ~20cm, bar tezgahı ~60cm derinlik (yaygın tezgah
 // ölçüsü). Uzunlukları (x1,y1)-(x2,y2) çekilerek serbest belirlenir, kalınlık sabit.
 const CEKME_GORUNUM: Record<string, { renk: string; kalinlik: number }> = {
@@ -79,32 +79,6 @@ const SEKILLER: { shape: Shape; label: string }[] = [
   { shape: "dikdortgen", label: "Dikdörtgen" },
   { shape: "loca", label: "Loca" },
 ];
-const KOLTUK_SECENEKLERI = [2, 4, 6, 8];
-
-// Standart masa ölçüleri (Gökhan düzeltmesi, 2026-08-05) — restoran mobilyası literatüründeki
-// yaygın santim değerleri. Piksele PX_PER_CM ile çevriliyor ki büyük masa küçükten GERÇEKTEN
-// büyük görünsün. Loca ~150×110cm banket standardından (duvara dayalı çift banket + masa).
-// Bunlar sadece VARSAYILAN — işletme Ayarlar'dan kendi ölçüsünü girerse (masa_olculeri
-// tablosu) onun yerini alır, bkz. govdeOlcusu'nun ozelOlculer parametresi.
-const CM_OLCU: Record<Shape, Record<number, { w: number; h: number }>> = {
-  yuvarlak: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 150, h: 150 }, 8: { w: 180, h: 180 } },
-  kare: { 2: { w: 70, h: 70 }, 4: { w: 90, h: 90 }, 6: { w: 110, h: 110 }, 8: { w: 140, h: 140 } },
-  loca: { 2: { w: 110, h: 90 }, 4: { w: 150, h: 110 }, 6: { w: 190, h: 120 }, 8: { w: 230, h: 130 } },
-  dikdortgen: { 2: { w: 70, h: 60 }, 4: { w: 120, h: 70 }, 6: { w: 180, h: 70 }, 8: { w: 220, h: 70 } },
-};
-const MIN_GOVDE_PX = 46;
-// En yakın tanımlı kişi sayısına yuvarlar (2/4/6/8 arası serbest sayı da girilebiliyor —
-// örn. 5 kişilik masa 4'ün ölçüsünü kullanır, tam santim hassasiyeti önemli değil).
-const enYakinKoltuk = (seats: number) => KOLTUK_SECENEKLERI.reduce((a, b) => (Math.abs(b - seats) < Math.abs(a - seats) ? b : a));
-// İşletmeye özel ölçü (Gökhan: "masa ölçülerini de girsinler ayarlardan, hangi masaları
-// varsa onları seçip ölçü girsin") — girilmişse CM_OLCU varsayılanının yerine geçer.
-type MasaOlcusu = { shape: Shape; seat_tier: number; width_cm: number; height_cm: number };
-const govdeOlcusu = (shape: Shape, seats: number, ozelOlculer: MasaOlcusu[] = []): { width: number; height: number } => {
-  const tier = enYakinKoltuk(seats);
-  const ozel = ozelOlculer.find((o) => o.shape === shape && o.seat_tier === tier);
-  const cm = ozel ? { w: ozel.width_cm, h: ozel.height_cm } : CM_OLCU[shape][tier];
-  return { width: Math.max(MIN_GOVDE_PX, Math.round(cm.w * PX_PER_CM)), height: Math.max(MIN_GOVDE_PX, Math.round(cm.h * PX_PER_CM)) };
-};
 // Şekil rozeti — gerçek en/boy oranıyla (yuvarlak: eşit kenar + tam yuvarlak, kare: eşit
 // kenar + hafif köşe, dikdörtgen: geniş + hafif köşe). Seçim ekranındaki küçük önizleme
 // ikonu için — masanın kendi kutusu artık govdeOlcusu'nu kullanıyor.
@@ -115,8 +89,6 @@ const sekilRozeti = (shape: Shape, taban: number): React.CSSProperties => {
   return { width: taban * 1.5, height: taban * 0.7, borderRadius: 4 };
 };
 
-const BOX_W = 148;
-const BOX_H = 108;
 const GAP = 14;
 const COLS = 5;
 
@@ -222,7 +194,13 @@ export default function SalonPage() {
     const [{ data: a }, { data: t }, { data: r }, { data: o }, { data: m }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order, genislik_cm, derinlik_cm").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("reservations").select("table_id, guest_name, party_size").eq("restaurant_id", restId).eq("status", "oturdu")
+      // Sadece oturanlar değil, masası ayrılmış BEKLEYENLER de gösteriliyor — garson planda
+      // hangi masada kimin olduğunu görsün (Gökhan: "masaların üzerinde rezervasyon isimleri
+      // yazsın"). reservation_tables üzerinden gidiliyor ki birleştirilmiş masaların HEPSİNDE
+      // isim çıksın, sadece birincil masada değil.
+      supabase.from("reservations").select("id, guest_name, party_size, status, reservation_tables(table_id)")
+        .eq("restaurant_id", restId).is("deleted_at", null)
+        .in("status", ["bekleniyor", "geldi", "oturdu"])
         .gte("reserved_at", start).lt("reserved_at", end),
       supabase.from("salon_ogeleri").select("id, area_id, type, name, x1, y1, x2, y2").eq("restaurant_id", restId).is("deleted_at", null),
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
@@ -233,14 +211,24 @@ export default function SalonPage() {
     setOgeler((o as SalonOge[]) ?? []);
     setOzelOlculer((m as MasaOlcusu[]) ?? []);
     const map: Record<string, OturanBilgi> = {};
-    ((r as { table_id: string | null; guest_name: string; party_size: number }[]) ?? []).forEach((row) => {
-      if (row.table_id) map[row.table_id] = { guestName: row.guest_name, partySize: row.party_size };
+    ((r as { guest_name: string; party_size: number; status: string; reservation_tables: { table_id: string }[] | null }[]) ?? []).forEach((row) => {
+      (row.reservation_tables ?? []).forEach((rt) => {
+        map[rt.table_id] = { guestName: row.guest_name, partySize: row.party_size, status: row.status };
+      });
     });
     setOturanlar(map);
     setSelectedAreaId((prev) => prev ?? (areaRows.length ? areaRows[0].id : null));
   }, []);
 
   useEffect(() => { if (restaurantId) load(restaurantId); }, [restaurantId, load]);
+  // Plan canlı kalsın — rezervasyon ekranında kişi sayısı değişince ya da program masaları
+  // yeniden dizince salon kendiliğinden güncellensin (Gökhan: "bunlar canlı yansımalı").
+  // Düzenleme modunda durur: masa sürüklerken altından veri değişmesin.
+  useEffect(() => {
+    if (!restaurantId || duzenlemeModu) return;
+    const id = setInterval(() => load(restaurantId), 6000);
+    return () => clearInterval(id);
+  }, [restaurantId, duzenlemeModu, load]);
   useEffect(() => {
     if (!restaurantId) return;
     const id = setInterval(() => load(restaurantId), 6000);
@@ -1097,8 +1085,17 @@ function TableBox({
         <div style={{ fontWeight: 700, fontSize: 13.5 * yaziOlcek, color: "var(--ink-green)", textAlign: "center", lineHeight: 1.15, maxWidth: "100%" }} onPointerDown={(e) => e.stopPropagation()}>
           <EditableText value={table.name} onSave={onRename} />
         </div>
+        {/* Masanın kendi kapasitesi HER ZAMAN yazar — rezervasyonun kişi sayısını onun yerine
+            yazınca 2 kişilik masada "4 kişi" görünüyor, masa 4 kişilikmiş gibi okunuyordu
+            (Gökhan). Rezervasyon varsa ismi ayrı satırda, kişi sayısı isminin yanında. */}
         <div style={{ fontSize: 10.5 * yaziOlcek, color: "var(--muted-2)" }} className="tnum">{table.seat_count} kişilik</div>
-        <div style={{ fontSize: 11 * yaziOlcek, fontWeight: 700, color: durumRengi }}>{durumEtiket}</div>
+        {oturan ? (
+          <div style={{ fontSize: 11 * yaziOlcek, fontWeight: 600, color: "var(--ink)", textAlign: "center", lineHeight: 1.1, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {oturan.guestName} <span className="tnum" style={{ color: "var(--muted-2)", fontWeight: 400 }}>({oturan.partySize})</span>
+          </div>
+        ) : (
+          <div style={{ fontSize: 11 * yaziOlcek, fontWeight: 700, color: durumRengi }}>{durumEtiket}</div>
+        )}
 
         {dikdortgen && hover && duzenlemeModu && (
           <button

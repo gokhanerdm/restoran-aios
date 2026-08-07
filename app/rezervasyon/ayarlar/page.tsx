@@ -19,7 +19,7 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 // yok. Program AIOS'suz çalışamıyordu; bu ekran o bağı kesiyor, her şeyin önkoşulu.
 //
 // Tabloların hiçbiri yeni değil: masalar restaurant_tables, salonlar dining_areas,
-// saatler/KVKK/dönem restaurant_settings, işletme bilgileri restaurants. Sadece varsayılan
+// saatler/KVKK restaurant_settings, işletme bilgileri restaurants. Sadece varsayılan
 // oturma süresi yeni eklendi (bkz. 20260804120000).
 //
 // Sol panel masalar (satır tabanlı liste, salon başlıklarıyla gruplu — PAGE_STANDARDS #3/#4),
@@ -120,9 +120,21 @@ export default function RezervasyonAyarlarPage() {
   const [telefon, setTelefon] = useState("");
   const [adres, setAdres] = useState("");
   const [hours, setHours] = useState<OpeningHours>(defaultHours());
-  const [aksamBaslangic, setAksamBaslangic] = useState("17");
+  // Yeni rezervasyon penceresinin açılış saati (Gökhan: "varsayılan saat de ayarlanabilsin").
+  const [varsayilanSaat, setVarsayilanSaat] = useState("19:00");
   const [oturmaSuresi, setOturmaSuresi] = useState("90");
   const [kvkkNotice, setKvkkNotice] = useState("");
+  // Otomatik yerleşme (Gökhan: "kullanmak isteyen kullanacak, istemeyen kullanmayacak") —
+  // açıkken kişi sayısı büyüyüp masa yetmeyince program masayı kendi tamamlıyor.
+  const [otoYerlesme, setOtoYerlesme] = useState(false);
+  // Saate göre masa hesabı — isteğe bağlı, varsayılan kapalı. Kapalıyken günün tamamı tek
+  // havuz sayılır (öğle/akşam ayrımı kaldırıldı — program eğlence mekanlarına yapılıyor).
+  const [saateGore, setSaateGore] = useState(false);
+  const [masaArasiPay, setMasaArasiPay] = useState("0");
+  // Kişi kartındaki "Müdavim"/"No-show riski" etiketleri bu eşiklere göre otomatik hesaplanır
+  // (Gökhan: "eşikler sabit kodlanmasın, ileride ayarlardan değiştirilebilecek mantıkta olsun").
+  const [esikMudavim, setEsikMudavim] = useState("5");
+  const [esikNoShow, setEsikNoShow] = useState("30");
 
   // Şubeler — sadece çok şubeli hesapta gösterilir (Gökhan, 2026-08-04: "çok şubeli
   // işletmede şube ekle olmalı, girilen bilgiler aynı olmalı, değişkenlik gösteren
@@ -211,7 +223,7 @@ export default function RezervasyonAyarlarPage() {
       supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_tables").select("id, name, area_id, seat_count, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurants").select("name, phone, address").eq("id", restId).maybeSingle(),
-      supabase.from("restaurant_settings").select("opening_hours, evening_start_hour, kvkk_notice, default_duration_minutes").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("opening_hours, kvkk_notice, default_duration_minutes, auto_seating, saate_gore_masa, masa_arasi_pay, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
     ]);
     setAreas((a as Area[]) ?? []);
@@ -220,11 +232,19 @@ export default function RezervasyonAyarlarPage() {
     setIsim(rRow?.name ?? "");
     setTelefon(rRow?.phone ?? "");
     setAdres(rRow?.address ?? "");
-    const sRow = s as { opening_hours: unknown; evening_start_hour: number; kvkk_notice: string | null; default_duration_minutes: number } | null;
+    const sRow = s as {
+      opening_hours: unknown; kvkk_notice: string | null; default_duration_minutes: number; auto_seating: boolean; saate_gore_masa: boolean; masa_arasi_pay: number;
+      varsayilan_rezervasyon_saati: string; musteri_sadakat_ziyaret_esigi: number; musteri_no_show_risk_yuzde: number;
+    } | null;
     setHours(mergeHours(sRow?.opening_hours));
-    setAksamBaslangic(String(sRow?.evening_start_hour ?? 17));
+    setVarsayilanSaat(sRow?.varsayilan_rezervasyon_saati ?? "19:00");
     setOturmaSuresi(String(sRow?.default_duration_minutes ?? 90));
     setKvkkNotice(sRow?.kvkk_notice ?? "");
+    setOtoYerlesme(sRow?.auto_seating ?? false);
+    setSaateGore(sRow?.saate_gore_masa ?? false);
+    setMasaArasiPay(String(sRow?.masa_arasi_pay ?? 0));
+    setEsikMudavim(String(sRow?.musteri_sadakat_ziyaret_esigi ?? 5));
+    setEsikNoShow(String(sRow?.musteri_no_show_risk_yuzde ?? 30));
     setMasaOlculeri((mo as MasaOlcusu[]) ?? []);
   }, []);
 
@@ -343,7 +363,6 @@ export default function RezervasyonAyarlarPage() {
   const kaydet = async () => {
     if (!restaurantId) return;
     setBusy(true); setErr(null); setKaydedildi(false);
-    const saat = Math.max(0, Math.min(23, parseInt(aksamBaslangic.replace(/\D/g, ""), 10) || 0));
     const sure = Math.max(15, Math.min(600, parseInt(oturmaSuresi.replace(/\D/g, ""), 10) || 90));
 
     const { error: rErr } = await supabase.from("restaurants").update({
@@ -356,13 +375,17 @@ export default function RezervasyonAyarlarPage() {
     const { error: sErr } = await supabase.from("restaurant_settings").upsert({
       restaurant_id: restaurantId,
       opening_hours: hours,
-      evening_start_hour: saat,
       default_duration_minutes: sure,
       kvkk_notice: kvkkNotice.trim() || null,
+      auto_seating: otoYerlesme,
+      saate_gore_masa: saateGore,
+      masa_arasi_pay: Math.max(0, parseInt(masaArasiPay, 10) || 0),
+      varsayilan_rezervasyon_saati: /^\d{2}:\d{2}$/.test(varsayilanSaat) ? varsayilanSaat : "19:00",
+      musteri_sadakat_ziyaret_esigi: Math.max(1, parseInt(esikMudavim, 10) || 5),
+      musteri_no_show_risk_yuzde: Math.max(0, Math.min(100, parseInt(esikNoShow, 10) || 30)),
     }, { onConflict: "restaurant_id" });
     setBusy(false);
     if (sErr) { setErr(sErr.message); return; }
-    setAksamBaslangic(String(saat));
     setOturmaSuresi(String(sure));
     setKaydedildi(true);
     setTimeout(() => setKaydedildi(false), 3000);
@@ -766,17 +789,78 @@ export default function RezervasyonAyarlarPage() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13.5 }}>Akşam dönemi şu saatte başlar:</span>
+              <span style={{ fontSize: 13.5 }}>Varsayılan rezervasyon saati:</span>
               <input
-                value={aksamBaslangic}
-                onChange={(e) => setAksamBaslangic(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric" className="tnum" style={{ ...inp, width: 50, textAlign: "right" }}
+                type="time"
+                value={varsayilanSaat}
+                onChange={(e) => setVarsayilanSaat(e.target.value)}
+                className="tnum" style={{ ...inp, width: 110 }}
               />
-              <span style={{ fontSize: 13.5 }}>:00</span>
             </div>
             <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
-              Kapasite hesabı günü tek havuzda saymaz: bu saatten önceki (öğle) ve sonraki
-              (akşam) diye iki ayrı dönem sayar — öğlenin dolması akşamı dolu göstermesin diye.
+              Yeni rezervasyon penceresi bu saatle açılır. Bugün için bu saat geçmişse pencere
+              bir sonraki tam saatle açılır.
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={saateGore} onChange={(e) => setSaateGore(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }}>Saate göre masa hesabı</span>
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 10, lineHeight: 1.6 }}>
+              Kapalıyken günün tamamı tek havuz sayılır: o günkü bütün rezervasyonlar aynı masa
+              havuzunu paylaşır. Açıkken masa sadece oturma süresi boyunca dolu sayılır —
+              {"19:00'a verilen masa süresi dolunca 21:00'e gelene açık olur."}
+            </div>
+            {saateGore && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13.5 }}>Masa arası pay:</span>
+                <input
+                  value={masaArasiPay}
+                  onChange={(e) => setMasaArasiPay(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+                />
+                <span style={{ fontSize: 13.5 }}>dakika</span>
+              </div>
+            )}
+            {saateGore && (
+              <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
+                Masa boşaldıktan sonra yeni misafir alınana kadar bırakılacak süre — temizlik ve
+                hazırlık payı. 0 yazılırsa masa boşalır boşalmaz yeni rezervasyona açılır.
+              </div>
+            )}
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={otoYerlesme} onChange={(e) => setOtoYerlesme(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }}>Otomatik yerleşme</span>
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
+              Bir rezervasyonun kişi sayısı büyüyüp masası yetmez hale gelince program beklemeden
+              masayı tamamlar: önce o masanın kendi sırasındaki yan masayı dener, doluysa oradaki
+              rezervasyonu başka uygun masaya taşıyıp yeri açar. Kilitli masalara hiç dokunmaz.
+              Kapalıyken program kimsenin masasını kendiliğinden oynatmaz.
+            </div>
+
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Müşteri etiketleri</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }}>Müdavim sayılması için ziyaret sayısı:</span>
+              <input
+                value={esikMudavim}
+                onChange={(e) => setEsikMudavim(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+              />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }}>No-show riski sayılması için gelmeme yüzdesi:</span>
+              <input
+                value={esikNoShow}
+                onChange={(e) => setEsikNoShow(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+              />
+              <span style={{ fontSize: 13.5 }}>%</span>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
+              Kişi kartındaki etiketler bu eşiklere göre kendiliğinden hesaplanır — kayıt tutmaya
+              gerek yok. VIP ayrı: işletmenin kendi kararıdır, kartın kendisinden işaretlenir.
             </div>
 
             <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>KVKK aydınlatma metni</div>
