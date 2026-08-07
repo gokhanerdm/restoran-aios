@@ -75,6 +75,7 @@ export default function RezervasyonYapPage() {
       note: note.trim() || null,
       status: "bekleniyor",
       source: "online",
+      iletisim_kanali: "online",
       consent_at: new Date().toISOString(),
     }).select("id").single();
     setBusy(false);

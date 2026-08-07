@@ -238,7 +238,7 @@ export default function AnaSayfa() {
   return (
     <div style={{ height: "calc(100vh - 4px)", boxSizing: "border-box", padding: "22px 26px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <Link href="/" style={pill}>Açık masa: <b className="tnum">{openTables}</b> <span className="tnum" style={{ color: "var(--muted)" }}>({money(openTotal)})</span></Link>
+        <Link href="/adisyon" style={pill}>Açık masa: <b className="tnum">{openTables}</b> <span className="tnum" style={{ color: "var(--muted)" }}>({money(openTotal)})</span></Link>
         <Link href="/stok" style={{ ...pill, background: kritikSayisi > 0 ? "var(--danger-bg)" : "var(--card)", color: kritikSayisi > 0 ? "var(--danger)" : "var(--ink)" }}>Kritik stok: <b className="tnum">{kritikSayisi}</b></Link>
         <div style={{ fontSize: 13, color: "var(--muted)" }}>Bugün · {bugunIstanbul()}</div>
       </div>

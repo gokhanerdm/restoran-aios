@@ -11,7 +11,7 @@ import {
   salonuPlanla, birlesikYerlesim, type PlanMasa,
 } from "./masaPlan";
 import { govdeCizim, type Shape as MasaSekli } from "./masaOlcu";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock, BarChart3 } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
@@ -154,6 +154,14 @@ type KisiKarti = {
 } | null;
 const GUN_ADI = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"];
 const KANAL_ADI: Record<string, string> = { rezervasyon: "telefonla", kapi: "kapıdan", online: "online" };
+// İletişim kanalı — İstatistikler'deki Kanallar sekmesi için (Gökhan, 2026-08-07: "WhatsApp,
+// Instagram, Google gibi ayrımı yapalım"). Kapıdan/online gelenlerde otomatik dolar (soru
+// sorulmaz), sadece personel telefonla/elle girerken sorulur.
+const ILETISIM_KANALI_ADI: Record<string, string> = {
+  telefon: "Telefon", whatsapp: "WhatsApp", instagram: "Instagram", google: "Google",
+  web_sitesi: "Web sitesi", yuz_yuze: "Yüz yüze", online: "Online", diger: "Diğer",
+};
+const ILETISIM_KANALI_SECENEKLERI = ["telefon", "whatsapp", "instagram", "google", "diger"];
 const DURUM_KISA: Record<string, string> = { bekleniyor: "Bekliyor", geldi: "Geldi", oturdu: "Oturuyor", tamamlandi: "Tamamlandı", gelmedi: "Gelmedi", iptal: "İptal" };
 const DURUM_RENK: Record<string, string> = { bekleniyor: "var(--muted)", geldi: "var(--info)", oturdu: "var(--brand)", tamamlandi: "var(--brand)", gelmedi: "var(--danger)", iptal: "var(--danger)" };
 const tarihKisa = (iso: string) =>
@@ -710,6 +718,8 @@ export default function RezervasyonPage() {
   // sorulur (Gökhan, 2026-08-07).
   const [fKadin, setFKadin] = useState("");
   const [fErkek, setFErkek] = useState("");
+  // İletişim kanalı — İstatistikler > Kanallar için (Gökhan, 2026-08-07).
+  const [fKanal, setFKanal] = useState("telefon");
   const fKart = useKisiKarti(fPhone, restaurantId, fKartRefresh, fSecKartId);
   const fAdaylar = useMusteriAdaylari(fName, restaurantId, !!fSecKartId);
   const fAdaySec = async (a: MusteriAday) => {
@@ -1013,7 +1023,7 @@ export default function RezervasyonPage() {
     setFTime(acilisSaati());
     setFNote("");
     setFSecKartId(null);
-    setFKadin(""); setFErkek("");
+    setFKadin(""); setFErkek(""); setFKanal("telefon");
     setErr(null);
     setNewResOpen(true);
   };
@@ -1064,6 +1074,9 @@ export default function RezervasyonPage() {
     }
 
     setBusy(true);
+    // Rezervasyonu kim aldıysa (oturum açan kişi) otomatik etiketlenir — elle seçim yok
+    // (Gökhan, 2026-08-07: "kimin şifresiyle alındıysa o almıştır").
+    const { data: { session } } = await supabase.auth.getSession();
     const { data: yeniKayit, error } = await supabase.from("reservations").insert({
       restaurant_id: restaurantId,
       guest_name: toTitleTr(fName),
@@ -1076,6 +1089,8 @@ export default function RezervasyonPage() {
       kisi_karti_id: fSecKartId,
       kadin_sayisi: fKadin.trim() ? parseInt(fKadin, 10) : null,
       erkek_sayisi: fErkek.trim() ? parseInt(fErkek, 10) : null,
+      iletisim_kanali: fKanal,
+      created_by: session?.user.id ?? null,
     }).select("id").single();
     setBusy(false);
     if (error) { setErr(error.message); return; }
@@ -1690,6 +1705,10 @@ export default function RezervasyonPage() {
           </div>
         )}
         <div style={{ flex: 1 }} />
+        {/* İstatistikler — Salon/Ayarlar ikonlarının yanında (Gökhan, 2026-08-07). */}
+        <Link href="/rezervasyon/istatistikler" aria-label="İstatistikler" title="İstatistikler" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
+          <BarChart3 size={19} />
+        </Link>
         {/* Salon — görsel masa planı, Ayarlar dişlisinin yanında (Gökhan, 2026-08-04). */}
         <Link href="/rezervasyon/salon" aria-label="Salon" title="Salon" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
           <LayoutGrid size={19} />
@@ -2000,7 +2019,10 @@ export default function RezervasyonPage() {
               </div>
               {!fSecKartId && <MusteriAdaylariListesi adaylar={fAdaylar} onSec={fAdaySec} />}
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={fPhone} onChange={(e) => { setFPhone(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={{ ...inp, width: 180, flexShrink: 0 }} />
+                <input value={fPhone} onChange={(e) => { setFPhone(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={{ ...inp, width: 150, flexShrink: 0 }} />
+                <select value={fKanal} onChange={(e) => setFKanal(e.target.value)} title="Nereden geldi" style={{ ...inp, width: 108, flexShrink: 0 }}>
+                  {ILETISIM_KANALI_SECENEKLERI.map((k) => <option key={k} value={k}>{ILETISIM_KANALI_ADI[k]}</option>)}
+                </select>
                 <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Özel not (opsiyonel)" style={{ ...inp, flex: 1 }} />
               </div>
               <KisiKartiOzet kart={fKart} phone={fPhone} restaurantId={restaurantId} simdi={now} onChanged={() => setFKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} />

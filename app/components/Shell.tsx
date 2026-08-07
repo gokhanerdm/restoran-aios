@@ -24,7 +24,7 @@ import {
 // Dönemsel raporların tamamı — satış da kasa da — Raporlar'da (Gökhan kararı, 2026-07-27).
 const nav = [
   { href: "/ana-sayfa", icon: Home, label: "Ana sayfa" },
-  { href: "/", icon: LayoutGrid, label: "Adisyon" },
+  { href: "/adisyon", icon: LayoutGrid, label: "Adisyon" },
   { href: "/kasa", icon: Wallet, label: "Kasa" },
   { href: "/raporlar", icon: BarChart3, label: "Raporlar" },
   { href: "/sef", icon: AlertTriangle, label: "Şef paneli" },

@@ -56,6 +56,11 @@ Bu dosya, Gökhan'ın tekrar söylemesine gerek kalmadan her sayfada uygulanacak
 - Yeni/değişen her sayfa `curl`/PowerShell ile HTTP 200 + "Module not found / Failed to compile" kontrolünden geçirilir, ekrana "hazır" denmeden önce.
 - Değişmeyen diğer sayfalar da (Kasa, Menü, Gün sonu, Stok) aynı kontrolden geçirilip bozulmadığı doğrulanır.
 
+## 11. Referans sayfa: Rezervasyon listesi
+- Tasarımla ilgili özel bir talimat verilmediğinde referans **rezervasyon listesi sayfası** (`app/rezervasyon/page.tsx`, satır bileşenleri `app/components/ListRow.tsx`) olur — Gökhan'ın "bitmiş" kabul ettiği sayfa budur.
+- Yazının kutu/satır içinde nereden başladığı, hizalama, boşluk, yazı boyutu gibi her küçük kararda oradaki kalıp esas alınır, yeniden icat edilmez.
+- Bu, hem şu an üzerinde çalışılan sayfa hem de bundan sonra kurulacak her yeni sayfa için geçerli.
+
 ---
 
 Bu dosya güncellenebilir — yeni bir kural kararlaştırıldığında buraya eklenir, tekrar sorulmasına gerek kalmaz.
