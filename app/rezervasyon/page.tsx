@@ -404,8 +404,9 @@ function MobilRezervasyonListesi({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0 }}>
-        <div style={{ fontSize: 20, fontWeight: 600, color: "var(--ink-green)", letterSpacing: "-0.4px" }}>Rezervasyonlar</div>
+      {/* Başlık üstteki kimlik satırına taşındı (Gökhan, 2026-08-08: "rezervasyonlar
+          yazısını rezervasyon olarak işletme isminin yanına al") — burada sadece düğme. */}
+      <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
         <button onClick={onYeniRezervasyon} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
       </div>
       {/* Bilgi bölümü — oran değil düz sayı (Gökhan: "oran değil kapasite karşısında
@@ -1763,7 +1764,7 @@ export default function RezervasyonPage() {
           aynı satırda (Gökhan, 2026-08-04: "rzv yaz yanında da işletme adı yazsın") —
           eskiden işletme adı "Rezervasyon" başlığının altında 13px soluk gri bir ek gibi
           duruyordu ("küçük ve soluk olması normal mi" — değildi). */}
-      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", rowGap: 10 }}>
         {/* RZV rozeti — tıklanınca rezervasyon listesine döner (Gökhan, 2026-08-08). */}
         <Link href="/rezervasyon" aria-label="Rezervasyonlar" style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0, textDecoration: "none" }}>
           RZV
@@ -1797,10 +1798,13 @@ export default function RezervasyonPage() {
             )}
           </div>
         ) : (
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
+          <div style={{ fontSize: isMobile ? 20 : 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
             {restaurantName || "Rezerve"}
           </div>
         )}
+        {/* Sayfa adı işletme isminin yanında — mobilde liste başlığı buradan okunuyor
+            (Gökhan, 2026-08-08), masaüstünde zaten tablo başlıkları var. */}
+        {isMobile && <span style={{ fontSize: 14, fontWeight: 500, color: "var(--muted)" }}>· Rezervasyon</span>}
         <div style={{ flex: 1 }} />
         {/* Mobilde İstatistikler/Salon/Ayarlar alttaki nav'a taşındı (Gökhan, 2026-08-08:
             "yukarıda olan simgeleri aşağı tarafa bir nav yapıp oraya taşıyalım") — Çıkış
@@ -1821,6 +1825,19 @@ export default function RezervasyonPage() {
         <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={{ ...navBtn, marginTop: 2 }}>
           <LogOut size={19} />
         </button>
+
+        {/* Gün seçimi — mobilde kart görünümünde tarih hiç yoktu, geçmiş/ileri güne
+            gidilemiyordu (Gökhan, 2026-08-08: "mobilde tarih yok muydu, nasıl gidiyorduk
+            eski rezervasyonlara"). flexBasis:100% ile kimlik satırının altına, kendi
+            satırına düşer — isim + tarih yan yana dar ekrana sığmıyor. */}
+        {isMobile && (
+          <div style={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: 6 }}>
+            {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
+            <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
+            <DatePicker value={gun} onChange={gunDegistir} />
+            <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
+          </div>
+        )}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
