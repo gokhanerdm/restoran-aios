@@ -11,11 +11,12 @@ import {
   salonuPlanla, birlesikYerlesim, type PlanMasa,
 } from "./masaPlan";
 import { govdeCizim, type Shape as MasaSekli } from "./masaOlcu";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock, BarChart3 } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock, BarChart3, Star } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import DatePicker from "../components/DatePicker";
 import EditableText from "../components/EditableText";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../components/ListRow";
+import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK } from "../components/RezervasyonAltNav";
 
 // REZERVASYON — kendi başına çalışan ayrı program (Gökhan onayı, 2026-08-04).
 //
@@ -164,8 +165,11 @@ const ILETISIM_KANALI_ADI: Record<string, string> = {
 const ILETISIM_KANALI_SECENEKLERI = ["telefon", "whatsapp", "instagram", "google", "diger"];
 const DURUM_KISA: Record<string, string> = { bekleniyor: "Bekliyor", geldi: "Geldi", oturdu: "Oturuyor", tamamlandi: "Tamamlandı", gelmedi: "Gelmedi", iptal: "İptal" };
 const DURUM_RENK: Record<string, string> = { bekleniyor: "var(--muted)", geldi: "var(--info)", oturdu: "var(--brand)", tamamlandi: "var(--brand)", gelmedi: "var(--danger)", iptal: "var(--danger)" };
+// Yıl yok — kişi kartındaki bu tarihler hep yakın geçmiş, ay+gün yeterli (Gökhan,
+// 2026-08-08: "bu değişken bilgilerde yıl kullanmana gerek yok" — dar mobil kartta
+// yılın alt satıra taşmasına da bu şekilde gerek kalmıyor).
 const tarihKisa = (iso: string) =>
-  new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short", year: "numeric" }).format(new Date(iso));
+  new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short" }).format(new Date(iso));
 // "3 gün", "2 ay" gibi — kart yazılarında sayı yığını yerine okunur süre.
 const sureYazisi = (gun: number) => {
   if (gun < 30) return `${gun} gün`;
@@ -372,14 +376,97 @@ function MusteriAdaylariListesi({ adaylar, onSec }: { adaylar: MusteriAday[]; on
   );
 }
 
+// Mobil rezervasyon listesi (Gökhan, 2026-08-07: "alışveriş listesi gibi yaz, isim karşısında
+// kişi sayısı"). Geldi/Gelmedi/İptal/Kalktı satırda yok — isme dokununca açılan kişi kartında
+// (bkz. kartFor bloğu). Kategori işareti şimdilik sadece VIP (kisi_kartlari.vip), toplu ve
+// tek sorguyla getiriliyor — her satır için ayrı ayrı sorgu atmıyor.
+function MobilRezervasyonListesi({
+  rows, toplamMasa, toplamKapasite, doluluk, masaAdi, onYeniRezervasyon, onKartAc,
+}: {
+  rows: Rez[]; toplamMasa: number; toplamKapasite: number; doluluk: number;
+  masaAdi: (r: Rez) => string | null;
+  onYeniRezervasyon: () => void; onKartAc: (r: Rez) => void;
+}) {
+  const [vipSet, setVipSet] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let active = true;
+    const yukle = async () => {
+      const idler = [...new Set(rows.map((r) => r.kisi_karti_id).filter((id): id is string => !!id))];
+      if (idler.length === 0) { setVipSet(new Set()); return; }
+      const { data } = await supabase.from("kisi_kartlari").select("id, vip").in("id", idler).eq("vip", true);
+      if (!active) return;
+      setVipSet(new Set((data ?? []).map((k) => k.id as string)));
+    };
+    yukle();
+    return () => { active = false; };
+  }, [rows]);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexShrink: 0 }}>
+        <div style={{ fontSize: 20, fontWeight: 600, color: "var(--ink-green)", letterSpacing: "-0.4px" }}>Rezervasyonlar</div>
+        <button onClick={onYeniRezervasyon} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
+      </div>
+      {/* Bilgi bölümü — oran değil düz sayı (Gökhan: "oran değil kapasite karşısında
+          doluluğu yazacak"). İki blok karşılıklı: solda Rezervasyon/Masa altlı üstlü sola
+          yaslı, sağda Kapasite/Doluluk altlı üstlü sağa yaslı — sağdaki rakamlar alttaki
+          satırlardaki kişi sayısı rakamlarının (satır dolgusu 14px) üzerine denk gelsin
+          diye aynı sağ boşluk (paddingRight:14) kullanılıyor (Gökhan, 2026-08-08). */}
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: inkSoft, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div><span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{rows.length}</span> RZV Masa</div>
+          <div><span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamMasa}</span> Masa</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, paddingRight: 14 }}>
+          <div>Kapasite <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamKapasite}</span> px</div>
+          <div>Doluluk <span className="tnum" style={{ fontWeight: 600, color: doluluk >= toplamKapasite ? "var(--gold-text)" : "var(--ink)" }}>{doluluk}</span> px</div>
+        </div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
+        {rows.map((r, i) => {
+          const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
+          const vip = r.kisi_karti_id ? vipSet.has(r.kisi_karti_id) : false;
+          const masa = masaAdi(r);
+          return (
+            <button
+              key={r.id}
+              onClick={() => onKartAc(r)}
+              style={{
+                all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
+                background: info.bg, borderRadius: 10, padding: "12px 14px", boxSizing: "border-box", flexShrink: 0,
+              }}
+            >
+              {/* Sıra numarası — masaüstü tablodaki SNO ile aynı (Gökhan, 2026-08-08). */}
+              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", flexShrink: 0, width: 16, textAlign: "right" }}>{i + 1}</span>
+              {vip && <Star size={13} style={{ color: "var(--gold-text)", flexShrink: 0 }} fill="var(--gold-text)" />}
+              <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
+              {/* Masa numarası — kişi sayısının yanında (Gökhan, 2026-08-08). */}
+              {masa && <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{masa}</span>}
+              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: info.color, flexShrink: 0 }}>{r.party_size} px</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Kişi kartı — 4 bölüm (Gökhan, 2026-08-07): Kimlik / Ziyaret özeti / Müşteriyi hatırlatan
 // bilgiler / Rezervasyon geçmişi. "Alışveriş listesi gibi olmayacak, kullanışlı anlaşılır
 // olacak" — istatistik yığını değil, düzenli etiket:değer satırları.
 function KisiKartiOzet({
-  kart, phone, restaurantId, simdi, onChanged, esikMudavim, esikNoShow,
+  kart, phone, restaurantId, simdi, onChanged, esikMudavim, esikNoShow, isMobile, sadeceGecmisVarsaGoster,
 }: {
   kart: KisiKarti; phone: string; restaurantId: string | null; simdi: number; onChanged: () => void;
-  esikMudavim: number; esikNoShow: number;
+  esikMudavim: number; esikNoShow: number; isMobile?: boolean;
+  // Yeni rezervasyon/rezervasyon dışı formunda telefon yazarken, kaydedilmemiş bir
+  // rezervasyon için "ilk kez geliyor" diye boş kart açılması kafa karıştırıyordu
+  // (Gökhan, 2026-08-08). Bu true olunca gerçek geçmişi olmayan biri için hiçbir şey
+  // gösterilmiyor — rezervasyon alınıp listeden kart açıldığında (kartFor) bu kısıtlama
+  // yok, ilk kez gelen biri için de tercih/VIP eklenebilsin diye kart yine açılıyor.
+  sadeceGecmisVarsaGoster?: boolean;
 }) {
   const [notTaslak, setNotTaslak] = useState(kart?.kartNotu ?? "");
   const [dogumTaslak, setDogumTaslak] = useState(kart?.dogumGunu ?? "");
@@ -464,6 +551,7 @@ function KisiKartiOzet({
   };
 
   const gecmisVar = !!kart && (kart.ziyaretSayisi > 0 || kart.gelmediSayisi > 0 || kart.iptalSayisi > 0);
+  if (sadeceGecmisVarsaGoster && !gecmisVar) return null;
   // Program hüküm vermiyor, sadece istatistik veriyor (Gökhan: "biz sadece istatistik
   // verelim, sadakat yorumunu sonra değerlendiririz"). Yorumu işletme yapar.
   // SADECE "gelmedi" sayılır — iptal haber vererek gelmemek demek, hiç haber vermeden masayı
@@ -540,8 +628,10 @@ function KisiKartiOzet({
         </>
       ) : (
         /* Tek ekranda sığsın diye sağlı-sollu iki liste (Gökhan: "kaydırma olmasın, sağlı
-            sollu iki liste olabilir") — sol: ziyaret özeti + tercihler, sağ: geçmiş. */
-        <div style={{ display: "flex", gap: 16, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
+            sollu iki liste olabilir") — sol: ziyaret özeti + tercihler, sağ: geçmiş. Dar
+            mobil kartta yan yana ikisi de sıkışıp taşıyordu (Gökhan, 2026-08-08: "sol
+            tarafta ekrana sığmayan listeleme var alt satıra kayıyor") — mobilde alt alta. */
+        <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", gap: 16, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
           <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 10 }}>
             {/* 2. ZİYARET ÖZETİ — işletmenin hızlı bakacağı rakamlar, etiket:değer satırları. */}
             <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
@@ -570,7 +660,9 @@ function KisiKartiOzet({
           {/* 4. REZERVASYON GEÇMİŞİ — rezervasyon listesi biçiminde, satıra basınca not/iptal
               sebebi açılır. Ekrana sığması için en fazla 8 kayıt gösterilir. */}
           {kart && kart.tumGecmis.length > 0 && (
-            <div style={{ flex: 1, minWidth: 0, borderLeft: "1px solid var(--line)", paddingLeft: 16 }}>
+            <div style={isMobile
+              ? { flex: 1, minWidth: 0, borderTop: "1px solid var(--line)", paddingTop: 10 }
+              : { flex: 1, minWidth: 0, borderLeft: "1px solid var(--line)", paddingLeft: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", marginBottom: 4 }}>Rezervasyon geçmişi</div>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 {kart.tumGecmis.slice(0, 8).map((z, i) => (
@@ -582,7 +674,7 @@ function KisiKartiOzet({
                         boxSizing: "border-box", padding: "5px 2px", fontSize: 11.5, borderTop: i > 0 ? "1px solid var(--line)" : "none", gap: 6,
                       }}
                     >
-                      <span style={{ color: "var(--ink)", width: 78, flexShrink: 0, whiteSpace: "nowrap" }}>{tarihKisa(z.reserved_at)}</span>
+                      <span style={{ color: "var(--ink)", width: 52, flexShrink: 0, whiteSpace: "nowrap" }}>{tarihKisa(z.reserved_at)}</span>
                       <span className="tnum" style={{ color: inkSoft, width: 32, flexShrink: 0 }}>{saatFmt.format(new Date(z.reserved_at))}</span>
                       <span className="tnum" style={{ color: inkSoft, width: 14, flexShrink: 0 }}>{z.party_size}</span>
                       <span style={{ color: inkSoft, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{z.masa ?? "—"}</span>
@@ -734,11 +826,6 @@ export default function RezervasyonPage() {
     }
     setFSecKartId(id);
   };
-  // İsim yazılırken geçmiş kontrolü, sadece telefonu olmayan geçmiş kayıtlar için (Gökhan:
-  // "Hülya Avşar yazarken daha önce o isme rezervasyon varsa çıkacak") — telefonlu geçmiş artık
-  // yukarıdaki aday listesinden seçilip doğrudan kişi kartına gidiyor.
-  const fGecmis = useIsimGecmisi(fKart || fSecKartId ? "" : fName, restaurantId, 0);
-
   // Rezervasyonsuz, kapıdan gelen — rezervasyon formuyla aynı bilgileri toplar, sadece
   // tarih/saat yok ("şimdi").
   const [walkInOpen, setWalkInOpen] = useState(false);
@@ -762,8 +849,6 @@ export default function RezervasyonPage() {
     }
     setWSecKartId(id);
   };
-  const wGecmis = useIsimGecmisi(wKart || wSecKartId ? "" : wName, restaurantId, 0);
-
   // Kişi kartı penceresi — mevcut bir rezervasyon satırından açılır (Gökhan: "numara
   // aradığında yine isim soyisim çıkacak, ... beraber gelmişlerdi felan"). Telefon yoksa
   // isimle geçmiş gösterilir (Gökhan: "rezervasyon alınan herkese kişi kartı açılacak").
@@ -901,6 +986,17 @@ export default function RezervasyonPage() {
     return () => clearInterval(id);
   }, [restaurantId, gun, load]);
   useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  // Telefon genişliğinde liste tablo yerine kart görünümüne geçer (Gökhan, 2026-08-07:
+  // "mobili daha takip ve rezervasyon girişi için tasarlamalıyız") — tablet masaüstüyle
+  // aynı kalır, sadece bu eşiğin altı değişir (Adisyon'daki 860px eşiğiyle aynı).
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   useEffect(() => {
     const onFirstTouch = () => { unlockAudio(); document.removeEventListener("pointerdown", onFirstTouch); };
     document.addEventListener("pointerdown", onFirstTouch);
@@ -1641,7 +1737,7 @@ export default function RezervasyonPage() {
   }
 
   return (
-    <div style={{ background: "var(--canvas)", padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24, height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
       {/* REZERVASYON ALINAMIYOR PENCERESİ — sebebi ve ne yapılması gerektiğini birlikte
@@ -1668,9 +1764,10 @@ export default function RezervasyonPage() {
           eskiden işletme adı "Rezervasyon" başlığının altında 13px soluk gri bir ek gibi
           duruyordu ("küçük ve soluk olması normal mi" — değildi). */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0 }}>
+        {/* RZV rozeti — tıklanınca rezervasyon listesine döner (Gökhan, 2026-08-08). */}
+        <Link href="/rezervasyon" aria-label="Rezervasyonlar" style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0, textDecoration: "none" }}>
           RZV
-        </div>
+        </Link>
         {/* Şube değiştirici — SADECE çok şubeli hesapta görünür (tek şubeliyse liste zaten
             1 elemanlı, buton anlamsız olurdu). */}
         {subeler.length > 1 ? (
@@ -1705,17 +1802,22 @@ export default function RezervasyonPage() {
           </div>
         )}
         <div style={{ flex: 1 }} />
-        {/* İstatistikler — Salon/Ayarlar ikonlarının yanında (Gökhan, 2026-08-07). */}
-        <Link href="/rezervasyon/istatistikler" aria-label="İstatistikler" title="İstatistikler" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
-          <BarChart3 size={19} />
-        </Link>
-        {/* Salon — görsel masa planı, Ayarlar dişlisinin yanında (Gökhan, 2026-08-04). */}
-        <Link href="/rezervasyon/salon" aria-label="Salon" title="Salon" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
-          <LayoutGrid size={19} />
-        </Link>
-        <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
-          <Settings size={19} />
-        </Link>
+        {/* Mobilde İstatistikler/Salon/Ayarlar alttaki nav'a taşındı (Gökhan, 2026-08-08:
+            "yukarıda olan simgeleri aşağı tarafa bir nav yapıp oraya taşıyalım") — Çıkış
+            şimdilik yerinde kaldı ("çıkış yerinde kalsın"). */}
+        {!isMobile && (
+          <>
+            <Link href="/rezervasyon/istatistikler" aria-label="İstatistikler" title="İstatistikler" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
+              <BarChart3 size={19} />
+            </Link>
+            <Link href="/rezervasyon/salon" aria-label="Salon" title="Salon" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
+              <LayoutGrid size={19} />
+            </Link>
+            <Link href="/rezervasyon/ayarlar" aria-label="Ayarlar" title="Ayarlar" style={{ ...navBtn, marginTop: 2, textDecoration: "none" }}>
+              <Settings size={19} />
+            </Link>
+          </>
+        )}
         <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={{ ...navBtn, marginTop: 2 }}>
           <LogOut size={19} />
         </button>
@@ -1729,6 +1831,19 @@ export default function RezervasyonPage() {
       )}
 
       <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {isMobile && (
+          <MobilRezervasyonListesi
+            rows={filtreliRows}
+            toplamMasa={tables.length}
+            toplamKapasite={toplamKapasite}
+            doluluk={gunPax}
+            masaAdi={(r) => (rezMasalar[r.id] ?? []).map((id) => tableName(id)).filter(Boolean).join(" + ") || tableName(r.table_id)}
+            onYeniRezervasyon={openNewRes}
+            onKartAc={(r) => setKartFor(r)}
+          />
+        )}
+        {!isMobile && (
+        <>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
@@ -1772,8 +1887,11 @@ export default function RezervasyonPage() {
         {/* Gün tek havuz — öğle/akşam ayrımı yok, tek satır (Gökhan: "sadece akşamı baz
             alacağız"). Kapasite + hangi boydan kaç masa tutulmuş. */}
         <div style={{ marginBottom: 10, flexShrink: 0, fontSize: 12.5, color: inkSoft }}>
+          {/* Oran değil düz sayı, mobildeki Kapasite/Doluluk etiketleriyle aynı dil
+              (Gökhan, 2026-08-08: "mobilde uyguladıklarımızın aynılarını webe de
+              uyarlıyorsun değil mi"). */}
           <span style={{ color: gunPax > toplamKapasite ? "var(--gold-text)" : inkSoft }}>
-            Kapasite: <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{Math.min(gunPax, toplamKapasite)}</span> / <span className="tnum">{toplamKapasite}</span> px
+            Kapasite <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamKapasite}</span> px · Doluluk <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{Math.min(gunPax, toplamKapasite)}</span> px
             {gunPax >= toplamKapasite && <span style={{ fontWeight: 600 }}> (dolu)</span>}
           </span>
           {masaDagilim.map((m) => (
@@ -1991,51 +2109,82 @@ export default function RezervasyonPage() {
             );
           })}
         </div>
+        </>
+        )}
       </div>
 
       {/* YENİ REZERVASYON KATMANI */}
+      {/* Mobilde klavye açılınca 100vh küçülüyor, ortalanmış pencere her alan
+          değişiminde zıplıyordu (Gökhan, 2026-08-08: "pencere yer değiştiriyor tek
+          yerde sabit kalsın") — üstten sabit dursun diye mobilde flex-start. */}
       {newResOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setNewResOpen(false)}>
-          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 340, maxWidth: 560, width: "100%", maxHeight: "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", padding: isMobile ? "24px 0" : 0, boxSizing: "border-box", zIndex: 50 }} onClick={() => setNewResOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, width: "min(560px, 94vw)", maxHeight: isMobile ? "calc(100svh - 48px)" : "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)" }}>Yeni rezervasyon</div>
-                <DatePicker value={fDate} onChange={setFDate} style={{ width: 134, flexShrink: 0, whiteSpace: "nowrap" }} />
+                {!isMobile && <DatePicker value={fDate} onChange={setFDate} style={{ width: 134, flexShrink: 0, whiteSpace: "nowrap" }} />}
                 {fSecKartId && <span style={{ fontSize: 11.5, color: "var(--brand)" }}>Müşteri kartı bağlandı ✓</span>}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setNewResOpen(false)} style={btnSecondary}>Vazgeç</button>
-                <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}>Ekle</button>
-              </div>
+              {/* Mobilde tarih sağa yaslı (Gökhan, 2026-08-08), Vazgeç/Ekle aşağıya sağ
+                  alta alındı — masaüstünde değişmedi. */}
+              {isMobile && <DatePicker value={fDate} onChange={setFDate} style={{ width: 134, flexShrink: 0, whiteSpace: "nowrap", marginLeft: "auto" }} />}
+              {!isMobile && (
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setNewResOpen(false)} style={btnSecondary}>Vazgeç</button>
+                  <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}>Ekle</button>
+                </div>
+              )}
             </div>
             {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <input autoFocus value={fName} onChange={(e) => { setFName(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={{ ...inp, flex: 1, minWidth: 160 }} />
-                <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }} />
-                <input value={fKadin} onChange={(e) => setFKadin(e.target.value.replace(/\D/g, ""))} placeholder="K" title="Kadın sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
-                <input value={fErkek} onChange={(e) => setFErkek(e.target.value.replace(/\D/g, ""))} placeholder="E" title="Erkek sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
-                <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: 96, flexShrink: 0 }} />
-              </div>
-              {!fSecKartId && <MusteriAdaylariListesi adaylar={fAdaylar} onSec={fAdaySec} />}
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={fPhone} onChange={(e) => { setFPhone(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={{ ...inp, width: 150, flexShrink: 0 }} />
-                <select value={fKanal} onChange={(e) => setFKanal(e.target.value)} title="Nereden geldi" style={{ ...inp, width: 108, flexShrink: 0 }}>
-                  {ILETISIM_KANALI_SECENEKLERI.map((k) => <option key={k} value={k}>{ILETISIM_KANALI_ADI[k]}</option>)}
-                </select>
-                <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Özel not (opsiyonel)" style={{ ...inp, flex: 1 }} />
-              </div>
-              <KisiKartiOzet kart={fKart} phone={fPhone} restaurantId={restaurantId} simdi={now} onChanged={() => setFKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} />
-              <IsimGecmisiOzet gecmis={fGecmis} />
+              {isMobile ? (
+                <>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input autoFocus value={fName} onChange={(e) => { setFName(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                    <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} onFocus={(e) => e.target.select()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }} />
+                    <input value={fKadin} onChange={(e) => setFKadin(e.target.value.replace(/\D/g, ""))} onFocus={(e) => e.target.select()} placeholder="K" title="Kadın sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
+                    <input value={fErkek} onChange={(e) => setFErkek(e.target.value.replace(/\D/g, ""))} onFocus={(e) => e.target.select()} placeholder="E" title="Erkek sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
+                  </div>
+                  {!fSecKartId && <MusteriAdaylariListesi adaylar={fAdaylar} onSec={fAdaySec} />}
+                  {/* Saat/telefon/kanal aynı satırda (Gökhan: "telefonu saat penceresinin
+                      yanına alalım, nereden ulaştı da telefonun yanına saatin satırına"). */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input value={fPhone} onChange={(e) => { setFPhone(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon" inputMode="tel" style={{ ...inp, flex: 1, minWidth: 110 }} />
+                    <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: "calc(70px - 5mm)", padding: "8px 6px", textAlign: "center", flexShrink: 0 }} />
+                    <select value={fKanal} onChange={(e) => setFKanal(e.target.value)} title="Nereden geldi" style={{ ...inp, width: 108, flexShrink: 0 }}>
+                      {ILETISIM_KANALI_SECENEKLERI.map((k) => <option key={k} value={k}>{ILETISIM_KANALI_ADI[k]}</option>)}
+                    </select>
+                  </div>
+                  <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Özel not" style={{ ...inp, width: "100%" }} />
+                </>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input autoFocus value={fName} onChange={(e) => { setFName(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim soyisim" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                    <input value={fParty} onChange={(e) => setFParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} onFocus={(e) => e.target.select()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }} />
+                    <input value={fKadin} onChange={(e) => setFKadin(e.target.value.replace(/\D/g, ""))} onFocus={(e) => e.target.select()} placeholder="K" title="Kadın sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
+                    <input value={fErkek} onChange={(e) => setFErkek(e.target.value.replace(/\D/g, ""))} onFocus={(e) => e.target.select()} placeholder="E" title="Erkek sayısı (opsiyonel)" inputMode="numeric" style={{ ...inp, width: 34, flexShrink: 0, textAlign: "center" }} />
+                    <input type="time" value={fTime} onChange={(e) => setFTime(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} style={{ ...inp, width: 96, flexShrink: 0 }} />
+                  </div>
+                  {!fSecKartId && <MusteriAdaylariListesi adaylar={fAdaylar} onSec={fAdaySec} />}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <input value={fPhone} onChange={(e) => { setFPhone(e.target.value); setFSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Telefon" inputMode="tel" style={{ ...inp, width: 150, flexShrink: 0 }} />
+                    <select value={fKanal} onChange={(e) => setFKanal(e.target.value)} title="Nereden geldi" style={{ ...inp, width: 108, flexShrink: 0 }}>
+                      {ILETISIM_KANALI_SECENEKLERI.map((k) => <option key={k} value={k}>{ILETISIM_KANALI_ADI[k]}</option>)}
+                    </select>
+                    <input value={fNote} onChange={(e) => setFNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Özel not" style={{ ...inp, flex: 1 }} />
+                  </div>
+                </>
+              )}
+              <KisiKartiOzet kart={fKart} phone={fPhone} restaurantId={restaurantId} simdi={now} onChanged={() => setFKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} isMobile={isMobile} sadeceGecmisVarsaGoster />
             </div>
 
             <div style={{ marginTop: 10 }}>
-              {kvkkNotice.trim() ? (
+              {kvkkNotice.trim() && (
                 <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
                   {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
                 </button>
-              ) : (
-                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş.</span>
               )}
               {kvkkAcik && kvkkNotice.trim() && (
                 <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
@@ -2043,14 +2192,20 @@ export default function RezervasyonPage() {
                 </div>
               )}
             </div>
+            {isMobile && (
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+                <button onClick={() => setNewResOpen(false)} style={btnSecondary}>Vazgeç</button>
+                <button onClick={submit} disabled={busy || !fName.trim()} style={{ ...btnPrimary, opacity: !fName.trim() ? 0.5 : 1 }}>Ekle</button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* REZERVASYONSUZ GİR KATMANI */}
       {walkInOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={() => setWalkInOpen(false)}>
-          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 560, width: "100%", maxHeight: "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", padding: isMobile ? "24px 0" : 0, boxSizing: "border-box", zIndex: 50 }} onClick={() => setWalkInOpen(false)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, width: "min(560px, 94vw)", maxHeight: isMobile ? "calc(100svh - 48px)" : "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 4 }}>Rezervasyon dışı</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, lineHeight: 1.5 }}>
               Kayıt zorunlu değil — hiç kaydetmeden de bir masaya doğrudan oturtabilirsin. Buradan
@@ -2060,23 +2215,20 @@ export default function RezervasyonPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "flex", gap: 8 }}>
                 <input autoFocus value={wName} onChange={(e) => { setWName(e.target.value); setWSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="İsim soyisim" style={{ ...inp, flex: 1 }} />
-                <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
+                <input value={wParty} onChange={(e) => setWParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} onFocus={(e) => e.target.select()} placeholder="Kişi" inputMode="numeric" style={{ ...inp, width: 70 }} />
               </div>
               {!wSecKartId && <MusteriAdaylariListesi adaylar={wAdaylar} onSec={wAdaySec} />}
-              <input value={wPhone} onChange={(e) => { setWPhone(e.target.value); setWSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Telefon (opsiyonel)" inputMode="tel" style={inp} />
+              <input value={wPhone} onChange={(e) => { setWPhone(e.target.value); setWSecKartId(null); }} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Telefon" inputMode="tel" style={inp} />
               {wSecKartId && <div style={{ fontSize: 11.5, color: "var(--brand)" }}>Müşteri kartı bağlandı ✓</div>}
-              <KisiKartiOzet kart={wKart} phone={wPhone} restaurantId={restaurantId} simdi={now} onChanged={() => setWKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} />
-              <IsimGecmisiOzet gecmis={wGecmis} />
-              <input value={wNote} onChange={(e) => setWNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Özel not (opsiyonel)" style={inp} />
+              <KisiKartiOzet kart={wKart} phone={wPhone} restaurantId={restaurantId} simdi={now} onChanged={() => setWKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} isMobile={isMobile} sadeceGecmisVarsaGoster />
+              <input value={wNote} onChange={(e) => setWNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && dogrudanGir()} placeholder="Özel not" style={inp} />
             </div>
 
             <div style={{ marginTop: 10 }}>
-              {kvkkNotice.trim() ? (
+              {kvkkNotice.trim() && (
                 <button onClick={() => setKvkkAcik((v) => !v)} style={{ all: "unset", cursor: "pointer", fontSize: 11.5, color: "var(--brand)" }}>
                   {kvkkAcik ? "KVKK aydınlatma metnini gizle" : "KVKK aydınlatma metni"}
                 </button>
-              ) : (
-                <span style={{ fontSize: 11.5, color: "var(--danger)" }}>KVKK aydınlatma metni girilmemiş.</span>
               )}
               {kvkkAcik && kvkkNotice.trim() && (
                 <div style={{ marginTop: 8, padding: "12px 14px", border: "1px solid var(--line)", borderRadius: 12, background: "var(--recede)", fontSize: 12, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 140, overflowY: "auto" }}>
@@ -2095,15 +2247,49 @@ export default function RezervasyonPage() {
 
       {/* KİŞİ KARTI PENCERESİ — mevcut bir rezervasyondaki misafir ikonuna tıklayınca açılır. */}
       {kartFor && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 55 }} onClick={() => setKartFor(null)}>
-          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, minWidth: 320, maxWidth: 560, width: "100%", maxHeight: "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: isMobile ? "flex-start" : "center", justifyContent: "center", padding: isMobile ? "24px 0" : 0, boxSizing: "border-box", zIndex: 55 }} onClick={() => setKartFor(null)}>
+          <div style={{ background: "var(--card)", borderRadius: 16, padding: 22, width: "min(560px, 94vw)", maxHeight: isMobile ? "calc(100svh - 48px)" : "calc(100vh - 48px)", overflowY: "auto", boxSizing: "border-box" }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 2 }}>
               <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)" }}>{kartFor.guest_name}</div>
               <button onClick={() => setKartFor(null)} style={btnSecondary}>Kapat</button>
             </div>
             <div className="tnum" style={{ fontSize: 12, color: inkSoft, marginBottom: 12 }}>{kartFor.guest_phone || "Telefon yok"}</div>
+            {/* Mobilde işlem satırda değil kartta (Gökhan: "mobilde işlem yapmak için ismi
+                tıklayacak ve kartta halledecek her işi") — masaüstünde bu düğmeler zaten
+                listede olduğu için burada tekrar gösterilmiyor. */}
+            {isMobile && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                {kartFor.status === "bekleniyor" && (
+                  <>
+                    <button
+                      onClick={() => (bugunMu ? (kartFor.table_id ? oturtDirekt(kartFor) : oturtBaslat(kartFor)) : durumDegistir(kartFor, "geldi"))}
+                      disabled={bugunMu && !kartFor.table_id && bosMasalar.length === 0}
+                      style={{ ...btnSmallRow, opacity: bugunMu && !kartFor.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}
+                    >
+                      Geldi
+                    </button>
+                    <button onClick={() => durumDegistir(kartFor, "gelmedi")} style={btnGhostRow}>Gelmedi</button>
+                  </>
+                )}
+                {kartFor.status === "geldi" && (
+                  <button
+                    onClick={() => (bugunMu ? (kartFor.table_id ? oturtDirekt(kartFor) : oturtBaslat(kartFor)) : durumDegistir(kartFor, "tamamlandi"))}
+                    disabled={bugunMu && !kartFor.table_id && bosMasalar.length === 0}
+                    style={{ ...btnSmallRow, opacity: bugunMu && !kartFor.table_id && bosMasalar.length === 0 ? 0.5 : 1 }}
+                  >
+                    {bugunMu ? "Oturdu" : "Tamamlandı"}
+                  </button>
+                )}
+                {kartFor.status === "oturdu" && (
+                  <button onClick={() => tamamlandi(kartFor)} disabled={busy} style={btnSmallRow}>Kalktı</button>
+                )}
+                {(kartFor.status === "bekleniyor" || kartFor.status === "geldi") && (
+                  <button onClick={() => iptalEt(kartFor)} style={btnGhostRow}>İptal</button>
+                )}
+              </div>
+            )}
             {kartFor.guest_phone ? (
-              <KisiKartiOzet kart={kartForKart} phone={kartFor.guest_phone} restaurantId={restaurantId} simdi={now} onChanged={() => setKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} />
+              <KisiKartiOzet kart={kartForKart} phone={kartFor.guest_phone} restaurantId={restaurantId} simdi={now} onChanged={() => setKartRefresh((v) => v + 1)} esikMudavim={esikMudavim} esikNoShow={esikNoShow} isMobile={isMobile} />
             ) : kartForGecmis ? (
               <IsimGecmisiOzet gecmis={kartForGecmis} />
             ) : (
@@ -2256,6 +2442,7 @@ export default function RezervasyonPage() {
               value={duzenleDeger}
               onChange={(e) => setDuzenleDeger(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); duzenleKaydet(); } if (e.key === "Escape") setDuzenle(null); }}
+              onFocus={duzenle.alan === "pax" ? (e) => e.target.select() : undefined}
               placeholder={DUZENLE_IPUCU[duzenle.alan]}
               autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               inputMode={duzenle.alan === "not" ? "text" : "numeric"}
@@ -2266,12 +2453,14 @@ export default function RezervasyonPage() {
                 <input
                   value={duzenleKadin} onChange={(e) => setDuzenleKadin(e.target.value.replace(/\D/g, ""))}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); duzenleKaydet(); } if (e.key === "Escape") setDuzenle(null); }}
+                  onFocus={(e) => e.target.select()}
                   placeholder="K" title="Kadın sayısı (opsiyonel)" inputMode="numeric"
                   style={{ ...inp, width: 36, flexShrink: 0, boxSizing: "border-box", padding: "6px 4px", fontSize: 12.5, textAlign: "center" }}
                 />
                 <input
                   value={duzenleErkek} onChange={(e) => setDuzenleErkek(e.target.value.replace(/\D/g, ""))}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); duzenleKaydet(); } if (e.key === "Escape") setDuzenle(null); }}
+                  onFocus={(e) => e.target.select()}
                   placeholder="E" title="Erkek sayısı (opsiyonel)" inputMode="numeric"
                   style={{ ...inp, width: 36, flexShrink: 0, boxSizing: "border-box", padding: "6px 4px", fontSize: 12.5, textAlign: "center" }}
                 />
@@ -2318,11 +2507,16 @@ export default function RezervasyonPage() {
           </div>
         </div>
       )}
+
+      <RezervasyonAltNav />
     </div>
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
+// fontSize 16 — iOS Safari, 16px altındaki bir input'a dokununca sayfayı otomatik
+// yakınlaştırıyor (Gökhan, 2026-08-08: "özele tıkladığında ekran büyüyor"). 16 ve üzeri
+// bu yakınlaştırmayı hiç tetiklemiyor, tarayıcının kendi kuralı.
+const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 16, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: 980, padding: "9px 14px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };

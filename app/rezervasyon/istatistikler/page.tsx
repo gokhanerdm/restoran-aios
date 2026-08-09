@@ -21,6 +21,8 @@ import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId, getMyReservationRestaurants } from "@/lib/supabase/reservationAccount";
 import DatePicker from "../../components/DatePicker";
+import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK } from "../../components/RezervasyonAltNav";
+import RezervasyonUstBar from "../../components/RezervasyonUstBar";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell } from "../../components/ListRow";
 
 type Donem = "bugun" | "dun" | "hafta" | "ay" | "gecen_ay" | "ozel";
@@ -60,6 +62,17 @@ export default function IstatistiklerPage() {
   const router = useRouter();
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Alt nav mobilde sabit — içerik onun altında kalmasın diye boşluk bırakılıyor
+  // (Gökhan, 2026-08-08: "sayfalarda navın altında bir şeylerin kalmadığından emin ol").
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const [donem, setDonem] = useState<Donem>("ay");
   const [ozelBaslangic, setOzelBaslangic] = useState(bugunIstanbul());
@@ -124,10 +137,10 @@ export default function IstatistiklerPage() {
   }
 
   return (
-    <div style={{ background: "var(--canvas)", padding: "20px 24px", minHeight: "100vh", boxSizing: "border-box" }}>
+    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24, minHeight: "100vh", boxSizing: "border-box" }}>
+      <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="İstatistikler" />
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
-        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>İstatistikler</div>
         <div style={{ flex: 1 }} />
         {/* Tarih filtresi — bütün sekmeler aynısını kullanır. */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -167,6 +180,7 @@ export default function IstatistiklerPage() {
       {sekme === "bekleme" && <BeklemeWalkin restaurantId={restaurantId} baslangic={araGun.start} bitis={araGun.end} setErr={setErr} />}
       {sekme === "sube" && <Subeler baslangic={araGun.start} bitis={araGun.end} setErr={setErr} />}
       {!["genel", "rezervasyon", "doluluk", "musteri", "iptal", "kanal", "bekleme", "sube"].includes(sekme) && <Yakinda baslik={SEKMELER.find((s) => s.k === sekme)!.l} />}
+      <RezervasyonAltNav />
     </div>
   );
 }

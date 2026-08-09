@@ -9,6 +9,8 @@ import { toUpperTr, toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
 import { Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft, Store } from "lucide-react";
 import { useConfirm } from "../../components/useConfirm";
+import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK } from "../../components/RezervasyonAltNav";
+import RezervasyonUstBar from "../../components/RezervasyonUstBar";
 import EditableText from "../../components/EditableText";
 import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../../components/ListRow";
 
@@ -100,6 +102,16 @@ export default function RezervasyonAyarlarPage() {
   const [busy, setBusy] = useState(false);
   const [kaydedildi, setKaydedildi] = useState(false);
   const { confirm, dialog: confirmDialog } = useConfirm();
+  // Alt nav mobilde sabit — içerik onun altında kalmasın diye boşluk bırakılıyor
+  // (Gökhan, 2026-08-08: "sayfalarda navın altında bir şeylerin kalmadığından emin ol").
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
@@ -419,13 +431,13 @@ export default function RezervasyonAyarlarPage() {
   }
 
   return (
-    <div style={{ background: "var(--canvas)", padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24, height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
+
+      <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="Ayarlar" />
 
       <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
         <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
-        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Ayarlar</div>
-        {isim && <div style={{ fontSize: 13, color: "var(--muted)" }}>{isim}</div>}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -885,6 +897,7 @@ export default function RezervasyonAyarlarPage() {
           </div>
         </div>
       </div>
+      <RezervasyonAltNav />
     </div>
   );
 }

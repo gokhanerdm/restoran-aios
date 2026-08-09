@@ -9,6 +9,8 @@ import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount"
 import { toUpperTr, toTitleTr } from "@/lib/text";
 import EditableText from "../../components/EditableText";
 import { useConfirm } from "../../components/useConfirm";
+import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK } from "../../components/RezervasyonAltNav";
+import RezervasyonUstBar from "../../components/RezervasyonUstBar";
 import { PX_PER_CM, KOLTUK_SECENEKLERI, BOX_W, BOX_H, govdeOlcusu, type Shape as MasaSekli, type MasaOlcusu } from "../masaOlcu";
 
 // REZERVASYON > SALON — görsel masa planı (Gökhan, 2026-08-04: "sürükleyip yerleştirebileceğim,
@@ -107,6 +109,16 @@ export default function SalonPage() {
   const { confirm, dialog: confirmDialog } = useConfirm();
 
   const [restaurantId, setRestaurantId] = useState<string | null>(null);
+  // Alt nav mobilde sabit — içerik onun altında kalmasın diye boşluk bırakılıyor
+  // (Gökhan, 2026-08-08: "sayfalarda navın altında bir şeylerin kalmadığından emin ol").
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   // Salon düzenleme modu (Gökhan, 2026-08-05: "salonda şekillendirme bittiğinde özellik
   // kapansın, masaya tıkladığında rezervasyon listesi açılsın") — açıkken masalar/öğeler
   // sürüklenip düzenlenebilir (eski davranış); kapalıyken tuval kilitli, masaya tıklamak
@@ -586,15 +598,14 @@ export default function SalonPage() {
   }
 
   return (
-    <div style={{ padding: "20px 24px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden", background: "var(--canvas)" }}>
+    <div style={{ padding: "20px 24px", paddingBottom: isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24, height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden", background: "var(--canvas)" }}>
       {confirmDialog}
+
+      <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="Salon" />
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexShrink: 0, flexWrap: "wrap", rowGap: 8 }}>
         <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
-        <div>
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Salon</div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 6 }}>{doluSayisi}/{tables.length} masa dolu · {toplamKoltuk} koltuk</div>
-        </div>
+        <div style={{ fontSize: 13, color: "var(--muted)" }}>{doluSayisi}/{tables.length} masa dolu · {toplamKoltuk} koltuk</div>
         <div style={{ flex: 1 }} />
 
         {/* Salon düzenleme modu (Gökhan: "salonda şekillendirme bittiğinde özellik kapansın,
@@ -606,6 +617,26 @@ export default function SalonPage() {
         >
           {duzenlemeModu ? "Düzenlemeyi bitir" : "Salonu düzenle"}
         </button>
+
+        {/* Salon ekle + var olan salonlar — sol kutu kalktı, hepsi burada (Gökhan,
+            2026-08-08: "salon ekle butonunu salon düzenlemenin yanına al, salonun olduğu
+            kutuyu kaldır, sadece ekli salon salon eklenin yanında görünsün"). */}
+        {!addingArea ? (
+          <button onClick={() => setAddingArea(true)} style={btnSecondaryHeader}><Plus size={14} /> Salon ekle</button>
+        ) : (
+          <>
+            <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={{ ...inp, width: 130 }} autoFocus />
+            <button onClick={addArea} style={btnSmall}>Ekle</button>
+          </>
+        )}
+        {areas.map((a) => (
+          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 2, borderRadius: 980, padding: "5px 4px 5px 12px", background: selectedAreaId === a.id ? "var(--recede)" : "var(--card)", border: "1px solid var(--line-2)" }}>
+            <div onClick={() => setSelectedAreaId(a.id)} style={{ cursor: "pointer", fontSize: 12.5, fontWeight: selectedAreaId === a.id ? 600 : 500, color: selectedAreaId === a.id ? "var(--brand)" : "var(--ink)" }}>
+              <EditableText value={a.name} onSave={(v) => renameArea(a.id, v)} />
+            </div>
+            <button onClick={() => deleteArea(a)} aria-label="salonu sil" style={{ all: "unset", cursor: "pointer", padding: "0 6px", display: "flex", color: "var(--muted-2)" }}><Trash2 size={11} /></button>
+          </div>
+        ))}
 
         {duzenlemeModu && (
           <>
@@ -685,40 +716,17 @@ export default function SalonPage() {
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
-      <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
-        {/* Salon menüsü — Kasa'daki desenle aynı: tıkla geç, çift tıkla düzenle, sil. */}
-        <div style={{ width: 180, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0, border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)", padding: 6 }}>
-            {areas.map((a) => (
-              <div key={a.id} style={{ display: "flex", alignItems: "center", borderRadius: 10, background: selectedAreaId === a.id ? "var(--recede)" : "transparent" }}>
-                <div onClick={() => setSelectedAreaId(a.id)} style={{ cursor: "pointer", flex: 1, padding: "10px 10px", fontSize: 13.5, fontWeight: selectedAreaId === a.id ? 600 : 500, color: selectedAreaId === a.id ? "var(--brand)" : "var(--ink)", minWidth: 0 }}>
-                  <EditableText value={a.name} onSave={(v) => renameArea(a.id, v)} />
-                </div>
-                <button onClick={() => deleteArea(a)} aria-label="salonu sil" style={{ all: "unset", cursor: "pointer", padding: "0 8px", color: "var(--muted-2)" }}><Trash2 size={12} /></button>
-              </div>
-            ))}
-            {areas.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 12.5, padding: 10 }}>Henüz salon yok</div>}
-          </div>
-          <div style={{ flexShrink: 0, marginTop: 10 }}>
-            {!addingArea ? (
-              <button onClick={() => setAddingArea(true)} style={btnSecondary}><Plus size={14} /> Salon ekle</button>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={inp} autoFocus />
-                <button onClick={addArea} style={btnSmall}>Ekle</button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Kat planı — sürükle bırak, sağ tık menü, ölçekli yakınlaştırma. */}
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        {/* Kat planı — sürükle bırak, sağ tık menü, ölçekli yakınlaştırma. Sol kutu kalktı,
+            salonlar artık üstteki başlık satırında (Gökhan, 2026-08-08) — kat planı tam
+            genişlik, sola ve sağa yaslı. */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div
             ref={viewportRef}
             style={{ position: "relative", flex: 1, overflow: "auto", border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)" }}
           >
             {!selectedAreaId ? (
-              <div style={{ padding: 24, color: "var(--muted-2)", fontSize: 13 }}>Önce solda bir salon seç ya da ekle.</div>
+              <div style={{ padding: 24, color: "var(--muted-2)", fontSize: 13 }}>Önce yukarıdan bir salon seç ya da ekle.</div>
             ) : (
               <div style={{ position: "relative", width: containerWidth * zoom, height: containerHeight * zoom }}>
                 <div
@@ -777,7 +785,6 @@ export default function SalonPage() {
               </div>
             )}
           </div>
-          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 10, flexShrink: 0 }}>{tablesInArea.length} masa · bir masaya sağ tıklayıp düzenleyebilir, çoğaltabilirsin</div>
         </div>
       </div>
 
@@ -960,6 +967,7 @@ export default function SalonPage() {
           </div>
         </div>
       )}
+      <RezervasyonAltNav />
     </div>
   );
 }

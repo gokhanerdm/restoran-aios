@@ -35,11 +35,6 @@ const TUM_GUNLER = new Set<DayKey>(DAYS.map((d) => d.k));
 
 const ISLETME_TURLERI = ["Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Bar / Pub", "Gece kulübü", "Fast food", "Otel restoranı", "Diğer"];
 
-// Kapanış saati açılıştan ÖNCEYSE gece yarısını geçmiş demektir — gece kulübü 23:00'te açılıp
-// 04:00'te kapanabilir, meyhane 18:00'de açılıp 01:00'de kapanabilir; restoranın çoğu aynı gün
-// açılıp kapanır. Ayrı bir "ertesi gün" kutucuğu YOK, saatlerden kendiliğinden çıkarılıyor.
-const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) && Boolean(kapanis) && kapanis < acilis;
-
 // Güçlü parola standardı — kabul gören en yaygın kural: en az 8 karakter, bir büyük harf,
 // bir küçük harf, bir rakam, bir sembol. Kayıt formunda canlı gösteriliyor (kutu yazarken
 // değişir, bu bir "hatırlatma listesi"), giriş (login) tarafında zorlanmıyor — eski
@@ -66,7 +61,6 @@ function buildOpeningHours(acikGunler: Set<DayKey>, acilis: string, kapanis: str
 export default function RezervasyonGirisPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"kayit" | "giris">("giris");
-  const [subeTipi, setSubeTipi] = useState<"tek" | "cok">("tek");
 
   // Hesap
   const [email, setEmail] = useState("");
@@ -81,17 +75,16 @@ export default function RezervasyonGirisPage() {
   const [contactName, setContactName] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Şube (çok şubelide ayrı ad+telefon; tek şubelide işletme bilgisiyle aynı)
-  const [branchName, setBranchName] = useState("");
-  const [branchPhone, setBranchPhone] = useState("");
   const [il, setIl] = useState("");
   const [ilce, setIlce] = useState("");
   const [ilOnerileriAcik, setIlOnerileriAcik] = useState(false);
   const [ilceOnerileriAcik, setIlceOnerileriAcik] = useState(false);
   const [address, setAddress] = useState("");
-  const [acikGunler, setAcikGunler] = useState<Set<DayKey>>(new Set(TUM_GUNLER));
-  const [acilis, setAcilis] = useState("09:00");
-  const [kapanis, setKapanis] = useState("23:00");
+  // Gün/saat seçimi kayıttan kaldırıldı, varsayılan (her gün açık, 09:00-23:00)
+  // kaydedilir — Ayarlar'dan gün gün düzenlenir.
+  const [acikGunler] = useState<Set<DayKey>>(new Set(TUM_GUNLER));
+  const [acilis] = useState("09:00");
+  const [kapanis] = useState("23:00");
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -126,24 +119,16 @@ export default function RezervasyonGirisPage() {
   const onBlurTitle = (setter: (v: string) => void) => (e: React.FocusEvent<HTMLInputElement>) => setter(toTitleTr(e.target.value));
   const onEnterBlur = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === "Enter") e.currentTarget.blur(); };
 
-  const toggleGun = (k: DayKey) => setAcikGunler((s) => {
-    const next = new Set(s);
-    if (next.has(k)) next.delete(k); else next.add(k);
-    return next;
-  });
-
   const submitKayit = async () => {
     if (busy) return;
     if (!businessName.trim() || !contactName.trim() || !phone.trim() || !email.trim() || !password) {
-      setErr(`${subeTipi === "cok" ? "Marka" : "İşletme"} adı, yetkili adı soyadı, telefon, e-posta ve şifre gerekli.`);
+      setErr("İşletme adı, yetkili adı soyadı, telefon, e-posta ve şifre gerekli.");
       return;
     }
     if (!sifreGecerliMi(password)) { setErr("Şifre, üstteki gereksinimlerin hepsini karşılamıyor."); return; }
     if (password !== password2) { setErr("Şifreler birbiriyle uyuşmuyor."); return; }
     if (!businessType) { setErr("İşletme türünü seç."); return; }
-    if (subeTipi === "cok" && !branchName.trim()) { setErr("Şube adı gerekli."); return; }
     if (!il.trim() || !ilce.trim() || !address.trim()) { setErr("İl, ilçe ve açık adres gerekli."); return; }
-    if (acikGunler.size === 0) { setErr("En az bir çalışma günü seçmelisin."); return; }
 
     setBusy(true); setErr(null); setConfirmMsg(null);
     const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
@@ -159,16 +144,19 @@ export default function RezervasyonGirisPage() {
       return;
     }
 
+    // Şube seçimi kayıttan kaldırıldı (Gökhan, 2026-08-08: "direkt kaydolurken bunu
+    // belirtmesinin bize faydası yok, çoğu işletme tek şubeyle başlıyor") — herkes tek
+    // işletme olarak kaydolur, ikinci şube ihtiyacı olan Ayarlar'dan sonra ekler.
     const { error: bootErr } = await supabase.rpc("bootstrap_reservation_account", {
       p_user_id: data.user.id,
-      p_kind: subeTipi,
+      p_kind: "tek",
       p_business_name: toTitleTr(businessName),
       p_business_type: businessType,
       p_contact_name: toTitleTr(contactName),
       p_phone: phone.trim(),
       p_email: email.trim(),
-      p_branch_name: subeTipi === "cok" ? toTitleTr(branchName) : toTitleTr(businessName),
-      p_branch_phone: subeTipi === "cok" ? (branchPhone.trim() || phone.trim()) : phone.trim(),
+      p_branch_name: toTitleTr(businessName),
+      p_branch_phone: phone.trim(),
       p_il: toTitleTr(il),
       p_ilce: toTitleTr(ilce),
       p_address: toTitleTr(address),
@@ -230,20 +218,22 @@ export default function RezervasyonGirisPage() {
     setTimeout(() => router.push("/rezervasyon"), 1200);
   };
 
+  // alignItems:flex-start sabit — ortalanmış olsaydı klavye açılınca (100vh küçülünce)
+  // ya da sekme/form içeriği boy değiştirdikçe kart yukarı aşağı kayardı (Gökhan,
+  // 2026-08-08: "bu ekranı sabitle sağa sola aşağı yukarı kaymasın").
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--canvas)", padding: "40px 20px" }}>
-      <div style={{ width: "min(460px, 94vw)", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 20, padding: 28 }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", background: "var(--canvas)", padding: "16px" }}>
+      <div style={{ width: "min(460px, 94vw)", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 20, padding: 20 }}>
         {/* RZV — ürün adı/rozeti (Gökhan, 2026-08-04). AIOS Shell'deki yuvarlak baş harf
             rozetiyle aynı dil (bkz. app/components/Shell.tsx), sadece 3 harfli. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
           <div style={{ width: 38, height: 38, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 12, letterSpacing: 0.5, flexShrink: 0 }}>
             RZV
           </div>
           <div style={{ fontSize: 22, fontWeight: 600, color: "var(--ink-green)", letterSpacing: "-0.4px" }}>Rezerve</div>
         </div>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20 }}>{mode === "kayit" ? "Yeni işletme kaydı" : "Giriş yap"}</div>
 
-        <div style={{ display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980, marginBottom: 18 }}>
+        <div style={{ display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980, marginBottom: 12 }}>
           {(["giris", "kayit"] as const).map((m) => (
             <button key={m} onClick={() => { setMode(m); setErr(null); }} style={{
               flex: 1, fontSize: 13, padding: "8px 0", borderRadius: 980, border: "none", cursor: "pointer",
@@ -271,24 +261,8 @@ export default function RezervasyonGirisPage() {
             </button>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {/* Şube tipi — kayıt formunun en üstünde, aşağıdaki alanları belirler. */}
-            <div style={{ display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980, marginBottom: 4 }}>
-              {(["tek", "cok"] as const).map((t) => (
-                <button key={t} onClick={() => setSubeTipi(t)} style={{
-                  flex: 1, fontSize: 12.5, padding: "7px 0", borderRadius: 980, border: "none", cursor: "pointer",
-                  background: subeTipi === t ? "var(--brand-strong)" : "transparent",
-                  color: subeTipi === t ? "#fff" : "var(--muted)",
-                }}>
-                  {t === "tek" ? "Tek şubeli işletme" : "Çok şubeli işletme"}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 6 }}>
-              {subeTipi === "cok" ? "İşletme bilgileri" : "İşletme"}
-            </div>
-            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} onBlur={onBlurTitle(setBusinessName)} onKeyDown={onEnterBlur} placeholder={subeTipi === "cok" ? "İşletme veya marka adı" : "İşletme adı"} style={inp} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} onBlur={onBlurTitle(setBusinessName)} onKeyDown={onEnterBlur} placeholder="İşletme adı" style={inp} />
 
             {/* İşletme türü — native select yerine, aynı kutunun içinde aşağı doğru açılan
                 kendi akordiyonumuz (Ayarlar'daki salon akordiyonuyla aynı dil). */}
@@ -319,8 +293,11 @@ export default function RezervasyonGirisPage() {
             </div>
 
             <input value={contactName} onChange={(e) => setContactName(e.target.value)} onBlur={onBlurTitle(setContactName)} onKeyDown={onEnterBlur} placeholder="Yetkili adı soyadı" style={inp} />
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder={subeTipi === "cok" ? "Merkez telefon numarası" : "Telefon numarası"} style={inp} />
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder={subeTipi === "cok" ? "Merkez e-posta adresi" : "E-posta adresi"} style={inp} />
+            {/* Telefon + e-posta yan yana — tek ekrana sığsın diye (Gökhan, 2026-08-08). */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Telefon" style={{ ...inp, flex: 1, minWidth: 0 }} />
+              <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="E-posta" style={{ ...inp, flex: 1, minWidth: 0 }} />
+            </div>
             <div style={{ position: "relative" }}>
               <input
                 value={password} onChange={(e) => setPassword(e.target.value)}
@@ -339,25 +316,25 @@ export default function RezervasyonGirisPage() {
                 "o sıraya al", "şifre doğrulamada girsin") — hiçbir koşulda alta düşmez,
                 kısaltılmış etiketler + flexWrap:"nowrap" tek satıra kesin sığıyor; aşırı
                 dar bir ekranda bile bölünmez, gerekirse yana kayar (overflowX). */}
-            <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 7, marginTop: -2, overflowX: "auto" }}>
+            <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 3, marginTop: -2, overflowX: "auto" }}>
               {SIFRE_KURALLARI.map((k) => {
                 const met = k.test(password);
                 return (
-                  <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, whiteSpace: "nowrap" }}>
-                    <span style={{ fontSize: 11, color: "var(--line-2)" }}>·</span>
-                    <span style={{ fontSize: 10.5, color: met ? "var(--brand)" : "var(--muted-2)" }}>
+                  <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0, whiteSpace: "nowrap" }}>
+                    <span style={{ fontSize: 9, color: "var(--line-2)" }}>·</span>
+                    <span style={{ fontSize: 9, color: met ? "var(--brand)" : "var(--muted-2)" }}>
                       {met ? "✓ " : ""}{k.label}
                     </span>
                   </span>
                 );
               })}
-              <span style={{ fontSize: 11, color: "var(--line-2)", flexShrink: 0 }}>·</span>
+              <span style={{ fontSize: 9, color: "var(--line-2)", flexShrink: 0 }}>·</span>
               <button
                 type="button"
                 onClick={() => { const yeni = gucluSifreOner(); setPassword(yeni); setPassword2(yeni); setShowPw(true); }}
-                style={{ all: "unset", cursor: "pointer", fontSize: 10.5, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
+                style={{ all: "unset", cursor: "pointer", fontSize: 9, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
               >
-                Güçlü şifre öner
+                Şifre öner
               </button>
             </div>
 
@@ -365,14 +342,6 @@ export default function RezervasyonGirisPage() {
               value={password2} onChange={(e) => setPassword2(e.target.value)}
               type={showPw ? "text" : "password"} placeholder="Şifre (tekrar)" style={inp}
             />
-
-            {subeTipi === "cok" && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>Şube bilgileri</div>
-                <input value={branchName} onChange={(e) => setBranchName(e.target.value)} onBlur={onBlurTitle(setBranchName)} onKeyDown={onEnterBlur} placeholder="Şube adı" style={inp} />
-                <input value={branchPhone} onChange={(e) => setBranchPhone(e.target.value)} inputMode="tel" placeholder="Şube telefon numarası (opsiyonel)" style={inp} />
-              </>
-            )}
 
             <div style={{ display: "flex", gap: 8 }}>
               {/* İl/İlçe önerisi — "an" yazınca Ankara, "is" yazınca İstanbul gibi baştan
@@ -426,34 +395,11 @@ export default function RezervasyonGirisPage() {
                 )}
               </div>
             </div>
-            <input value={address} onChange={(e) => setAddress(e.target.value)} onBlur={onBlurTitle(setAddress)} onKeyDown={onEnterBlur} placeholder="Açık adres" style={inp} />
+            <input value={address} onChange={(e) => setAddress(e.target.value)} onBlur={onBlurTitle(setAddress)} onKeyDown={onEnterBlur} placeholder="Adres" style={inp} />
 
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--ink-green)", marginTop: 10 }}>Çalışma günleri</div>
-            <div style={{ display: "flex", gap: 5 }}>
-              {DAYS.map((d) => {
-                const acik = acikGunler.has(d.k);
-                return (
-                  <button key={d.k} onClick={() => toggleGun(d.k)} style={{
-                    flex: 1, border: "1px solid var(--line-2)", borderRadius: 8, padding: "7px 0", fontSize: 12, cursor: "pointer",
-                    background: acik ? "var(--brand-strong)" : "var(--card)",
-                    color: acik ? "#fff" : "var(--muted)",
-                  }}>
-                    {d.l}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="time" value={acilis} onChange={(e) => setAcilis(e.target.value)} style={{ ...inp, flex: 1 }} />
-              <span style={{ fontSize: 13, color: "var(--muted)" }}>–</span>
-              <input type="time" value={kapanis} onChange={(e) => setKapanis(e.target.value)} style={{ ...inp, flex: 1 }} />
-            </div>
-            {kapanisErtesiGun(acilis, kapanis) && (
-              <div style={{ fontSize: 11.5, color: "var(--gold-text)" }}>Kapanış ertesi güne sarkıyor (ör. 23:00 – 04:00).</div>
-            )}
-            <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: -2, lineHeight: 1.5 }}>
-              Kapalı günler ve farklı saatler kayıttan sonra Ayarlar&apos;dan gün gün düzenlenebilir.
-            </div>
+            {/* Çalışma günleri/saatleri kayıttan kaldırıldı (Gökhan, 2026-08-08: "gün
+                seçimini program ayarlarında halledelim") — varsayılan (her gün açık,
+                09:00-23:00) kaydedilir, Ayarlar'dan gün gün düzenlenir. */}
 
             <button onClick={submitKayit} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, marginTop: 8 }}>
               {busy ? "…" : "Hesap oluştur"}
@@ -511,22 +457,22 @@ export default function RezervasyonGirisPage() {
                       {unutShowPw ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 6, marginTop: -2, overflowX: "auto" }}>
+                  <div style={{ display: "flex", flexWrap: "nowrap", alignItems: "center", justifyContent: "center", gap: 3, marginTop: -2, overflowX: "auto" }}>
                     {SIFRE_KURALLARI.map((k) => {
                       const met = k.test(unutYeniSifre);
                       return (
-                        <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap" }}>
-                          <span style={{ fontSize: 10, color: "var(--line-2)" }}>·</span>
-                          <span style={{ fontSize: 10, color: met ? "var(--brand)" : "var(--muted-2)" }}>{met ? "✓ " : ""}{k.label}</span>
+                        <span key={k.label} style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0, whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 9, color: "var(--line-2)" }}>·</span>
+                          <span style={{ fontSize: 9, color: met ? "var(--brand)" : "var(--muted-2)" }}>{met ? "✓ " : ""}{k.label}</span>
                         </span>
                       );
                     })}
-                    <span style={{ fontSize: 10, color: "var(--line-2)", flexShrink: 0 }}>·</span>
+                    <span style={{ fontSize: 9, color: "var(--line-2)", flexShrink: 0 }}>·</span>
                     <button
                       type="button" onClick={() => { setUnutYeniSifre(gucluSifreOner()); setUnutShowPw(true); }}
-                      style={{ all: "unset", cursor: "pointer", fontSize: 10, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
+                      style={{ all: "unset", cursor: "pointer", fontSize: 9, color: "var(--brand)", flexShrink: 0, whiteSpace: "nowrap" }}
                     >
-                      Güçlü şifre öner
+                      Şifre öner
                     </button>
                   </div>
                   <input
@@ -561,7 +507,11 @@ export default function RezervasyonGirisPage() {
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "11px 13px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", width: "100%", boxSizing: "border-box" };
+// fontSize 16 — iOS Safari, 16px altındaki bir input'a dokununca sayfayı otomatik
+// yakınlaştırıyor. Giriş yaparken e-posta/şifre kutusu odaklanmışken bu tetiklenip
+// yeni rezervasyon sayfasına o yakınlaştırılmış halde geçiliyordu (Gökhan, 2026-08-08:
+// "yeni giriş yapıldığında ekran büyük geliyor").
+const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "11px 13px", fontSize: 16, background: "var(--card)", color: "var(--ink)", outline: "none", width: "100%", boxSizing: "border-box" };
 const btnPrimary: React.CSSProperties = { width: "100%", border: "none", borderRadius: 980, padding: 12, background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" };
 // Şifremi unuttum katmanındaki iki buton — btnPrimary'nin width:100%'ü burada işe
 // yaramaz (yan yana iki buton), bu yüzden ayrı, satır-içi boyutta.
