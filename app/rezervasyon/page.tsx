@@ -1771,7 +1771,10 @@ export default function RezervasyonPage() {
           aynı satırda (Gökhan, 2026-08-04: "rzv yaz yanında da işletme adı yazsın") —
           eskiden işletme adı "Rezervasyon" başlığının altında 13px soluk gri bir ek gibi
           duruyordu ("küçük ve soluk olması normal mi" — değildi). */}
-      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", rowGap: 10 }}>
+      {/* Mobilde sarma kapalı — "· Rezervasyon" başlığı eklenince satır taşıp Çıkış düğmesi
+          alta düşüyordu (Gökhan, 2026-08-08). Taşma olursa işletme adı kısalır (ellipsis),
+          satır bölünmez. */}
+      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: isMobile ? "nowrap" : "wrap", rowGap: 10 }}>
         {/* RZV rozeti — tıklanınca rezervasyon listesine döner (Gökhan, 2026-08-08). */}
         <Link href="/rezervasyon" aria-label="Rezervasyonlar" style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0, textDecoration: "none" }}>
           RZV
@@ -1805,13 +1808,13 @@ export default function RezervasyonPage() {
             )}
           </div>
         ) : (
-          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
+          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {restaurantName || "Rezerve"}
           </div>
         )}
         {/* Sayfa adı işletme isminin yanında — Salon/İstatistikler/Ayarlar'daki ortak üst
             barla (RezervasyonUstBar) birebir aynı punto ve renk (Gökhan, 2026-08-08). */}
-        {isMobile && <span style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.5px", color: "var(--muted)", lineHeight: 1 }}>· Rezervasyon</span>}
+        {isMobile && <span style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.5px", color: "var(--muted)", lineHeight: 1, flexShrink: 0, whiteSpace: "nowrap" }}>· Rezervasyon</span>}
         <div style={{ flex: 1 }} />
         {/* Mobilde İstatistikler/Salon/Ayarlar alttaki nav'a taşındı (Gökhan, 2026-08-08:
             "yukarıda olan simgeleri aşağı tarafa bir nav yapıp oraya taşıyalım") — Çıkış

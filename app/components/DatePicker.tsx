@@ -24,10 +24,12 @@ const parse = (v: string) => {
   return { y: y || today.getFullYear(), m: m || today.getMonth() + 1, d: d || today.getDate() };
 };
 const fmt = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+// Yıl iki hane — dar ekranda "8 Ağustos 2026" düğmeye sığmayıp üç satıra bölünüyordu
+// (Gökhan, 2026-08-08: "tarihte 2026'yı 26 olarak değiştirebilirsin").
 const display = (v: string) => {
   if (!v) return "Tarih seç";
   const { y, m, d } = parse(v);
-  return `${d} ${AY_ADI[m - 1]} ${y}`;
+  return `${d} ${AY_ADI[m - 1]} ${String(y).slice(-2)}`;
 };
 // Pazartesi=0 ... Pazar=6 sıralamasıyla ayın ilk gününün haftanın kaçıncı günü olduğu.
 const ayinIlkGunu = (y: number, m: number) => (new Date(y, m - 1, 1).getDay() + 6) % 7;
@@ -85,6 +87,9 @@ export default function DatePicker({ value, onChange, style }: Props) {
         style={{
           border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 12px", fontSize: 13.5,
           background: "var(--card)", color: "var(--ink)", cursor: "pointer", textAlign: "left",
+          // Tarih hiçbir koşulda satırlara bölünmez — dar kutuda kelime kelime alt alta
+          // düşüyordu (Gökhan, 2026-08-08: "tarih de sığmamış, 3 satır halinde duruyor").
+          whiteSpace: "nowrap", flexShrink: 0,
           ...style,
         }}
       >
