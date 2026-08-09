@@ -408,13 +408,15 @@ function MobilRezervasyonListesi({
       {/* Başlık üstteki kimlik satırına taşındı (Gökhan, 2026-08-08: "rezervasyonlar
           yazısını rezervasyon olarak işletme isminin yanına al") — burada gün seçimi ve
           "Yeni rezervasyon" yan yana ("yeni rezervasyon ekle'nin yanına tarihi koyacaktın"). */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-        <button onClick={() => onGunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
-        <DatePicker value={gun} onChange={onGunDegistir} />
-        <button onClick={() => onGunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
+      {/* Hepsi sola toplu, aralar dar — esnek boşluk (flex:1) "Yeni rezervasyon"u sağa itip
+          kutunun dışına taşırıyordu (Gökhan, 2026-08-08: "yeni rezervasyon kutunun dışına
+          çıkmış, okları kutuya yaklaştır, tarihi sola yaklaştır"). */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, minWidth: 0 }}>
+        <button onClick={() => onGunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={{ ...navBtn, padding: 2 }}><ChevronLeft size={17} /></button>
+        <DatePicker value={gun} onChange={onGunDegistir} style={{ padding: "8px 10px" }} />
+        <button onClick={() => onGunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={{ ...navBtn, padding: 2 }}><ChevronRight size={17} /></button>
         {!bugunMu && <button onClick={() => onGunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
-        <div style={{ flex: 1 }} />
-        <button onClick={onYeniRezervasyon} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
+        <button onClick={onYeniRezervasyon} style={{ ...btnPrimary, marginLeft: 4, padding: "9px 12px" }}><Plus size={14} /> Yeni rezervasyon</button>
       </div>
       {/* Bilgi bölümü — oran değil düz sayı (Gökhan: "oran değil kapasite karşısında
           doluluğu yazacak"). İki blok karşılıklı: solda Rezervasyon/Masa altlı üstlü sola
