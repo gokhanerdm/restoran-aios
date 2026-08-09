@@ -381,10 +381,11 @@ function MusteriAdaylariListesi({ adaylar, onSec }: { adaylar: MusteriAday[]; on
 // (bkz. kartFor bloğu). Kategori işareti şimdilik sadece VIP (kisi_kartlari.vip), toplu ve
 // tek sorguyla getiriliyor — her satır için ayrı ayrı sorgu atmıyor.
 function MobilRezervasyonListesi({
-  rows, toplamMasa, toplamKapasite, doluluk, masaAdi, onYeniRezervasyon, onKartAc,
+  rows, toplamMasa, toplamKapasite, doluluk, masaAdi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc,
 }: {
   rows: Rez[]; toplamMasa: number; toplamKapasite: number; doluluk: number;
   masaAdi: (r: Rez) => string | null;
+  gun: string; bugunMu: boolean; onGunDegistir: (g: string) => void;
   onYeniRezervasyon: () => void; onKartAc: (r: Rez) => void;
 }) {
   const [vipSet, setVipSet] = useState<Set<string>>(new Set());
@@ -405,8 +406,14 @@ function MobilRezervasyonListesi({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, minHeight: 0 }}>
       {/* Başlık üstteki kimlik satırına taşındı (Gökhan, 2026-08-08: "rezervasyonlar
-          yazısını rezervasyon olarak işletme isminin yanına al") — burada sadece düğme. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          yazısını rezervasyon olarak işletme isminin yanına al") — burada gün seçimi ve
+          "Yeni rezervasyon" yan yana ("yeni rezervasyon ekle'nin yanına tarihi koyacaktın"). */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <button onClick={() => onGunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
+        <DatePicker value={gun} onChange={onGunDegistir} />
+        <button onClick={() => onGunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
+        {!bugunMu && <button onClick={() => onGunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
+        <div style={{ flex: 1 }} />
         <button onClick={onYeniRezervasyon} style={btnPrimary}><Plus size={14} /> Yeni rezervasyon</button>
       </div>
       {/* Bilgi bölümü — oran değil düz sayı (Gökhan: "oran değil kapasite karşısında
@@ -1798,13 +1805,13 @@ export default function RezervasyonPage() {
             )}
           </div>
         ) : (
-          <div style={{ fontSize: isMobile ? 20 : 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
+          <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>
             {restaurantName || "Rezerve"}
           </div>
         )}
-        {/* Sayfa adı işletme isminin yanında — mobilde liste başlığı buradan okunuyor
-            (Gökhan, 2026-08-08), masaüstünde zaten tablo başlıkları var. */}
-        {isMobile && <span style={{ fontSize: 14, fontWeight: 500, color: "var(--muted)" }}>· Rezervasyon</span>}
+        {/* Sayfa adı işletme isminin yanında — Salon/İstatistikler/Ayarlar'daki ortak üst
+            barla (RezervasyonUstBar) birebir aynı punto ve renk (Gökhan, 2026-08-08). */}
+        {isMobile && <span style={{ fontSize: 24, fontWeight: 500, letterSpacing: "-0.5px", color: "var(--muted)", lineHeight: 1 }}>· Rezervasyon</span>}
         <div style={{ flex: 1 }} />
         {/* Mobilde İstatistikler/Salon/Ayarlar alttaki nav'a taşındı (Gökhan, 2026-08-08:
             "yukarıda olan simgeleri aşağı tarafa bir nav yapıp oraya taşıyalım") — Çıkış
@@ -1825,19 +1832,6 @@ export default function RezervasyonPage() {
         <button onClick={cikisYap} aria-label="Çıkış yap" title="Çıkış yap" style={{ ...navBtn, marginTop: 2 }}>
           <LogOut size={19} />
         </button>
-
-        {/* Gün seçimi — mobilde kart görünümünde tarih hiç yoktu, geçmiş/ileri güne
-            gidilemiyordu (Gökhan, 2026-08-08: "mobilde tarih yok muydu, nasıl gidiyorduk
-            eski rezervasyonlara"). flexBasis:100% ile kimlik satırının altına, kendi
-            satırına düşer — isim + tarih yan yana dar ekrana sığmıyor. */}
-        {isMobile && (
-          <div style={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: 6 }}>
-            {!bugunMu && <button onClick={() => gunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
-            <button onClick={() => gun && gunDegistir(gunKaydir(gun, -1))} aria-label="Önceki gün" style={navBtn}><ChevronLeft size={17} /></button>
-            <DatePicker value={gun} onChange={gunDegistir} />
-            <button onClick={() => gun && gunDegistir(gunKaydir(gun, 1))} aria-label="Sonraki gün" style={navBtn}><ChevronRight size={17} /></button>
-          </div>
-        )}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -1855,6 +1849,9 @@ export default function RezervasyonPage() {
             toplamKapasite={toplamKapasite}
             doluluk={gunPax}
             masaAdi={(r) => (rezMasalar[r.id] ?? []).map((id) => tableName(id)).filter(Boolean).join(" + ") || tableName(r.table_id)}
+            gun={gun}
+            bugunMu={bugunMu}
+            onGunDegistir={gunDegistir}
             onYeniRezervasyon={openNewRes}
             onKartAc={(r) => setKartFor(r)}
           />
