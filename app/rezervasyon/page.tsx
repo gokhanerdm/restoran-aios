@@ -596,7 +596,7 @@ function MobilRezervasyonListesi({
       )}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
-        {rows.map((r) => {
+        {rows.map((r, i) => {
           const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
           const masa = masaAdi(r);
           // İKİNCİ SATIR — sadece garsonun kendi listesinde ve notu olan rezervasyonda
@@ -612,16 +612,21 @@ function MobilRezervasyonListesi({
               style={{
                 all: "unset", cursor: acilir(r) ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8,
                 background: info.bg, borderRadius: 10, padding: "12px 14px", boxSizing: "border-box", flexShrink: 0,
+                // Kişi sayısı ve kilit 2 mm daha sağa (Gökhan, 2026-08-18) — sağ boşluk o
+                // kadar kısılıyor, ikisi birlikte kenara yanaşıyor.
+                paddingRight: "calc(14px - 2mm)",
                 // Garsonun kendi postasındaki masa, tam listenin içinde bir bakışta ayrılsın
                 // diye kenarı işaretli (Gökhan, 2026-08-18).
                 borderLeft: postamVar && benimMi(r) ? "4px solid var(--brand)" : undefined,
                 paddingLeft: postamVar && benimMi(r) ? 10 : undefined,
               }}
             >
-              {/* SATIRDA NE VAR (Gökhan, 2026-08-18): saat, isim soyisim, masa, kişi sayısı,
-                  kilit. Sıra numarası, VIP yıldızı ve MİSAFİR/YEDEK etiketleri kaldırıldı —
-                  telefonda yer dar, garsonun bakacağı şeyler bunlar. Saat artık dik tutarken
-                  de yazıyor: akşamın en çok bakılan bilgisi o. */}
+              {/* SATIRDA NE VAR (Gökhan, 2026-08-18): sıra no, saat, isim soyisim, masa
+                  kutusu, kişi sayısı, kilit. VIP yıldızı ve MİSAFİR/YEDEK etiketleri
+                  kaldırıldı — telefonda yer dar. Saat artık dik tutarken de yazıyor:
+                  akşamın en çok bakılan bilgisi o. */}
+              {/* Sıra numarası — masaüstü tablodaki SNO ile aynı (Gökhan, 2026-08-08). */}
+              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", flexShrink: 0, width: 16, textAlign: "right" }}>{i + 1}</span>
               <span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", flexShrink: 0, whiteSpace: "nowrap" }}>{saatFmt.format(new Date(r.reserved_at))}</span>
               {notSatiri ? (
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -631,9 +636,12 @@ function MobilRezervasyonListesi({
               ) : (
                 <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
               )}
-              {/* Masa numarası — kişi sayısının yanında (Gökhan, 2026-08-08). */}
-              {masa && <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{masa}</span>}
-              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: info.color, flexShrink: 0 }}>{r.party_size} pax</span>
+              {/* Masa, isim ile kişi sayısının arasında ve kendi kutusunda (Gökhan,
+                  2026-08-18) — düz yazıyken isme karışıyordu. */}
+              {masa && (
+                <span style={{ fontSize: 12, color: "var(--ink)", flexShrink: 0, whiteSpace: "nowrap", border: "1px solid var(--line-2)", borderRadius: 8, padding: "3px 8px", background: "var(--card)" }}>{masa}</span>
+              )}
+              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: info.color, flexShrink: 0 }}>{r.party_size} px</span>
               {/* Masa kilidi telefonda da olmalı — masaüstü tabloda vardı, kart görünümüne
                   konmamıştı (Gökhan, 2026-08-12: "rezervasyon kilidini unuttuk"). Kart bir
                   buton olduğu için iç içe buton kullanılmıyor; dokunuş kartın açılmasını
