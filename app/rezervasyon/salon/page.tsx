@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import PostaPaneli from "../posta/PostaPaneli";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Trash2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCw, Maximize2, LayoutGrid, ChevronLeft, ChevronRight, Pin, Users } from "lucide-react";
+import { Plus, Copy, Trash2, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCw, Maximize2, LayoutGrid, ChevronLeft, ChevronRight, Pin, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toUpperTr, toTitleTr } from "@/lib/text";
@@ -177,8 +177,12 @@ function SalonInner() {
   const [grupHazir, setGrupHazir] = useState(false);
   const [grupBusy, setGrupBusy] = useState(false);
   const grupModu = grupParam ? masaGruplari.find((g) => g.id === grupParam) ?? null : null;
+  // SEÇİLİ MASA (Gökhan, 2026-08-19: "önce masa seçelim sonra çoğalt butonuna basalım").
+  // Masaya sol tık artık pencere açmıyor, masayı SEÇİYOR; sol menüdeki "Masa çoğalt" ve
+  // "Masa sil" hep bu seçili masaya çalışıyor. Aynı masaya tekrar tıklamak seçimi bırakır.
+  const [seciliMasaId, setSeciliMasaId] = useState<string | null>(null);
   // Hızlı masa çoğaltma (Gökhan: "bir masa açtım, yön seçtim, adet ve aralık girdim, o
-  // yönde o kadar masa açtı") — sağ tık menüsündeki "Çoğalt" mini formu.
+  // yönde o kadar masa açtı") — sol menüdeki "Masa çoğalt" düğmesinin altında açılan mini form.
   const [cogaltAcik, setCogaltAcik] = useState(false);
   const [cogaltYon, setCogaltYon] = useState<"sag" | "sol" | "yukari" | "asagi">("sag");
   const [cogaltAdet, setCogaltAdet] = useState("3");
@@ -510,10 +514,10 @@ function SalonInner() {
     setSifirlaBusy(false);
   };
 
-  // MASAYA TIKLAYINCA — rezervasyon sayfasına gitmek yerine burada bir liste açılır ve o
-  // masaya oturtulacak rezervasyon seçilir (Gökhan, 2026-08-12: "masaya tıkladığımda
-  // rezervasyon listesi açılsın, orada seçsin oturtacağı rezervasyonu"). Yedekler listede
-  // yok — masa tutmazlar. Zaten oturmuş rezervasyonlar da yok.
+  // BOŞTA OLAN REZERVASYONLAR — masaya oturtulacak adaylar (Gökhan, 2026-08-12: "masaya
+  // tıkladığımda rezervasyon listesi açılsın, orada seçsin oturtacağı rezervasyonu").
+  // Yedekler listede yok — masa tutmazlar. Zaten oturmuş rezervasyonlar da yok.
+  // 2026-08-19'dan beri ayrı pencerede değil, masanın SAĞ TIK menüsünün üstünde duruyor.
   type OturtAdayi = { id: string; guest_name: string; party_size: number; reserved_at: string; status: string };
   const [oturtMasa, setOturtMasa] = useState<TableRow | null>(null);
   const [oturtAdaylar, setOturtAdaylar] = useState<OturtAdayi[] | null>(null);
@@ -615,7 +619,7 @@ function SalonInner() {
     if (secilen.length > 1) {
       setErr(`${rez.guest_name} için ${secilen.length} masa birleştirildi: ${secilen.map((t) => t.name).join(", ")}.`);
     }
-    setOturtMasa(null); setOturtAdaylar(null);
+    setOturtMasa(null); setOturtAdaylar(null); setCtxMenu(null);
     // Birleşen masalar planda da yan yana gelsin — atama tek başına masaları oynatmıyordu,
     // sadece rengi değişip ismi yazıyordu (Gökhan, 2026-08-12: "birleşmedi, sadece renk
     // değişti"). Salon düzenini tazeleyen fonksiyon masaları dip dibe getiriyor.
@@ -1118,6 +1122,22 @@ function SalonInner() {
   const odaDerinlikPx = selectedArea?.derinlik_cm ? selectedArea.derinlik_cm * PX_PER_CM : null;
 
   const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId).sort((x, y) => x.sort_order - y.sort_order);
+  // Sol menüdeki Masa çoğalt / Masa sil bu masaya çalışır. Masa silinir ya da başka salona
+  // geçilirse seçim kendiliğinden düşer — düğmeler o zaman "önce bir masa seç" der.
+  const seciliMasa = tablesInArea.find((t) => t.id === seciliMasaId) ?? null;
+  // Esc her şeyi bırakır: masa seçimi, çoğaltma formu ve açık sağ tık menüsü.
+  useEffect(() => {
+    const kapat = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setSeciliMasaId(null);
+      setCogaltAcik(false);
+      setCtxMenu(null);
+      setOturtMasa(null);
+      setOturtAdaylar(null);
+    };
+    window.addEventListener("keydown", kapat);
+    return () => window.removeEventListener("keydown", kapat);
+  }, []);
   // Yeni masa salonun İÇİNE konur: ızgaranın sütun sayısı salonun enine göre çıkar. Eskiden
   // sabit beş sütundu; dar bir salonda yeni masa çizginin dışına düşüyor, tuval büyüyor ve
   // ortalanmış salon kayıyordu (Gökhan, 2026-08-13: "masa sildim ekledim, salon yer değiştirdi").
@@ -1343,7 +1363,18 @@ function SalonInner() {
     // düğme kalabalığı tek satıra indirildi; kalan bütün yükseklik plana veriliyor.
     // Yükseklikte svh kullanılıyor: telefon tarayıcısının adres çubuğu yüzünden 100vh gerçek
     // görünen alandan büyük çıkıyor, planın altı nav'ın arkasında kalıyordu.
-    <div className="salon-sayfa" style={{ padding: isMobile ? "8px 8px" : "20px 24px", paddingBottom: yatayMobil ? 8 : (isMobile ? ALT_NAV_YUKSEKLIK + 8 : 24), height: isMobile ? undefined : "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden", background: "var(--canvas)", touchAction: isMobile ? "pan-x pan-y" : undefined }}>
+    // TARAYICININ KENDİ SAĞ TIK MENÜSÜ BU SAYFADA ÇIKMIYOR (Gökhan, 2026-08-19: "windows
+    // menüsü açılmasın"). Masanın kenarına, boş tuvale ya da açık bir pencerenin perdesine
+    // sağ tıklayınca Chrome'un menüsü açılıyordu; program menüsünü beklerken "Geri / Yeniden
+    // yükle" listesi çıkıyordu. Yazı kutuları hariç — orada kes/kopyala/yapıştır lazım.
+    <div
+      className="salon-sayfa"
+      onContextMenu={(e) => {
+        const hedef = e.target as HTMLElement | null;
+        const yaziKutusu = hedef?.closest("input, textarea, select, [contenteditable='true']");
+        if (!yaziKutusu) e.preventDefault();
+      }}
+      style={{ padding: isMobile ? "8px 8px" : "20px 24px", paddingBottom: yatayMobil ? 8 : (isMobile ? ALT_NAV_YUKSEKLIK + 8 : 24), height: isMobile ? undefined : "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden", background: "var(--canvas)", touchAction: isMobile ? "pan-x pan-y" : undefined }}>
       {/* Yukarıdaki kutuYazi() tek tek ulaşabildiğim kutuları 16 puntoya çekiyor; bu kural da
           ulaşamadıklarını (masa/öğe adı çift dokununca açılan kutu — ortak bileşen, ona
           dokunmuyorum) yakalıyor. Amaç aynı: telefon tarayıcısı hiçbir kutuda sayfayı
@@ -1360,55 +1391,8 @@ function SalonInner() {
       `}</style>}
       {confirmDialog}
 
-      {/* MASAYA OTURT — masaya tıklayınca açılır, o masaya oturtulacak rezervasyon seçilir. */}
-      {oturtMasa && (
-        <div
-          style={{ position: "fixed", inset: 0, background: "rgba(20,20,15,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60 }}
-          onClick={() => { setOturtMasa(null); setOturtAdaylar(null); }}
-        >
-          <div
-            style={{ background: "var(--card)", borderRadius: 16, padding: 20, width: "min(380px, 92vw)", maxHeight: "min(70vh, 520px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)" }}>{oturtMasa.name}</div>
-            <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 12 }}>
-              {oturtMasa.seat_count} kişilik · bu masa kime ayrılsın?
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
-              {oturtAdaylar === null && <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Yükleniyor…</div>}
-              {oturtAdaylar !== null && oturtAdaylar.length === 0 && (
-                <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Bugün oturtulacak rezervasyon yok.</div>
-              )}
-              {(oturtAdaylar ?? []).map((r) => (
-                <button
-                  key={r.id} onClick={() => oturtSec(r)} disabled={oturtBusy}
-                  style={{
-                    all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8,
-                    border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px",
-                    background: "var(--card)", opacity: oturtBusy ? 0.5 : 1,
-                  }}
-                >
-                  <span className="tnum" style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>
-                    {new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(new Date(r.reserved_at))}
-                  </span>
-                  <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.guest_name}
-                  </span>
-                  <span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: r.party_size > oturtMasa.seat_count ? "var(--danger)" : "var(--brand-strong)", flexShrink: 0 }}>
-                    {r.party_size} kişi
-                  </span>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => { setOturtMasa(null); setOturtAdaylar(null); }}
-              style={{ ...btnSecondaryHeader, marginTop: 12, justifyContent: "center" }}
-            >
-              Vazgeç
-            </button>
-          </div>
-        </div>
-      )}
+      {/* MASAYA OTURT penceresi kaldırıldı (Gökhan, 2026-08-19). Sol tık artık masayı seçiyor;
+          "boşta olan rezervasyonlar" listesi masanın SAĞ TIK menüsünün üstünde duruyor. */}
 
       {/* RZV + işletme adı + Salon + Çıkış satırı telefonda da duruyor (Gökhan, 2026-08-10:
           "onları yerine tekrar koy, salona kaldığı kadar yer kalsın"). Plan bu satırdan
@@ -1719,6 +1703,96 @@ function SalonInner() {
           <Plus size={14} /> Masa ekle
         </button>
 
+        {/* MASA ÇOĞALT ve MASA SİL — ikisi de "önce masayı seç, sonra düğmeye bas" ile
+            çalışıyor (Gökhan, 2026-08-19: "önce masa seçelim sonra çoğalt butonuna basalım,
+            menü butonun altına açılsın"). Çoğaltma eskiden masanın sağ tık menüsündeydi. */}
+        {seciliMasa && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", padding: "0 2px" }}>
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              Seçili: <span style={{ color: "var(--ink-green)", fontWeight: 600 }}>{seciliMasa.name}</span>
+            </span>
+            <button
+              onClick={() => { setSeciliMasaId(null); setCogaltAcik(false); }}
+              title="Seçimi bırak"
+              style={{ all: "unset", cursor: "pointer", color: "var(--muted-2)", fontSize: 15, lineHeight: 1, padding: "0 2px" }}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <button
+          onClick={() => {
+            if (!seciliMasa) { setErr("Önce çoğaltmak istediğin masaya tıkla."); return; }
+            setErr(null);
+            setCogaltAcik((v) => !v);
+          }}
+          disabled={!selectedAreaId}
+          style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
+        >
+          <Copy size={14} /> Masa çoğalt
+        </button>
+
+        {/* Çoğaltma seçenekleri düğmenin hemen altında — yön, adet, aralık. */}
+        {cogaltAcik && seciliMasa && (
+          <div style={{ border: "1px solid var(--line)", borderRadius: 12, padding: 10, background: "var(--card)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 11.5, color: "var(--muted)" }}>Yön</div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {([["sag", ArrowRight], ["sol", ArrowLeft], ["yukari", ArrowUp], ["asagi", ArrowDown]] as const).map(([y, Icon]) => (
+                <button
+                  key={y} onClick={() => setCogaltYon(y)}
+                  style={{
+                    all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+                    width: 28, height: 28, borderRadius: 8,
+                    border: cogaltYon === y ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
+                    color: cogaltYon === y ? "var(--brand-strong)" : "var(--ink)",
+                  }}
+                >
+                  <Icon size={14} />
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <div>
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 4 }}>Adet</div>
+                <input
+                  value={cogaltAdet} onChange={(e) => setCogaltAdet(e.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: kutuYazi(13), width: kutuEn(44), background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 4 }}>Aralık (cm)</div>
+                <input
+                  value={cogaltAralik} onChange={(e) => setCogaltAralik(e.target.value.replace(/[^0-9.,]/g, ""))}
+                  inputMode="decimal" className="tnum"
+                  style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: kutuYazi(13), width: kutuEn(56), background: "var(--card)", color: "var(--ink)", outline: "none" }}
+                />
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                const pos = placed.find((p) => p.table.id === seciliMasa.id);
+                cogaltTable(seciliMasa, pos?.x ?? seciliMasa.position_x ?? 0, pos?.y ?? seciliMasa.position_y ?? 0);
+              }}
+              style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: "var(--brand-strong)", color: "#fff", fontSize: 12.5, cursor: "pointer", width: "100%" }}
+            >
+              Ekle
+            </button>
+          </div>
+        )}
+
+        <button
+          onClick={() => {
+            if (!seciliMasa) { setErr("Önce silmek istediğin masaya tıkla."); return; }
+            setErr(null);
+            void deleteTable(seciliMasa);
+          }}
+          disabled={!selectedAreaId}
+          style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
+        >
+          <Trash2 size={14} /> Masa sil
+        </button>
+
         {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
             çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
         <div style={{ position: "relative" }}>
@@ -1787,6 +1861,9 @@ function SalonInner() {
               <div style={{ position: "relative", flexShrink: 0, margin: "auto", width: (cevir ? containerHeight : containerWidth) * zoom, height: (cevir ? containerWidth : containerHeight) * zoom }}>
                 <div
                   onPointerDown={onCanvasPanDown} onPointerMove={onCanvasPanMove} onPointerUp={onCanvasPanUp}
+                  // Boşluğa tıklamak masa seçimini bırakır — masaya değil tuvale denk gelen
+                  // tıklamada seçim asılı kalmasın (Gökhan, 2026-08-19).
+                  onClick={(e) => { if (e.target === e.currentTarget) { setSeciliMasaId(null); setCogaltAcik(false); } }}
                   style={{
                     position: "absolute", left: 0, top: 0, width: containerWidth, height: containerHeight,
                     transform: cevir ? `translate(${containerHeight * zoom}px, 0px) rotate(90deg) scale(${zoom})` : `scale(${zoom})`,
@@ -1820,6 +1897,9 @@ function SalonInner() {
                       onContextMenu={(x2, y2) => setOgeCtxMenu({ ...menuKonum(x2, y2, 210, 60), oge: o })}
                     />
                   ))}
+                  {/* Masalar. Sol tık masayı SEÇER — sol menüdeki "Masa çoğalt" ve "Masa sil"
+                      seçili masaya çalışır. Sağ tık, üstte boşta olan rezervasyonlar olmak
+                      üzere masa menüsünü açar (Gökhan, 2026-08-19). */}
                   {positioned.map(({ table: t, x, y }) => (
                     <TableBox
                       key={t.id}
@@ -1836,8 +1916,9 @@ function SalonInner() {
                       onMove={moveTable}
                       onRename={(v) => renameTable(t.id, v)}
                       onRotate={() => rotateTable(t.id, t.rotated)}
-                      onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCogaltAcik(false); setCtxMenu({ ...menuKonum(x2, y2, 230, 420), table: t }); }}
-                      onKullanimTikla={() => (grupModu ? grupMasaSec(t.id) : oturtmaAc(t))}
+                      onContextMenu={(x2, y2) => { setKoltukInput(String(t.seat_count ?? 4)); setCtxMenu({ ...menuKonum(x2, y2, 250, 430), table: t }); void oturtmaAc(t); }}
+                      onKullanimTikla={() => (grupModu ? grupMasaSec(t.id) : setSeciliMasaId((s) => (s === t.id ? null : t.id)))}
+                      secili={seciliMasaId === t.id}
                       grupSecili={grupModu ? grupSecim.has(t.id) : null}
                       postada={postam.has(t.id)}
                     />
@@ -1865,18 +1946,56 @@ function SalonInner() {
 
       {ctxMenu && (
         <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 60 }}
+            onClick={() => { setCtxMenu(null); setOturtMasa(null); setOturtAdaylar(null); }}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); setOturtMasa(null); setOturtAdaylar(null); }}
+          />
           <div style={{ position: "fixed", left: ctxMenu.x, top: ctxMenu.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
             {ctxMenu.table && (
               <>
-                <div style={{ padding: "8px 12px 9px" }}>
+                {/* BOŞTA OLAN REZERVASYONLAR — bugünün, henüz oturmamış rezervasyonları
+                    (Gökhan, 2026-08-19: "sağ tıkladığımda boşta olan rezervasyonların listesi
+                    açılsın"). Birine basınca masa o rezervasyona verilir; masa yetmezse
+                    program yanındaki boş masalarla tamamlar. */}
+                <div style={{ padding: "8px 12px 9px", width: 226, boxSizing: "border-box" }}>
+                  <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Boşta olan rezervasyonlar</div>
+                  <div style={{ maxHeight: 196, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+                    {oturtAdaylar === null && <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Yükleniyor…</div>}
+                    {oturtAdaylar !== null && oturtAdaylar.length === 0 && (
+                      <div style={{ fontSize: 12.5, color: "var(--muted)" }}>Bugün oturtulacak rezervasyon yok.</div>
+                    )}
+                    {(oturtAdaylar ?? []).map((r) => (
+                      <button
+                        key={r.id} onClick={() => oturtSec(r)} disabled={oturtBusy}
+                        style={{
+                          all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 7,
+                          border: "1px solid var(--line-2)", borderRadius: 9, padding: "7px 9px",
+                          background: "var(--card)", opacity: oturtBusy ? 0.5 : 1, boxSizing: "border-box",
+                        }}
+                      >
+                        <span className="tnum" style={{ fontSize: 11.5, color: "var(--muted)", flexShrink: 0 }}>
+                          {new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }).format(new Date(r.reserved_at))}
+                        </span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.guest_name}
+                        </span>
+                        <span className="tnum" style={{ fontSize: 12.5, fontWeight: 600, color: r.party_size > (ctxMenu.table?.seat_count ?? 0) ? "var(--danger)" : "var(--brand-strong)", flexShrink: 0 }}>
+                          {r.party_size}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ padding: "9px 12px", borderTop: "1px solid var(--line)" }}>
                   <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Koltuk sayısı</div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <input
                       value={koltukInput}
                       onChange={(e) => setKoltukInput(e.target.value.replace(/\D/g, ""))}
                       onKeyDown={(e) => e.key === "Enter" && saveSeatCount(ctxMenu.table!.id)}
-                      inputMode="numeric" autoFocus className="tnum"
+                      inputMode="numeric" className="tnum"
                       style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: kutuYazi(13), width: kutuEn(56), background: "var(--card)", color: "var(--ink)", outline: "none" }}
                     />
                     <button onClick={() => saveSeatCount(ctxMenu.table!.id)} style={{ border: "none", borderRadius: 8, padding: "6px 12px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, cursor: "pointer" }}>Kaydet</button>
@@ -1900,78 +2019,8 @@ function SalonInner() {
                   </div>
                 )}
 
-                {/* Hızlı çoğaltma (Gökhan: "bir masa açtım, yön seçtim, adet ve aralık girdim,
-                    o kadar masayı açtı") — bu masanın aynısından yön+adet+aralık ile seri üretir. */}
-                <div style={{ padding: "9px 12px", borderTop: "1px solid var(--line)" }}>
-                  {!cogaltAcik ? (
-                    <button
-                      onClick={() => setCogaltAcik(true)}
-                      style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", fontSize: 13.5, color: "var(--ink-green)" }}
-                    >
-                      <Plus size={14} /> Çoğalt
-                    </button>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Yön</div>
-                      <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-                        {([["sag", ArrowRight], ["sol", ArrowLeft], ["yukari", ArrowUp], ["asagi", ArrowDown]] as const).map(([y, Icon]) => (
-                          <button
-                            key={y} onClick={() => setCogaltYon(y)}
-                            style={{
-                              all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                              width: 28, height: 28, borderRadius: 8,
-                              border: cogaltYon === y ? "2px solid var(--brand-strong)" : "1px solid var(--line-2)",
-                              color: cogaltYon === y ? "var(--brand-strong)" : "var(--ink)",
-                            }}
-                          >
-                            <Icon size={14} />
-                          </button>
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                        <div>
-                          <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Adet</div>
-                          <input
-                            value={cogaltAdet} onChange={(e) => setCogaltAdet(e.target.value.replace(/\D/g, ""))}
-                            inputMode="numeric" className="tnum"
-                            style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: kutuYazi(13), width: kutuEn(44), background: "var(--card)", color: "var(--ink)", outline: "none" }}
-                          />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11.5, color: "var(--muted)", marginBottom: 5 }}>Aralık (cm)</div>
-                          <input
-                            value={cogaltAralik} onChange={(e) => setCogaltAralik(e.target.value.replace(/[^0-9.,]/g, ""))}
-                            inputMode="decimal" className="tnum"
-                            style={{ border: "1px solid var(--line-2)", borderRadius: 8, padding: "6px 8px", fontSize: kutuYazi(13), width: kutuEn(56), background: "var(--card)", color: "var(--ink)", outline: "none" }}
-                          />
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const t = ctxMenu.table!;
-                          const pos = placed.find((p) => p.table.id === t.id);
-                          cogaltTable(t, pos?.x ?? t.position_x ?? 0, pos?.y ?? t.position_y ?? 0);
-                        }}
-                        style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: "var(--brand-strong)", color: "#fff", fontSize: 12.5, cursor: "pointer", width: "100%" }}
-                      >
-                        Ekle
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                {ctxMenu.table.status !== "empty" ? (
-                  <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--muted-2)", maxWidth: 200, borderTop: "1px solid var(--line)" }}>
-                    Bu masa {ctxMenu.table.status === "occupied" ? "dolu" : "rezerve"} — silmeden önce boşalması gerekiyor.
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => { const t = ctxMenu.table!; setCtxMenu(null); deleteTable(t); }}
-                    style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)", borderTop: "1px solid var(--line)" }}
-                  >
-                    <Trash2 size={14} /> Masa sil
-                  </button>
-                )}
+                {/* Çoğaltma ve silme buradan kalktı — ikisi de sol menüde, "önce masayı seç,
+                    sonra düğmeye bas" akışında (Gökhan, 2026-08-19). */}
               </>
             )}
           </div>
@@ -2127,9 +2176,9 @@ function SalonInner() {
 const surukleFarki = ekranYonunuPlanaCevir;
 
 function TableBox({
-  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, ozelOlculer, oturan, grup, grupSecili, postada, cevir, odaW, odaH, onSurukleme, onMove, onRename, onRotate, onContextMenu, onKullanimTikla,
+  table, x, y, zoom, hizaXNoktalari, hizaYNoktalari, ozelOlculer, oturan, grup, grupSecili, secili, postada, cevir, odaW, odaH, onSurukleme, onMove, onRename, onRotate, onContextMenu, onKullanimTikla,
 }: {
-  table: TableRow; x: number; y: number; zoom: number; hizaXNoktalari: number[]; hizaYNoktalari: number[]; ozelOlculer: MasaOlcusu[]; oturan: OturanBilgi | null; grup: { id: string; ad: string; renk: string } | null; grupSecili: boolean | null; postada: boolean;
+  table: TableRow; x: number; y: number; zoom: number; hizaXNoktalari: number[]; hizaYNoktalari: number[]; ozelOlculer: MasaOlcusu[]; oturan: OturanBilgi | null; grup: { id: string; ad: string; renk: string } | null; grupSecili: boolean | null; secili: boolean; postada: boolean;
   cevir: boolean; odaW: number | null; odaH: number | null; onSurukleme: (v: boolean) => void;
   onMove: (id: string, x: number, y: number) => void; onRename: (v: string) => void; onRotate: () => void; onContextMenu: (x: number, y: number) => void;
   onKullanimTikla: () => void;
@@ -2277,6 +2326,10 @@ function TableBox({
           ...(grupSecili === null ? {} : grupSecili
             ? { boxShadow: "0 0 0 3px var(--brand-strong)" }
             : { opacity: 0.4 }),
+          // SEÇİLİ MASA — sol tıkla seçilen masa (Gökhan, 2026-08-19). Sol menüdeki çoğalt/sil
+          // buna çalıştığı için hangi masa olduğu gözle görünmeli; en son o yazılıyor ki
+          // posta/grup vurgusunun üstünde kalsın.
+          ...(secili ? { boxShadow: "0 0 0 3px var(--brand-strong), 0 0 12px rgba(0,112,74,.35)" } : {}),
         }}
       >
       {/* Yazılar ayrı bir katmanda: plan 90° çevrildiğinde bu katman ters yöne çevrilip
