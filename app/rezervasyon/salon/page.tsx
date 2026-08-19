@@ -195,7 +195,13 @@ function SalonInner() {
   // İşletmeye özel masa ölçüleri (Ayarlar > Masa Ölçüleri'nde girilir) — girilmeyen
   // kombinasyonlar CM_OLCU varsayılanını kullanmaya devam eder.
   const [ozelOlculer, setOzelOlculer] = useState<MasaOlcusu[]>([]);
+  // "Öğe ekle" açılır listesi. Sol menü kendi içinde kaydırılabilir bir kutu (overflow:auto);
+  // liste kutunun içine mutlak yerleştirilince alt kenardan taşan kısmı kırpılıyordu —
+  // düğmeler çoğalınca liste hiç görünmez oldu (Gökhan, 2026-08-19: "öğe ekle dediğimde sol
+  // menü aşağıya inmiyor"). Artık sağ tık menüleri gibi ekrana sabitleniyor, düğmenin altına
+  // açılıyor, yer yoksa yukarı taşıyor.
   const [ogeMenuAcik, setOgeMenuAcik] = useState(false);
+  const [ogeMenuKonum, setOgeMenuKonum] = useState<{ x: number; y: number } | null>(null);
   const [ogeCtxMenu, setOgeCtxMenu] = useState<{ x: number; y: number; oge: SalonOge } | null>(null);
   // Salon ölçeklendirme (Gökhan: "salon ölçeklendirmeyi nasıl yapacağız") — gerçek en/boy (m)
   // girişi + yakınlaştırma. olcuInput sadece salon değişince senkronlanır (poll her 6sn'de
@@ -1336,6 +1342,16 @@ function SalonInner() {
     return { x, y };
   };
 
+  // "Öğe ekle" listesi düğmenin altına, ekrana sabitlenerek açılıyor — sol menünün kaydırma
+  // kutusuna hapsolup kırpılmasın diye (Gökhan, 2026-08-19).
+  const ogeMenuAc = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!selectedAreaId) return;
+    if (ogeMenuAcik) { setOgeMenuAcik(false); return; }
+    const r = e.currentTarget.getBoundingClientRect();
+    setOgeMenuKonum(menuKonum(r.left, r.bottom + 6, 190, 300));
+    setOgeMenuAcik(true);
+  };
+
   const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
   const doluSayisi = tables.filter((t) => t.status !== "empty").length;
 
@@ -1482,7 +1498,7 @@ function SalonInner() {
               </button>
               <div style={{ position: "relative" }}>
                 <button
-                  onClick={() => { if (!selectedAreaId) return; setOgeMenuAcik((v) => !v); }}
+                  onClick={ogeMenuAc}
                   disabled={!selectedAreaId}
                   style={{ ...btnSecondaryHeader, padding: "7px 11px", fontSize: 12.5, opacity: !selectedAreaId ? 0.5 : 1 }}
                 >
@@ -1491,7 +1507,7 @@ function SalonInner() {
                 {ogeMenuAcik && (
                   <>
                     <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeMenuAcik(false)} />
-                    <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 150 }}>
+                    <div style={{ position: "fixed", left: ogeMenuKonum?.x ?? 0, top: ogeMenuKonum?.y ?? 0, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 150 }}>
                       <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "6px 10px 2px" }}>Çekip uzatılır</div>
                       {CEKME_TIPLERI.map((t) => (<button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>))}
                       <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "8px 10px 2px", borderTop: "1px solid var(--line)", marginTop: 4 }}>Sürüklenir</div>
@@ -1797,7 +1813,7 @@ function SalonInner() {
             çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
         <div style={{ position: "relative" }}>
               <button
-                onClick={() => { if (!selectedAreaId) return; setOgeMenuAcik((v) => !v); }}
+                onClick={ogeMenuAc}
                 disabled={!selectedAreaId}
                 style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
               >
@@ -1806,7 +1822,7 @@ function SalonInner() {
               {ogeMenuAcik && (
                 <>
                   <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeMenuAcik(false)} />
-                  <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+                  <div style={{ position: "fixed", left: ogeMenuKonum?.x ?? 0, top: ogeMenuKonum?.y ?? 0, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
                     <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--muted-2)", padding: "6px 10px 2px" }}>Çekip uzatılır</div>
                     {CEKME_TIPLERI.map((t) => (
                       <button key={t.type} onClick={() => addOge(t.type)} style={ogeMenuBtn}>{t.label}</button>
