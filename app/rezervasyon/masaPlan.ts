@@ -222,6 +222,22 @@ const siralaraBol = (masalar: PlanMasa[]): PlanMasa[][] => {
   return konumsuz.length ? [...siralar, konumsuz] : siralar;
 };
 
+// Masaları SÜTUNLARA böler: aynı düşey hattaki masalar aynı sütun, her sütun yukarıdan aşağı
+// dizili (Gökhan, 2026-08-19). Dik duran (çevrilmiş) masalar alt alta birleştiği için komşuluk
+// orada düşey hat üzerinde aranıyor; sıralara bölme yatay birleşmenin karşılığı.
+// Sıralarda olduğu gibi her salon kendi içinde.
+const sutunlaraBol = (masalar: PlanMasa[]): PlanMasa[][] => {
+  const konumlu = masalar.filter((m) => asilKX(m) !== null && asilKY(m) !== null);
+  const sutunlar: PlanMasa[][] = [];
+  [...konumlu].sort((a, b) => asilKX(a)! - asilKX(b)!).forEach((m) => {
+    const s = sutunlar.find((s) => (s[0].alanId ?? null) === (m.alanId ?? null)
+      && Math.abs(asilKX(s[0])! - asilKX(m)!) <= SIRA_TOLERANS);
+    if (s) s.push(m); else sutunlar.push([m]);
+  });
+  sutunlar.forEach((s) => s.sort((a, b) => asilKY(a)! - asilKY(b)!));
+  return sutunlar;
+};
+
 // Bir gruba uyan masa kümeleri. Masalar taşınabildiği için yan yanalık ARTIK ŞART DEĞİL
 // (Gökhan: "öncelik en mantıklı dizilimi en yakından yapmak, ama en mantıklı dizilim uzakta
 // ise masalar taşınır") — yan yanalık sadece tercih, taşıma sayısı olarak tartıya giriyor.
@@ -285,52 +301,105 @@ const uzaklik = (m: PlanMasa, t: YakinlikTercihi) => {
 const secimUzakligi = (secim: PlanMasa[], t: YakinlikTercihi) =>
   Math.min(...secim.map((m) => uzaklik(m, t)));
 
-// BİR REZERVASYONUN MASALARI HER ZAMAN BİTİŞİKTİR (Gökhan, 2026-08-19: "birleşmeyi yanlış
-// algılıyor, yön bilmiyor, hangi yönden alacağına karar veremiyor... masa değiştirir salonun
-// öbür ucuna, burada rezervasyonu atar ve yanındakiyle birleştirir").
+// BİRLEŞME YÖNÜ (Gökhan, 2026-08-19: "masalar ne tarafa birleşeceğini nasıl bilecekler,
+// sorun şu an o... salonda masanın yönü sabit bir tarafa olacak diye bir şey yok").
 //
-// ESKİDEN: bir sıradaki yan yana boş masalar "temel" alınır, eksik kalan boy salonun BAŞKA bir
-// yerinden — aynı boyda olan en yakın masadan — çekilirdi. Yakınlık ölçüsü sadece "aynı sıra +
-// yatay uzaklık" olduğu için, temelin hemen yanındaki masa yerine beş masa ötedeki de
-// seçilebiliyordu: o masa kümeye taşınıyor, geçtiği yerdeki masaları itiyor, arkasında delik
-// bırakıyordu. Yön diye bir kural yoktu.
+// Kural: KISA KENARLAR ÖPÜŞÜR (Gökhan, 2026-08-14) — ama bu masanın salondaki duruşuna göre
+// hesaplanır, sabit bir yön yoktur:
+//   • Geniş duran masa (eni boyundan büyük) YAN YANA birleşir; değen kenarlar kısa kenarlardır,
+//     uzun kenarlar (120'lik gibi) asla yapışmaz.
+//   • Dik duran masa (çevrilmiş, boyu eninden büyük) ALT ALTA birleşir.
+//   • Kare masada iki yön de aynıdır; yön komşudan gelir — bitişik boş masa hangi taraftaysa.
 //
-// ARTIK: küme, bir sırada YAN YANA duran boş masalardan seçilir; gereken boyları tam karşılayan
-// bitişik pencere aranır. Masa taşınmaz — bitişik yer başka bir yerdeyse REZERVASYON oraya
-// gider. Hiçbir sırada bitişik pencere yoksa bu boy adayı elenir, çağıran taraf başka boy
-// kombinasyonu dener (tam ölçü → üst boy → birleştirme sırası bozulmadan). Hiçbiri tutmazsa
-// rezervasyon masasız kalır ve işletmeye söylenir; masalarda müşteri otururken zaten birleştirme
-// elle yapılır.
+// Seçim ile çizim AYNI yönü kullanır. Eskiden ayrışıyorlardı: seçim masaları hep aynı sıradan
+// yan yana alıyor, çizim ise masa dik duruyorsa onları alt alta diziyordu; küme sıradan çıkıp
+// alttaki sıraya biniyordu (Gökhan, 2026-08-19 ekran görüntüsü).
 //
-// Böylece program masayı ancak kümenin kendi üyelerini dip dibe getirmek için oynatır
-// (bkz. birlesikYerlesim); rezervasyonu olmayan masa kendi yerinde kalır.
+// Bitişik hazır yer yoksa masa TAŞINIR (Gökhan, 2026-08-19: "ihtimal yoksa 2+2+2 yapar ama
+// ihtimal daima vardır", taşıma sınırı sorulduğunda "sınırsız olsun"): boy sırası (en az israf →
+// en az masa) bozulmaz, eksik masa kümenin yanına getirilir. Böylece 6 kişilik rezervasyon
+// 4+2 ile kurulur; 2+2+2 ancak 4+2 hiçbir şekilde kurulamıyorsa devreye girer.
 const masalariSec = (
   siralar: PlanMasa[][], bosIds: Set<string>, boylar: number[], tercih?: YakinlikTercihi,
-  // Rezervasyonun ŞU ANKİ masaları — birden fazla uygun bitişik yer varsa en yakını seçilir.
+  // Rezervasyonun ŞU ANKİ masaları — birden fazla uygun yer varsa en yakını seçilir.
   mevcutMasalar: PlanMasa[] = [],
 ): { masalar: PlanMasa[]; taşımaSayisi: number } | null => {
   const gereken = [...boylar].sort((a, b) => b - a);
 
-  // Her sıradaki yan yana boş masa dizileri; onların içinde gereken boyları TAM karşılayan
-  // bitişik pencereler aday olur.
-  const adaylar: PlanMasa[][] = [];
-  siralar.forEach((sira) => {
-    const parcalar: PlanMasa[][] = [];
+  // Masanın kendi duruşu hangi yönde birleşmeye uygun: geniş → yatay, dik → dikey, kare → ikisi.
+  const yonUygun = (cipa: PlanMasa, dikey: boolean) => {
+    if (gereken.length < 2) return true; // tek masa — birleşme yok, yön de yok
+    const g = cipa.genislik ?? 0, y = cipa.yukseklik ?? 0;
+    if (g === y) return true;            // kare
+    return dikey ? y > g : g > y;
+  };
+
+  // Bir hat (sıra ya da sütun) üzerindeki YAN YANA boş masa dizileri — dolu masa hattı böler.
+  const bosParcalar = (hat: PlanMasa[]): PlanMasa[][] => {
+    const cikti: PlanMasa[][] = [];
     let aktif: PlanMasa[] = [];
-    sira.forEach((m) => {
+    hat.forEach((m) => {
       if (bosIds.has(m.id)) aktif.push(m);
-      else { if (aktif.length) parcalar.push(aktif); aktif = []; }
+      else { if (aktif.length) cikti.push(aktif); aktif = []; }
     });
-    if (aktif.length) parcalar.push(aktif);
-    parcalar.forEach((p) => {
+    if (aktif.length) cikti.push(aktif);
+    return cikti;
+  };
+
+  // Sıralar yatay hat, sütunlar dikey hat. Dik duran masalar alt alta birleşeceği için sütun
+  // komşuluğu da aranıyor — eskiden sadece sıralara bakılıyordu.
+  const hatlar: { hat: PlanMasa[]; dikey: boolean }[] = [
+    ...siralar.map((s) => ({ hat: s, dikey: false })),
+    ...sutunlaraBol(siralar.flat()).map((s) => ({ hat: s, dikey: true })),
+  ];
+
+  // 1) TAŞIMASIZ: gereken boyları tam karşılayan bitişik pencere.
+  const adaylar: PlanMasa[][] = [];
+  const gorulen = new Set<string>();
+  hatlar.forEach(({ hat, dikey }) => {
+    bosParcalar(hat).forEach((p) => {
       for (let i = 0; i + gereken.length <= p.length; i++) {
         const pencere = p.slice(i, i + gereken.length);
         const boylari = pencere.map((m) => m.seat_count).sort((a, b) => b - a);
-        if (boylari.every((b, k) => b === gereken[k])) adaylar.push(pencere);
+        if (!boylari.every((b, k) => b === gereken[k])) continue;
+        if (!yonUygun(pencere[0], dikey)) continue;
+        const anahtar = pencere.map((m) => m.id).sort().join("|");
+        if (gorulen.has(anahtar)) continue;
+        gorulen.add(anahtar);
+        adaylar.push(pencere);
       }
     });
   });
-  if (adaylar.length === 0) return null;
+
+  // 2) TAŞIMALI: hazır bitişik yer yoksa, en çok boyu karşılayan bitişik parça temel alınır,
+  // eksik masalar en yakından çekilir. Çekilen masa kümenin yanına taşınır (birlesikYerlesim
+  // onları çıpanın yönünde dip dibe dizer).
+  const taşımali: { masalar: PlanMasa[]; taşımaSayisi: number }[] = [];
+  if (adaylar.length === 0) {
+    hatlar.forEach(({ hat, dikey }) => {
+      bosParcalar(hat).forEach((temel) => {
+        if (!yonUygun(temel[0], dikey)) return;
+        const kalanGereken = [...gereken];
+        const secilen: PlanMasa[] = [];
+        temel.forEach((m) => {
+          const i = kalanGereken.indexOf(m.seat_count);
+          if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
+        });
+        if (secilen.length === 0) return;
+        // Eksik masa AYNI SALONDAN çekilir; başka salondan masa katılmaz.
+        const merkez = secilen[0];
+        const disarisi = siralar.flat().filter((m) => bosIds.has(m.id) && !secilen.includes(m)
+          && (m.alanId ?? null) === (merkez.alanId ?? null));
+        komsulukSirasi(disarisi, merkez).forEach((m) => {
+          const i = kalanGereken.indexOf(m.seat_count);
+          if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
+        });
+        if (kalanGereken.length > 0) return;
+        taşımali.push({ masalar: secilen, taşımaSayisi: secilen.filter((m) => !temel.includes(m)).length });
+      });
+    });
+    if (taşımali.length === 0) return null;
+  }
 
   // Rezervasyonun şu anki masalarının ortası — eşit adaylar arasında en yakını kazansın diye.
   const mevcutMerkez = mevcutMasalar
@@ -357,23 +426,32 @@ const masalariSec = (
   let enIyiMevcut = Number.POSITIVE_INFINITY;
   let enIyiOkuma = { x: Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER };
 
-  adaylar.forEach((secim) => {
+  // Taşımasız adaylar varsa yarışa onlar girer; yoksa taşımalılar. Taşıma sayısı burada
+  // (aynı boy kümesi içinde) az olanı öne alır — boy sırasını bozmaz.
+  const yarisanlar: { masalar: PlanMasa[]; taşımaSayisi: number }[] = adaylar.length > 0
+    ? adaylar.map((masalar) => ({ masalar, taşımaSayisi: 0 }))
+    : taşımali;
+
+  yarisanlar.forEach(({ masalar: secim, taşımaSayisi }) => {
     // Misafir masasında ölçüt değişmiyor: ev sahibine yakınlık/uzaklık önce gelir.
     if (tercih) {
       const u = secimUzakligi(secim, tercih);
-      if (!enIyi || (tercih.yakin ? u < enIyiUzaklik : u > enIyiUzaklik)) {
-        enIyi = { masalar: secim, taşımaSayisi: 0 };
+      if (!enIyi || (tercih.yakin ? u < enIyiUzaklik : u > enIyiUzaklik)
+        || (u === enIyiUzaklik && taşımaSayisi < enIyi.taşımaSayisi)) {
+        enIyi = { masalar: secim, taşımaSayisi };
         enIyiUzaklik = u;
       }
       return;
     }
-    // Boylar zaten sabit olduğu için israf eşit; ayıran ölçüt şu anki masaya yakınlık, sonra
-    // salonun okuma sırası (Gökhan, 2026-08-19 onayı).
+    // Boylar sabit olduğu için israf eşit; ayıran ölçütler sırayla: az taşıma → rezervasyonun
+    // şu anki masasına yakınlık → salonun okuma sırası (Gökhan, 2026-08-19 onayı).
     const u = mevcudaUzaklik(secim);
     const o = okumaSirasi(secim);
-    const daha = !enIyi || u < enIyiMevcut
-      || (u === enIyiMevcut && (o.y < enIyiOkuma.y || (o.y === enIyiOkuma.y && o.x < enIyiOkuma.x)));
-    if (daha) { enIyi = { masalar: secim, taşımaSayisi: 0 }; enIyiMevcut = u; enIyiOkuma = o; }
+    const daha = !enIyi
+      || taşımaSayisi < enIyi.taşımaSayisi
+      || (taşımaSayisi === enIyi.taşımaSayisi && (u < enIyiMevcut
+        || (u === enIyiMevcut && (o.y < enIyiOkuma.y || (o.y === enIyiOkuma.y && o.x < enIyiOkuma.x)))));
+    if (daha) { enIyi = { masalar: secim, taşımaSayisi }; enIyiMevcut = u; enIyiOkuma = o; }
   });
   return enIyi;
 };
@@ -441,13 +519,15 @@ const planKur = (
         };
       }
     }
-    // Aday boy kümeleri (en az israf, sonra en az masa) sırayla denenir — AMA ilk başarılıda
-    // durulmaz: "en az masa" ile "hiç taşımadan sığmak" ayrı şeyler. 18 kişilik bir grupta
-    // 6+6+6 (3 masa) ile 6+4+4+2+2 (5 masa, TAM BİR SIRA) ikisi de sığar; ilki üç ayrı sıradan
-    // masa toplayıp taşıma ister, ikincisi zaten bir sırayı bozmadan hiç taşımadan oturtur.
-    // "En az masa" kazanırsa program sırayı hiç kullanmadan dağınık masalar toplar (Gökhan:
-    // "aynı sıradaki masaları birleştirmesi gerekiyordu, ama ne yaptığına sen bak"). Bu yüzden
-    // hep en az TAŞIMA olan kazanır; taşıma sıfırsa aramaya devam etmeye gerek yok.
+    // Aday boy kümeleri (en az israf, sonra en az masa) SIRAYLA denenir ve tutan İLK aday
+    // kazanır (Gökhan, 2026-08-19: "6 kişilik rezervasyon için 4'lük ve 2'lik masa birleştirmesi
+    // gerekirken üç tane ikilik birleştiriyor", taşıma sınırı sorulduğunda "sınırsız olsun").
+    //
+    // Eskiden ölçüt "en az taşıma"ydı: taşımasız kurulabilen her aday, daha az masalı ama bir
+    // masa taşımayı gerektiren adayı geçiyordu — 4+2 varken 2+2+2 seçilmesinin sebebi buydu.
+    // Bu değişiklik 12 Ağustos'taki "18 kişide 6+6+6 yerine tam sırayı kullan" tercihini de
+    // etkiliyor: artık az masalı olan kazanır, gereken masa yanına taşınır. Taşıma sayısı yalnız
+    // AYNI boy kümesi içindeki adaylar arasında ayırt edici (bkz. masalariSec).
     let enIyi: { masalar: PlanMasa[]; taşımaSayisi: number } | null = null;
     // "Uzak" istenmişse önce BAŞKA SALONLAR denenir; oralarda yer yoksa bütün salonlara
     // düşülür ve aynı salonun en uzak ucu seçilir (Gökhan: "önce başka salon, o olmazsa
@@ -466,11 +546,13 @@ const planKur = (
       for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
         const secim = masalariSec(liste, bosIds, boylar, tercih, mevcutMasalari);
         if (!secim) continue;
+        // Misafir masasında (yakın/uzak) bütün adaylar gezilir, en uygun uzaklık kazanır;
+        // normalde boy sırası zaten doğru sırada geldiği için ilk tutan aday kazanır.
+        if (!tercih) { enIyi = secim; break; }
         if (!enIyi || secim.taşımaSayisi < enIyi.taşımaSayisi
           || (secim.taşımaSayisi === enIyi.taşımaSayisi && secim.masalar.length < enIyi.masalar.length)) {
           enIyi = secim;
         }
-        if (!tercih && enIyi.taşımaSayisi === 0) break; // hiç taşımadan sığmaktan daha iyisi yok
       }
       if (enIyi) break; // tercih edilen listede yer bulundu, alt listeye düşmeye gerek yok
     }
