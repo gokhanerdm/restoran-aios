@@ -11,7 +11,7 @@ import EditableText from "../../components/EditableText";
 import { useConfirm } from "../../components/useConfirm";
 import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK, useYatayMobil } from "../../components/RezervasyonAltNav";
 import RezervasyonUstBar from "../../components/RezervasyonUstBar";
-import { MenuBaslik, MenuNav } from "../../components/RezervasyonMenu";
+import { MenuBaslik, MenuNav, useRolum } from "../../components/RezervasyonMenu";
 import { PX_PER_CM, KOLTUK_SECENEKLERI, BOX_W, BOX_H, govdeOlcusu, govdeCizim, type Shape as MasaSekli, type MasaOlcusu } from "../masaOlcu";
 import { salonDuzeniniTazele, yerlesimYap, bugunIstanbulGun } from "../salonDuzen";
 import { AYRI_MESAFE } from "../masaPlan";
@@ -171,6 +171,9 @@ function SalonInner() {
   // POSTA KİPİ — masaüstünde salon ekranının içinde açılıyor (Gökhan, 2026-08-17: "posta
   // webde salon sayfasında olacak"). Telefonda ayrı sayfa var, nav'dan gidiliyor.
   const [postaKipi, setPostaKipi] = useState(false);
+  // Giriş yapanın rolü — telefonda garson bu sayfada salon düzenleyicisini değil, posta
+  // planını görüyor (Gökhan, 2026-08-19). Aşağıda, bütün kancalardan sonra ayrılıyor.
+  const rolum = useRolum();
   // Grup seçme modu: adres ?grup=<id> ile geliniyor (Ayarlar'daki "Masalar" kutusu).
   const grupParam = useSearchParams().get("grup");
   const [grupSecim, setGrupSecim] = useState<Set<string>>(new Set());
@@ -1368,6 +1371,30 @@ function SalonInner() {
     return (
       <div style={{ minHeight: "100vh", background: "var(--canvas)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div style={{ maxWidth: 380, textAlign: "center", fontSize: 13.5, color: err ? "var(--danger)" : "var(--muted)", lineHeight: 1.6 }}>{err ?? "Yükleniyor…"}</div>
+      </div>
+    );
+  }
+
+  // GARSONUN SALON EKRANI (Gökhan, 2026-08-19: "garsonun posta ekranını salona geçir, salon
+  // ayarlarında bozulma olmasın, sadece garsonun göreceği şekilde uyarla"). Garson telefonda
+  // salonu düzenlemiyor; masaların planını, kimin nerede oturduğunu ve kendi postasını
+  // görüyor — ayrı duran posta ekranında ne varsa aynısı. Salon düzenleyicisi aşağıda olduğu
+  // gibi duruyor, bu dal ona hiç karışmıyor: garson dışında kimse buraya girmiyor.
+  if (isMobile && rolum === "garson") {
+    return (
+      <div className="salon-sayfa" style={{
+        padding: "8px 8px", paddingBottom: yatayMobil ? 8 : ALT_NAV_YUKSEKLIK + 8,
+        display: "flex", flexDirection: "column", boxSizing: "border-box", overflow: "hidden",
+        background: "var(--canvas)", touchAction: "pan-x pan-y",
+      }}>
+        <style>{`
+          .salon-sayfa { height: calc(100vh - 4px); height: calc(100svh - 4px); height: calc(100dvh - 4px); }
+        `}</style>
+        <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="Salon" />
+        <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <PostaPaneli restaurantId={restaurantId} atamaVar={false} />
+        </div>
+        <RezervasyonAltNav />
       </div>
     );
   }

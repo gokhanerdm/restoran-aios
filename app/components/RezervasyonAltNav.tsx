@@ -92,6 +92,21 @@ export default function RezervasyonAltNav() {
     });
   }
 
+  // GARSON — posta planı Salon ekranına taşındı (Gökhan, 2026-08-19: "garsonun posta ekranını
+  // salona geçir"). Nav'da artık ayrı posta simgesi yok, Salon simgesi var; garson oraya
+  // basınca düzenleyiciyi değil kendi posta planını görüyor. İşletmenin yetki tablosunda
+  // salon kapalı olsa bile bu simge duruyor — garsonun salonu görmesi rolün kendisinden.
+  if (rolum === "garson") {
+    const postaSira = items.findIndex((it) => it.sayfa === "posta");
+    if (postaSira >= 0) items.splice(postaSira, 1);
+    if (!items.some((it) => it.sayfa === "salon")) {
+      items.splice(1, 0, {
+        href: "/rezervasyon/salon", label: "Salon", sayfa: "salon",
+        active: pathname.startsWith("/rezervasyon/salon"), icon: <LayoutGrid size={22} />,
+      });
+    }
+  }
+
   // POSTA LİSTESİ — sadece salon şefinde (Gökhan, 2026-08-18: "yeni bir sayfa açıyoruz şefe,
   // nava koyuyoruz"). Planlı ekran artık "Posta salon" adıyla sadece gösteriyor; seçme,
   // listeleme ve garson atama bu yeni sayfada. İkisi nav'da yan yana duruyor.
