@@ -2848,10 +2848,22 @@ export default function RezervasyonPage() {
   const yedekPax = yedekRows.reduce((s, r) => s + r.party_size, 0);
   // BİRLEŞEN MASALAR TEK MASA SAYILIR (Gökhan, 2026-08-18: "kapasite konusunda sıkıntı
   // çıkmasın"). İki masa bir rezervasyon için birleştiğinde salonda fiilen tek masa vardır;
-  // o gün için masa sayısı o kadar azalır. Böylece "kaç masa" ile "kaç rezervasyon" aynı dili
-  // konuşur: 57 rezervasyon 63 fiziksel masayı tutuyorsa, masa sayısı da 57 görünür.
-  const birlesmeFazlasi = kapasiteliRows.reduce(
-    (t, r) => t + Math.max(0, (rezMasalar[r.id]?.length ?? (r.table_id ? 1 : 0)) - 1), 0);
+  // o gün için masa sayısı o kadar azalır.
+  //
+  // Sayı MASA ATAMASINI BEKLEMİYOR (Gökhan, 2026-08-19: "rezervasyonları yazıyorum, masa
+  // adedi hâlâ 23; rezervasyon sayısına göre masa birleşecekse sistem bunu algılayıp masa
+  // sayısını değiştirsin"). Eskiden sadece fiilen atanmış masalar sayılıyordu; ileri tarihli
+  // günlerde hiçbir masa atanmadığı için sayı hep salondaki masa sayısında kalıyordu. Artık
+  // o günün rezervasyonları masa havuzuna dağıtılıyor (masaPlan.ts — tam ölçü → üst boy →
+  // birleştirme) ve "harcanan masa − yerleşen rezervasyon" farkı kadar düşülüyor: 4 kişilik
+  // masalara 6 kişilik bir rezervasyon geldiğinde iki masa gideceği için masa sayısı bir
+  // azalır. Masa dökümü de aynı hesabı kullanıyor, iki sayı birbirini tutuyor.
+  const gunGruplari = kapasiteliRows.map((r) => r.party_size);
+  const gunTuketim = havuzuTuket(tables, gunGruplari);
+  const kalanMasa = [...gunTuketim.havuz.values()].reduce((s, n) => s + n, 0);
+  const kullanilanMasa = tables.length - kalanMasa;
+  const yerlesenRez = gunGruplari.length - gunTuketim.yerlesemeyen.length;
+  const birlesmeFazlasi = Math.max(0, kullanilanMasa - yerlesenRez);
   const etkinMasaSayisi = Math.max(0, tables.length - birlesmeFazlasi);
 
   // FİX MENÜ — o gün fix alan rezervasyon ve kişi sayısı (Gökhan, 2026-08-18). İptal ve
@@ -2864,14 +2876,11 @@ export default function RezervasyonPage() {
   // dağıtıldığında harcanan masa sayısı — ileri tarihli günlerde masa henüz fiilen atanmamış
   // olsa da hesap doğru çıksın diye (bkz. masaPlan.ts).
   const masaBoylari = [...new Set(tables.map((t) => t.seat_count))].sort((a, b) => a - b);
-  const gunGruplari = kapasiteliRows.map((r) => r.party_size);
-  const masaDagilim = (() => {
-    const { havuz } = havuzuTuket(tables, gunGruplari);
-    return masaBoylari.map((px) => {
-      const adet = tables.filter((t) => t.seat_count === px).length;
-      return { px, adet, dolu: adet - (havuz.get(px) ?? 0) };
-    });
-  })();
+  // Üstteki masa sayısıyla aynı dağıtımdan okunuyor (gunTuketim), iki sayı çelişmesin.
+  const masaDagilim = masaBoylari.map((px) => {
+    const adet = tables.filter((t) => t.seat_count === px).length;
+    return { px, adet, dolu: adet - (gunTuketim.havuz.get(px) ?? 0) };
+  });
   // Pax filtresinde çıkacak kişi sayıları — o gün gerçekten var olanlar, sabit liste değil.
   const paxSecenekleri = [...new Set(visibleRows.map((r) => r.party_size))].sort((a, b) => a - b);
 
