@@ -690,6 +690,14 @@ export const birlesikYerlesim = (
   alanlar.forEach((masalar) => {
     const bizim = new Set(masalar.map((m) => m.id));
 
+    // BİRLEŞEN MASA YOKSA BU SALONA HİÇ DOKUNULMAZ (Gökhan, 2026-08-19: "getirmiyor
+    // varsayılana"). Aşağıdaki dizilim, küme olmasa bile bütün satırları yeniden paketliyordu:
+    // salon ekranı her tazelemede (6 saniyede bir) masaları oynatıp yeni "ev" yazıyor, bir
+    // sonraki tazeleme onları geri götürüyordu — masalar boş olduğu hâlde sürekli gidip gelen
+    // bir döngüye giriyorlardı, "Varsayılana getir" de bu yüzden tutmuyordu. Sunucu kaydında
+    // aynı masalara dakikada onlarca yazma olarak görünüyor.
+    if (!kumeUye.some((k) => k.some((m) => bizim.has(m.id)))) return;
+
     // SATIRLAR — asıl yerlere göre, her satır soldan sağa dizili.
     const satirlar: { y: number; uyeler: PlanMasa[] }[] = [];
     [...masalar].sort((a, b) => evY(a)! - evY(b)!).forEach((m) => {
