@@ -1911,6 +1911,7 @@ function SalonInner() {
                       onMove={(x1, y1) => moveOge(o.id, x1, y1)}
                       onRename={(v) => renameOge(o.id, v)}
                       onContextMenu={(x2, y2) => setOgeCtxMenu({ ...menuKonum(x2, y2, 210, 60), oge: o })}
+                      onCevir={() => cevirOge(o)}
                     />
                   ))}
                   {/* Masalar. Sol tık masayı SEÇER — sol menüdeki "Masa çoğalt" ve "Masa sil"
@@ -2409,11 +2410,15 @@ function TableBox({
 // durum takibi yok, sadece salonun gerçek halini göstersin diye. TableBox'la aynı Pointer Events
 // sürükleme deseni.
 function SabitOge({
-  oge, zoom, cevir, onMove, onRename, onContextMenu,
+  oge, zoom, cevir, onMove, onRename, onContextMenu, onCevir,
 }: {
-  oge: SalonOge; zoom: number; cevir: boolean; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void;
+  oge: SalonOge; zoom: number; cevir: boolean; onMove: (x1: number, y1: number) => void; onRename: (v: string) => void; onContextMenu: (x: number, y: number) => void; onCevir: () => void;
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
+  // Çevirme düğmesi öğenin üstüne gelince çıkıyor — masalardaki döndürme düğmesiyle aynı
+  // (Gökhan, 2026-08-19: "kapıyı ekledim ama hâlâ çevirme özelliği yok"). Sağ tık menüsündeki
+  // "Çevir" duruyor, bu onun göze görünen hali.
+  const [hover, setHover] = useState(false);
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const olcu = SABIT_GORUNUM[oge.type];
   // Çevrilmişse en ile boy yer değiştiriyor — kapı yan duvara, servis dikey oturuyor.
@@ -2451,6 +2456,7 @@ function SabitOge({
     <div
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e.clientX, e.clientY); }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         position: "absolute", left: curX, top: curY, width: gorunum.genislik, height: gorunum.yukseklik,
         cursor: "grab", touchAction: "none", userSelect: "none", boxSizing: "border-box",
@@ -2462,6 +2468,22 @@ function SabitOge({
       <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", textAlign: "center", lineHeight: 1.15, transform: cevir ? "rotate(-90deg)" : undefined }} onPointerDown={(e) => e.stopPropagation()}>
         <EditableText value={oge.name} onSave={onRename} />
       </div>
+      {/* ÇEVİR — üstüne gelince köşede beliren düğme. Kapıyı yan duvara, servisi dikey
+          koymak için en/boy takas ediyor. */}
+      {hover && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onCevir(); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          aria-label="Öğeyi çevir" title="Çevir"
+          style={{
+            all: "unset", cursor: "pointer", position: "absolute", top: -8, right: -8, width: 22, height: 22, borderRadius: "50%",
+            background: "var(--ink-green)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.2)",
+          }}
+        >
+          <RotateCw size={12} />
+        </button>
+      )}
     </div>
   );
 }
