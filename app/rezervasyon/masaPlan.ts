@@ -944,7 +944,15 @@ export const birlesikYerlesim = (
       (diz(i, true) ?? []).forEach(({ blok, sol }) => {
         let x = sol;
         blok.uyeler.forEach((m) => {
-          yerlesmis.set(m.id, { x: xIcin(m, x), y: s.y });
+          // Y'DE SATIRA YAPIŞTIRMA YOK (Gökhan, 2026-08-19: "girişte 4'lü masalar 2'li
+          // masaların üstünde"). Satırın y'si o satırdaki EN ÜST masanın yeriydi ve satırdaki
+          // herkes oraya çekiliyordu: evi 33px aşağıda olan dört kişilik masalar yukarı kayıp
+          // üstlerindeki iki kişilik sıraya biniyordu. Birleşen masalar hizalanmak zorunda
+          // (küme), başka satırdan buraya taşınan masa da bu satıra oturur; ama işi olmayan
+          // masa kendi evinde kalır — ne x'i ne y'si kendiliğinden oynar.
+          const kendiSatiri = satirNo.get(m.id) === i;
+          const y = blok.kume || !kendiSatiri ? s.y : Math.round(evY(m)!);
+          yerlesmis.set(m.id, { x: xIcin(m, x), y });
           x += gen(m); // küme içi dip dibe — aradaki boşluk kapanır
         });
       });

@@ -146,6 +146,8 @@ function SalonInner() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [tables, setTables] = useState<TableRow[]>([]);
   const [oturanlar, setOturanlar] = useState<Record<string, OturanBilgi>>({});
+  // Bugün birleştirilmiş masalar — elle sürüklendiklerinde ev hafızaları korunur (moveTable).
+  const [birlesikMasalar, setBirlesikMasalar] = useState<Set<string>>(new Set());
   // Masası olan rezervasyonların KİŞİ toplamı. Rezervasyon başına bir kez sayılır — birleşik
   // masada aynı grup iki masada göründüğü için masa masa toplamak çift sayardı.
   const [doluKisi, setDoluKisi] = useState(0);
@@ -305,15 +307,20 @@ function SalonInner() {
     setOgeler((o as SalonOge[]) ?? []);
     setOzelOlculer((m as MasaOlcusu[]) ?? []);
     const map: Record<string, OturanBilgi> = {};
+    // Bugün BİRLEŞTİRİLMİŞ masalar — bir rezervasyonun birden fazla masası varsa hepsi.
+    // Elle sürüklemede ev hafızasına dokunulmayacak masalar bunlar (bkz. moveTable).
+    const birlesikler = new Set<string>();
     let kisiToplam = 0;
     ((r as { guest_name: string; party_size: number; status: string; reservation_tables: { table_id: string }[] | null }[]) ?? []).forEach((row) => {
       const masalari = row.reservation_tables ?? [];
       if (masalari.length > 0) kisiToplam += row.party_size;
+      if (masalari.length > 1) masalari.forEach((rt) => birlesikler.add(rt.table_id));
       masalari.forEach((rt) => {
         map[rt.table_id] = { guestName: row.guest_name, partySize: row.party_size, status: row.status };
       });
     });
     setOturanlar(map);
+    setBirlesikMasalar(birlesikler);
     setDoluKisi(kisiToplam);
     setSelectedAreaId((prev) => prev ?? (areaRows.length ? areaRows[0].id : null));
     setYuklendi(true);
@@ -1030,9 +1037,21 @@ function SalonInner() {
     setCogaltAcik(false);
     await load(restaurantId);
   };
+  // ELLE SÜRÜKLENEN YER ARTIK MASANIN EVİDİR (Gökhan, 2026-08-19: "masalar elle en son nereye
+  // sürüklendiyse orası onun yeriydi"). Eskiden sürükleme sadece masanın o anki yerini
+  // değiştiriyordu; program birleştirme için masayı oynattığında yazdığı "ev" hafızası
+  // (normal_x/normal_y) duruyordu ve "Varsayılana getir" masayı senin koyduğun yere değil,
+  // programın hatırladığı eski yere gönderiyordu. Artık sürükleyince o hafıza siliniyor:
+  // masanın evi bıraktığın yer oluyor, raptiyeye basmaya gerek kalmıyor.
+  //
+  // TEK İSTİSNA: masa o an birleştirilmiş bir rezervasyonda duruyorsa hafıza korunur — onu
+  // program eşinin yanına çekmiştir, iş bitince asıl yerine dönebilmeli.
   const moveTable = async (id: string, x: number, y: number) => {
     setTables((prev) => prev.map((t) => (t.id === id ? { ...t, position_x: x, position_y: y } : t)));
-    const { error } = await supabase.from("restaurant_tables").update({ position_x: x, position_y: y }).eq("id", id);
+    const yama = birlesikMasalar.has(id)
+      ? { position_x: x, position_y: y }
+      : { position_x: x, position_y: y, normal_x: null, normal_y: null };
+    const { error } = await supabase.from("restaurant_tables").update(yama).eq("id", id);
     if (error) setErr(error.message);
   };
   // Sadece dikdörtgen masalarda anlamlı — duvara dayalı masa yatay/dikey durabilsin
