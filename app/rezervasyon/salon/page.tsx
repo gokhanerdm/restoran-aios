@@ -46,7 +46,13 @@ type OturanBilgi = { guestName: string; partySize: number; status: string };
 // rezervasyon hesaplarını bozmasın diye ayrı bir tablo (salon_ogeleri). Loca burada YOK —
 // o gerçek bir masa (yukarıdaki Shape), çünkü rezervasyon/durum taşıması gerekiyordu.
 type OgeType = "duvar" | "bar" | "kolon" | "servis" | "kapi";
-type SalonOge = { id: string; area_id: string; type: OgeType; name: string; x1: number; y1: number; x2: number | null; y2: number | null };
+type SalonOge = {
+  id: string; area_id: string; type: OgeType; name: string;
+  x1: number; y1: number; x2: number | null; y2: number | null;
+  // 90 derece çevrilmiş mi (Gökhan, 2026-08-18: "öğe ekledim, çevirme özelliği yok").
+  // Kolon/Servis/Kapı'da en ile boy takas edilir; Duvar/Bar'da çubuk uçlarından döndürülür.
+  rotated: boolean;
+};
 const CEKME_TIPLERI: { type: OgeType; label: string }[] = [
   { type: "duvar", label: "Duvar" },
   { type: "bar", label: "Bar" },
@@ -274,7 +280,7 @@ function SalonInner() {
         .eq("restaurant_id", restId).is("deleted_at", null)
         .in("status", ["bekleniyor", "geldi", "oturdu"])
         .gte("reserved_at", start).lt("reserved_at", end),
-      supabase.from("salon_ogeleri").select("id, area_id, type, name, x1, y1, x2, y2").eq("restaurant_id", restId).is("deleted_at", null),
+      supabase.from("salon_ogeleri").select("id, area_id, type, name, x1, y1, x2, y2, rotated").eq("restaurant_id", restId).is("deleted_at", null),
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
       // Masa grupları Ayarlar'da tanımlanıyor (loca, sahne önü, normal); hangi masanın hangi
       // grupta olduğu BURADA seçiliyor — masaya sağ tıkla (Gökhan, 2026-08-16).
@@ -1062,6 +1068,29 @@ function SalonInner() {
     setOgeCtxMenu(null);
     if (restaurantId) await load(restaurantId);
   };
+  // ÇEVİR (Gökhan, 2026-08-18). Sabit boyda öğede (Kolon/Servis/Kapı) sadece işaret
+  // değişiyor, çizim eni-boyu takas ediyor. Duvar/Bar'da çubuğun kendisi başlangıç
+  // noktası sabit kalacak şekilde 90 derece dönüyor — dikey duvar yatay oluyor.
+  const cevirOge = async (o: SalonOge) => {
+    setOgeCtxMenu(null);
+    setErr(null);
+    const cekme = o.type === "duvar" || o.type === "bar";
+    if (cekme) {
+      const x2 = o.x2 ?? o.x1 + 120, y2 = o.y2 ?? o.y1;
+      // (x1,y1) etrafında 90 derece: uzunluk aynı kalır, yön değişir.
+      const yeniX2 = Math.max(0, o.x1 + (o.y1 - y2));
+      const yeniY2 = Math.max(0, o.y1 + (x2 - o.x1));
+      setOgeler((prev) => prev.map((x) => (x.id === o.id ? { ...x, x2: yeniX2, y2: yeniY2, rotated: !x.rotated } : x)));
+      const { error } = await supabase.from("salon_ogeleri")
+        .update({ x2: yeniX2, y2: yeniY2, rotated: !o.rotated }).eq("id", o.id);
+      if (error) setErr(error.message);
+      return;
+    }
+    setOgeler((prev) => prev.map((x) => (x.id === o.id ? { ...x, rotated: !x.rotated } : x)));
+    const { error } = await supabase.from("salon_ogeleri").update({ rotated: !o.rotated }).eq("id", o.id);
+    if (error) setErr(error.message);
+  };
+
   // Sabit tipler (Kolon/Servis/Kapı/Loca) — tek nokta taşınır.
   const moveOge = async (id: string, x1: number, y1: number) => {
     setOgeler((prev) => prev.map((o) => (o.id === id ? { ...o, x1, y1 } : o)));
@@ -1124,8 +1153,13 @@ function SalonInner() {
   let addBoxPos = defaultPos(addSlot);
   let addDeneme = 0;
   while (!isFree(addBoxPos.x, addBoxPos.y) && addDeneme++ < enFazlaGoz) { addSlot++; addBoxPos = defaultPos(addSlot); }
-  const ogeYukseklik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar" ? CEKME_GORUNUM[o.type].kalinlik : SABIT_GORUNUM[o.type]?.yukseklik ?? 0);
-  const ogeGenislik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar" ? CEKME_GORUNUM[o.type].kalinlik : SABIT_GORUNUM[o.type]?.genislik ?? 0);
+  // Çevrilmiş sabit öğede en/boy takas — tuval sınırı hesabı da bunu bilmeli.
+  const ogeYukseklik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar"
+    ? CEKME_GORUNUM[o.type].kalinlik
+    : (o.rotated ? SABIT_GORUNUM[o.type]?.genislik : SABIT_GORUNUM[o.type]?.yukseklik) ?? 0);
+  const ogeGenislik = (o: SalonOge) => (o.type === "duvar" || o.type === "bar"
+    ? CEKME_GORUNUM[o.type].kalinlik
+    : (o.rotated ? SABIT_GORUNUM[o.type]?.yukseklik : SABIT_GORUNUM[o.type]?.genislik) ?? 0);
   const ogeAltSinirlari = ogelerInArea.map((o) => Math.max(o.y1, o.y2 ?? o.y1) + ogeYukseklik(o) + GAP);
   const ogeSagSinirlari = ogelerInArea.map((o) => Math.max(o.x1, o.x2 ?? o.x1) + ogeGenislik(o) + GAP);
 
@@ -1948,6 +1982,14 @@ function SalonInner() {
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setOgeCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setOgeCtxMenu(null); }} />
           <div style={{ position: "fixed", left: ogeCtxMenu.x, top: ogeCtxMenu.y, zIndex: 61, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: 6, minWidth: 160 }}>
+            {/* ÇEVİR — sabit öğede en/boy takas olur, duvar/barda çubuk 90 derece döner
+                (Gökhan, 2026-08-18). */}
+            <button
+              onClick={() => cevirOge(ogeCtxMenu.oge)}
+              style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--ink)" }}
+            >
+              <RotateCw size={14} /> Çevir
+            </button>
             <button
               onClick={() => { const o = ogeCtxMenu.oge; setOgeCtxMenu(null); deleteOge(o); }}
               style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, fontSize: 13.5, color: "var(--danger)" }}
@@ -2304,7 +2346,11 @@ function SabitOge({
 }) {
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number } | null>(null);
   const startRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const gorunum = SABIT_GORUNUM[oge.type];
+  const olcu = SABIT_GORUNUM[oge.type];
+  // Çevrilmişse en ile boy yer değiştiriyor — kapı yan duvara, servis dikey oturuyor.
+  const gorunum = oge.rotated
+    ? { ...olcu, genislik: olcu.yukseklik, yukseklik: olcu.genislik }
+    : olcu;
 
   const onPointerDown = (e: React.PointerEvent) => {
     e.stopPropagation();
