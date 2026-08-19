@@ -2519,6 +2519,34 @@ export default function RezervasyonPage() {
     // yeniden dizimde (elle "Yerleşim yap") bu koruma tamamen kapalı.
     const mevcutAtamalar: Record<string, string[]> = {};
     if (!tamDiz) serbest.forEach((r) => { const ids = masaOf(r); if (ids.length > 0) mevcutAtamalar[r.id] = ids; });
+
+    // İSTENEN SALON (Gökhan, 2026-08-19: "rezervasyon listesine bahçe istiyor yazdım, otomatik
+    // yerleşim açıktı, yerleşimi yaptı ama müşteriyi bahçeye vermedi"). Kural notKurallari.ts'te
+    // ve salon ekranındaki "Yerleşim yap"ta vardı; buradaki otomatik yerleşim ise notu hiç
+    // okumuyordu — nota salon adı yazmak da misafirin online salon seçmesi de işe yaramıyordu.
+    // İstenen salonun boş masalarından yer ayrılır; o salon doluysa program başka salona
+    // ZORLAMAZ, rezervasyon normal dağıtıma kalır (salon ekranı bu durumda işletmeye sorar).
+    const salonTercihi: Record<string, string[]> = {};
+    if (salonlar.length > 0 && !sadeceDuzen) {
+      const planMasalar = masalar.map(planMasa);
+      const doluIds = new Set<string>(sabit.flatMap(masaOf));
+      serbest.forEach((r) => {
+        const alan = istenenSalon(r, salonlar);
+        if (!alan) return;
+        const alanMasalari = planMasalar.filter((m) => m.alanId === alan && !doluIds.has(m.id));
+        // O salonun kendi içinde planlanır — tam ölçü → üst boy → birleştirme kuralları aynen.
+        const { atamalar: a } = salonuPlanla(alanMasalari, [{ id: r.id, kisi: r.party_size }], [], {});
+        const secim = a[r.id];
+        if (!secim || secim.length === 0) return;
+        secim.forEach((id) => doluIds.add(id));
+        salonTercihi[r.id] = secim;
+      });
+    }
+    // Salon tercihi "mevcut atamayı koru" kuralını GEÇER: yanlış salonda duran rezervasyon
+    // yerinde bırakılmaz. Tercihi olanlar önce planlanır, masa çakışırsa onlar kazanır.
+    const korunanAtamalar = { ...mevcutAtamalar, ...salonTercihi };
+    const planSirasi = [...serbest].sort((a, b) => (salonTercihi[b.id] ? 1 : 0) - (salonTercihi[a.id] ? 1 : 0));
+
     const { atamalar, yerlesemeyen } = sadeceDuzen
       // Sadece düzen tazeleme: masa dağıtımına hiç karışılmaz, o günün kendi atamaları aynen
       // alınır. Aşağıdaki "yeniAtamalar" karşılaştırması bu yüzden boş çıkar, veritabanında
@@ -2529,9 +2557,9 @@ export default function RezervasyonPage() {
         }
       : salonuPlanla(
           masalar.map(planMasa),
-          serbest.map((r) => ({ id: r.id, kisi: r.party_size })),
+          planSirasi.map((r) => ({ id: r.id, kisi: r.party_size })),
           sabit.map((r) => ({ rez: { id: r.id, kisi: r.party_size }, masaIds: masaOf(r) })),
-          mevcutAtamalar,
+          korunanAtamalar,
           misafirler,
         );
     const yeniAtamalar: { id: string; masaIds: string[] }[] = [];
