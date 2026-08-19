@@ -1347,17 +1347,25 @@ export default function RezervasyonPage() {
   const [rolYuklendi, setRolYuklendi] = useState(false);
   useEffect(() => {
     let acik = true;
-    // Kendi personel kaydım — RLS zaten yalnızca kendi satırlarımı veriyor. Aynı hesapta
-    // birden fazla kayıt olabiliyor (test kişileri), aktif olan geçerli.
-    supabase.from("personel_hesaplari").select("id, rol, test_aktif, created_at")
-      .eq("durum", "onayli").order("test_aktif", { ascending: false }).order("created_at")
-      .then(({ data }) => {
-        if (!acik) return;
-        const kayit = (data as { id: string; rol: string }[] | null)?.[0] ?? null;
-        setRolum(kayit?.rol ?? null);
-        setBenimPersonelId(kayit?.id ?? null);
-        setRolYuklendi(true);
-      });
+    // KENDİ personel kaydım. "RLS zaten yalnızca kendi satırlarımı veriyor" varsayımı yanlıştı:
+    // işletme sahibi kendi işletmesinin BÜTÜN personelini görebiliyor (personel_hesaplari'ndeki
+    // isletme_yonetir kuralı). Kullanıcı süzgeci olmayınca sahibe, işletmesindeki ilk personelin
+    // rolü yapışıyordu — telefonda o role ait kısıtlarla karşılaşıyordu (Gökhan, 2026-08-19:
+    // aynı hata girişte de vardı, sahibi Ekip ekranına atıyordu). Aynı hesapta birden fazla kayıt
+    // olabiliyor (test kişileri), aktif olan geçerli.
+    (async () => {
+      const { data: oturum } = await supabase.auth.getUser();
+      const benimId = oturum.user?.id ?? null;
+      if (!benimId) { if (acik) setRolYuklendi(true); return; }
+      const { data } = await supabase.from("personel_hesaplari").select("id, rol, test_aktif, created_at")
+        .eq("user_id", benimId)
+        .eq("durum", "onayli").order("test_aktif", { ascending: false }).order("created_at");
+      if (!acik) return;
+      const kayit = (data as { id: string; rol: string }[] | null)?.[0] ?? null;
+      setRolum(kayit?.rol ?? null);
+      setBenimPersonelId(kayit?.id ?? null);
+      setRolYuklendi(true);
+    })();
     return () => { acik = false; };
   }, []);
 

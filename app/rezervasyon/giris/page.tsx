@@ -190,10 +190,19 @@ export default function RezervasyonGirisPage() {
       password: password || gecicSifre(email),
     });
     if (error) { setBusy(false); setErr(friendlyErr(error.code, error.message)); return; }
-    // PERSONEL EKİP PANELİNE (Gökhan, 2026-08-18) — girenin personel kaydı varsa Ekip
+    // PERSONEL EKİP PANELİNE (Gökhan, 2026-08-18) — GİREN KİŞİNİN personel kaydı varsa Ekip
     // paneline düşüyor; orada rolü, işletmesi ve kendi ekranına geçiş duruyor. İşletme
     // sahibinin personel kaydı yoktur, o doğrudan rezervasyon listesine gidiyor.
-    const { data: personel } = await supabase.from("personel_hesaplari").select("id").limit(1);
+    //
+    // Sorgu KİM olduğunu sormuyordu: sadece "personel_hesaplari boş mu" diye bakıyordu. İşletme
+    // sahibi kendi personelini görebildiği için, işletmede bir personel açıldığı anda SAHİP de
+    // Ekip ekranına düşüyordu (Gökhan, 2026-08-19: "şifreli girince ekip ekranına bağlıyor" —
+    // Hani'de altı personel hesabı vardı). Artık kayıt giren kullanıcıya ait mi diye bakılıyor.
+    const { data: oturum } = await supabase.auth.getUser();
+    const girenId = oturum.user?.id ?? null;
+    const { data: personel } = girenId
+      ? await supabase.from("personel_hesaplari").select("id").eq("user_id", girenId).limit(1)
+      : { data: null };
     setBusy(false);
     router.push((personel?.length ?? 0) > 0 ? "/ekip" : "/rezervasyon");
   };
