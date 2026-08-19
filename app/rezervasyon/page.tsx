@@ -473,7 +473,7 @@ function MusteriAdaylariListesi({ adaylar, onSec }: { adaylar: MusteriAday[]; on
 function MobilRezervasyonListesi({
   rows, toplamMasa, masaDolu, toplamKapasite, doluluk, yedekMasa, yedekPax,
   bekleyenMasa, bekleyenPax, fixAcik, fixSayisi, fixPax,
-  masaAdi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
+  masaBilgi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
   arama, onArama, yatay, acilir, postamVar, benimMi, sadeceBenim, onSadeceBenim,
 }: {
   rows: Rez[];
@@ -485,7 +485,9 @@ function MobilRezervasyonListesi({
   yedekMasa: number; yedekPax: number;
   bekleyenMasa: number; bekleyenPax: number;
   fixAcik: boolean; fixSayisi: number; fixPax: number;
-  masaAdi: (r: Rez) => string | null;
+  /** Satırda gösterilecek masa — webdeki masa kutusuyla aynı: esas masa, fazlası "+N",
+      kişiye yetmiyorsa uyarı. Masası yoksa null. */
+  masaBilgi: (r: Rez) => { ad: string; ekstra: number; yetersiz: boolean } | null;
   gun: string; bugunMu: boolean; onGunDegistir: (g: string) => void;
   onYeniRezervasyon: () => void; onKartAc: (r: Rez) => void; onKilit: (r: Rez) => void;
   arama: string; onArama: (v: string) => void; yatay: boolean;
@@ -620,7 +622,7 @@ function MobilRezervasyonListesi({
         {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
         {rows.map((r, i) => {
           const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
-          const masa = masaAdi(r);
+          const masa = masaBilgi(r);
           // İKİNCİ SATIR — sadece garsonun kendi listesinde ve notu olan rezervasyonda
           // (Gökhan, 2026-08-18: "garsonun kendi listesinde not varsa ikinci satır açılacak").
           // Yan çevrilince her şey tek satıra döner, orada yer var.
@@ -658,11 +660,26 @@ function MobilRezervasyonListesi({
               ) : (
                 <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
               )}
-              {/* Masa, isim ile kişi sayısının arasında ve kendi kutusunda (Gökhan,
-                  2026-08-18) — düz yazıyken isme karışıyordu. */}
-              {masa && (
-                <span style={{ fontSize: 12, color: "var(--ink)", flexShrink: 0, whiteSpace: "nowrap", border: "1px solid var(--line-2)", borderRadius: 8, padding: "3px 8px", background: "var(--card)" }}>{masa}</span>
-              )}
+              {/* MASA KUTUSU — webdekiyle aynı gösterim (Gökhan, 2026-08-19: "masaları da
+                  webde nasıl gösteriyorsa aynı şekilde göster"): kutuda sadece esas masa
+                  yazıyor, birleştirilmiş masa varsa yanında "+N"; masa kişiye yetmiyorsa
+                  uyarı işareti ve kırmızı kenar; masası yoksa tire. */}
+              <span
+                style={{
+                  fontSize: 12, flexShrink: 0, whiteSpace: "nowrap", borderRadius: 8,
+                  padding: "3px 8px", background: "var(--card)",
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  border: `1px solid ${masa?.yetersiz ? "var(--danger)" : "var(--line-2)"}`,
+                  color: masa ? (masa.yetersiz ? "var(--danger)" : "var(--ink)") : inkSoft,
+                  fontWeight: masa?.yetersiz ? 600 : 400,
+                }}
+                title={masa?.yetersiz ? `Masa ${r.party_size} kişiye yetmiyor` : undefined}
+              >
+                {masa ? (masa.yetersiz ? `⚠ ${masa.ad}` : masa.ad) : "—"}
+                {masa && masa.ekstra > 0 && (
+                  <span style={{ fontSize: 9.5, color: inkSoft, fontWeight: 400 }}>+{masa.ekstra}</span>
+                )}
+              </span>
               <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: info.color, flexShrink: 0 }}>{r.party_size} px</span>
               {/* Masa kilidi telefonda da olmalı — masaüstü tabloda vardı, kart görünümüne
                   konmamıştı (Gökhan, 2026-08-12: "rezervasyon kilidini unuttuk"). Kart bir
@@ -2446,7 +2463,8 @@ export default function RezervasyonPage() {
       // masa dağıtıyordu — gerçek rezervasyonlar masasız kalıyordu (Gökhan, 2026-08-12,
       // salon ekran görüntüsü: "masa bulunamayan rezervasyon" listesi doluyken yedekler
       // masalara oturmuştu).
-      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, status, masa_kilit, misafir_masasi, misafir_yakin, created_at, reservation_tables(table_id)")
+      // note ve tercih_alan_id ŞART — istenen salon kuralı bunlardan okunuyor (aşağıda).
+      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, status, masa_kilit, misafir_masasi, misafir_yakin, created_at, note, tercih_alan_id, reservation_tables(table_id)")
         .eq("restaurant_id", restaurantId).is("deleted_at", null).eq("yedek", false)
         .in("status", ["bekleniyor", "geldi", "oturdu"])
         .gte("reserved_at", start).lt("reserved_at", end),
@@ -2457,6 +2475,7 @@ export default function RezervasyonPage() {
     type TazeRez = {
       id: string; guest_name: string; guest_phone: string | null; party_size: number; status: string;
       masa_kilit: boolean; misafir_masasi: boolean; misafir_yakin: boolean | null; created_at: string;
+      note: string | null; tercih_alan_id: string | null;
       reservation_tables: { table_id: string }[] | null;
     };
     type TazeMasa = { id: string; seat_count: number; position_x: number | null; position_y: number | null; shape: MasaSekli; rotated: boolean; normal_x: number | null; normal_y: number | null; area_id: string | null };
@@ -3215,9 +3234,17 @@ export default function RezervasyonPage() {
             // Mutfak şefinde masa yerine fix/alakart (Gökhan, 2026-08-17). Masanın yanına
             // eklenen "· Fix" kaldırıldı (Gökhan, 2026-08-18): webde fix bilgisi ismin
             // altında duruyor, telefon düzeni ayrıca ele alınacak.
-            masaAdi={(r) => (mutfakGorunumu
-              ? servisEtiketi(r)
-              : (rezMasalar[r.id] ?? []).map((id) => tableName(id)).filter(Boolean).join(" + ") || tableName(r.table_id))}
+            // Masa kutusu webdekiyle aynı hesaptan besleniyor (Gökhan, 2026-08-19): esas
+            // masa önce, birleşenler "+N" olarak, yetersizse uyarı. Mutfak şefinde masa
+            // yerine fix/alakart yazıyor (Gökhan, 2026-08-17).
+            masaBilgi={(r) => {
+              if (mutfakGorunumu) return { ad: servisEtiketi(r), ekstra: 0, yetersiz: false };
+              const buRez = rezMasalar[r.id] ?? [];
+              const sirali = [r.table_id, ...buRez.filter((id) => id !== r.table_id)].filter(Boolean) as string[];
+              const adlar = sirali.map((id) => tableName(id)).filter(Boolean) as string[];
+              if (adlar.length === 0) return null;
+              return { ad: adlar[0], ekstra: adlar.length - 1, yetersiz: masaYetersiz(r) };
+            }}
             gun={gun}
             bugunMu={bugunMu}
             onGunDegistir={gunDegistir}
