@@ -13,7 +13,7 @@
 // Program masayı KENDİ SEÇMEZ — sadece yer var mı diye bakar, gerekiyorsa sorar. Hangi
 // masaya oturacağını kullanıcı masa seç kutusundan kendi seçer.
 
-import { BOX_W } from "./masaOlcu";
+import { BOX_W, BOX_H } from "./masaOlcu";
 
 export type MasaBilgi = { seat_count: number };
 
@@ -686,16 +686,27 @@ export const birlesikYerlesim = (
       if (dikeyMi) {
         const x = govdeSol(cipa, evX(cipa)!);
         const enGenis = Math.max(...sirali.map((m) => gen(m)));
-        let y = evY(cipa)!;
+        // DİKEY BİRLEŞMEDE DE HESAP GÖVDE KENARINDAN (Gökhan, 2026-08-19: "yerleşim yap dedim
+        // bu hale geldi... kalıcı bir çözüm bul"). position_y sürükleme KUTUSUNUN üst kenarı,
+        // gövde ise kutunun ortasında çizilir. Eskiden kutu üst kenarına GÖVDE boyu ekleniyordu:
+        // boyları farklı iki masa birleşince fark kadar üst üste biniyorlardı — 2 kişilik (56px)
+        // ile 4 kişilik (96px) çevrilmiş masa tam 20px iç içe geçiyordu. Artık gövde alt kenarı
+        // bir sonrakinin gövde üst kenarı oluyor; masalar ölçüleri ne olursa olsun dip dibe.
+        let ust = evY(cipa)! + (BOX_H - yuk(cipa)) / 2;      // çıpanın gövdesinin üst kenarı
+        const kumeUst = ust;
         sirali.forEach((m) => {
           // Her masa çıpanın orta ekseninde kalsın; ölçüleri farklıysa ortalanır.
-          yerlesmis.set(m.id, { x: Math.round(x + (enGenis - gen(m)) / 2 - (BOX_W - gen(m)) / 2), y: Math.round(y) });
-          y += yuk(m);
+          yerlesmis.set(m.id, {
+            x: Math.round(x + (enGenis - gen(m)) / 2 - (BOX_W - gen(m)) / 2),
+            y: Math.round(ust - (BOX_H - yuk(m)) / 2),
+          });
+          ust += yuk(m);
         });
-        // Dikey kümenin kapladığı yer, dokunduğu BÜTÜN satırlarda doludur.
-        const ustY = evY(cipa)!;
+        // Dikey kümenin kapladığı yer, dokunduğu BÜTÜN satırlarda doludur. Satırın kendi
+        // ortasıyla karşılaştırılıyor — iki taraf da aynı (gövde) eksende olsun.
         satirlar.forEach((st, i) => {
-          if (st.y + yuk(cipa) / 2 >= ustY && st.y <= y) engeller[i].push({ sol: x, sag: x + enGenis });
+          const satirOrta = st.y + BOX_H / 2;
+          if (satirOrta >= kumeUst && satirOrta <= ust) engeller[i].push({ sol: x, sag: x + enGenis });
         });
         acik.forEach((m) => islenmis.add(m.id));
         return;
@@ -938,6 +949,74 @@ export const birlesikYerlesim = (
         });
       });
     });
+
+    // ————————————————————————————————————————————————————————————————
+    // SON KONTROL: İKİ MASA ÜST ÜSTE BİNMEZ (Gökhan, 2026-08-19: "hatayı bul ve çalışmasını
+    // sağla, her yeni işletmede bununla uğraşamayız, kalıcı bir çözüm bul").
+    //
+    // Yukarıdaki dizilim satır satır çalışıyor. Bir masa başka satıra taşındığında ya da boyu
+    // satır aralığından uzun olduğunda gövdeler yine de çakışabiliyordu. Burası ağ: dizilim
+    // bittikten sonra çakışma kalmışsa masa (kümeyse bütün küme birlikte) önce sağa, sağda yer
+    // yoksa aşağıya kaydırılıp boş yere konur. Hiçbir yere sığmıyorsa HİÇ oynatılmaz — üst üste
+    // bindirmektense olduğu yerde bırakılır. Kilitli masa burada da yerinden kıpırdamaz.
+    // ————————————————————————————————————————————————————————————————
+    const yerAl = (m: PlanMasa) => yerlesmis.get(m.id) ?? { x: m.position_x ?? evX(m)!, y: m.position_y ?? evY(m)! };
+    type Kutu = { sol: number; sag: number; ust: number; alt: number };
+    const kutuOf = (m: PlanMasa, p: { x: number; y: number }): Kutu => ({
+      sol: p.x + (BOX_W - gen(m)) / 2, sag: p.x + (BOX_W + gen(m)) / 2,
+      ust: p.y + (BOX_H - yuk(m)) / 2, alt: p.y + (BOX_H + yuk(m)) / 2,
+    });
+    // Kenarları değen masalar çakışmış sayılmaz — birleşen masalar zaten dip dibe duruyor.
+    const carpisir = (a: Kutu, b: Kutu) =>
+      a.sol + 0.5 < b.sag && b.sol + 0.5 < a.sag && a.ust + 0.5 < b.alt && b.ust + 0.5 < a.alt;
+
+    // Aynı rezervasyonun masaları birlikte taşınır, tek tek değil — küme bölünmez.
+    const gruplar = new Map<string, PlanMasa[]>();
+    masalar.forEach((m) => {
+      const anahtar = kumeNo.has(m.id) ? `k${kumeNo.get(m.id)}` : `m${m.id}`;
+      const l = gruplar.get(anahtar);
+      if (l) l.push(m); else gruplar.set(anahtar, [m]);
+    });
+    const konmus: Kutu[] = [];
+    [...gruplar.values()]
+      .sort((a, b) => {
+        // Kilitliler önce (onlar hiç oynamaz), sonra yukarıdan aşağı, soldan sağa.
+        const ka = a.some((m) => kilitliIds.has(m.id)) ? 0 : 1;
+        const kb = b.some((m) => kilitliIds.has(m.id)) ? 0 : 1;
+        if (ka !== kb) return ka - kb;
+        const pa = yerAl(a[0]), pb = yerAl(b[0]);
+        return (pa.y - pb.y) || (pa.x - pb.x);
+      })
+      .forEach((uyeler) => {
+        const kutular = uyeler.map((m) => kutuOf(m, yerAl(m)));
+        const kaydir = (dx: number, dy: number): Kutu[] =>
+          kutular.map((k) => ({ sol: k.sol + dx, sag: k.sag + dx, ust: k.ust + dy, alt: k.alt + dy }));
+        const carpan = (ks: Kutu[]) => konmus.find((o) => ks.some((k) => carpisir(k, o)));
+        const enSol = Math.min(...kutular.map((k) => k.sol));
+        const enSag = Math.max(...kutular.map((k) => k.sag));
+        const enUst = Math.min(...kutular.map((k) => k.ust));
+        const sabit = uyeler.some((m) => kilitliIds.has(m.id));
+        let dx = 0, dy = 0;
+        if (!sabit) {
+          for (let d = 0; d < 12; d++) {
+            const c = carpan(kaydir(dx, dy));
+            if (!c) break;
+            const sagaDx = c.sag + AYRI_MESAFE - enSol;
+            if (enSol + sagaDx + (enSag - enSol) <= SAG_SINIR) { dx = sagaDx; continue; }
+            dy = c.alt + AYRI_MESAFE - enUst; // sağda yer yok — alt sıraya in
+            dx = 0;
+          }
+        }
+        const son = kaydir(dx, dy);
+        const kaldi = carpan(son);
+        if (!kaldi && (dx !== 0 || dy !== 0)) {
+          uyeler.forEach((m) => {
+            const p = yerAl(m);
+            yerlesmis.set(m.id, { x: Math.round(p.x + dx), y: Math.round(p.y + dy) });
+          });
+        }
+        (kaldi ? kutular : son).forEach((k) => konmus.push(k));
+      });
   });
 
   // Sadece gerçekten değişenler yazılır — kilitli masaya ve hiç oynamayana dokunulmaz.
