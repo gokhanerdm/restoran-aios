@@ -12,7 +12,7 @@ import {
   salonuPlanla, birlesikYerlesim, type PlanMasa, type MisafirBagi,
 } from "./masaPlan";
 import { govdeCizim, type Shape as MasaSekli } from "./masaOlcu";
-import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock, BarChart3, Star, DoorOpen } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, ChevronDown, LayoutGrid, Settings, LogOut, User, Search, X, Lock, Unlock, BarChart3, DoorOpen } from "lucide-react";
 import { useConfirm } from "../components/useConfirm";
 import { RzvRozet } from "../components/RezervasyonMenu";
 import DatePicker from "../components/DatePicker";
@@ -489,20 +489,7 @@ function MobilRezervasyonListesi({
   sadeceBenim: boolean;
   onSadeceBenim: (v: boolean) => void;
 }) {
-  const [vipSet, setVipSet] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let active = true;
-    const yukle = async () => {
-      const idler = [...new Set(rows.map((r) => r.kisi_karti_id).filter((id): id is string => !!id))];
-      if (idler.length === 0) { setVipSet(new Set()); return; }
-      const { data } = await supabase.from("kisi_kartlari").select("id, vip").in("id", idler).eq("vip", true);
-      if (!active) return;
-      setVipSet(new Set((data ?? []).map((k) => k.id as string)));
-    };
-    yukle();
-    return () => { active = false; };
-  }, [rows]);
+  // VIP yıldızı satırdan kalktı (Gökhan, 2026-08-18) — onu getiren sorgu da kalktı.
 
   // Gün okları + tarih + "Bugün" + "Yeni rezervasyon" — dik ve yatay düzende aynı düğmeler,
   // sadece durdukları yer değişiyor. Tek yerde tanımlı, iki yere kopyalanmıyor.
@@ -609,10 +596,13 @@ function MobilRezervasyonListesi({
       )}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
-        {rows.map((r, i) => {
+        {rows.map((r) => {
           const info = DURUM_INFO[r.status] ?? DURUM_INFO.bekleniyor;
-          const vip = r.kisi_karti_id ? vipSet.has(r.kisi_karti_id) : false;
           const masa = masaAdi(r);
+          // İKİNCİ SATIR — sadece garsonun kendi listesinde ve notu olan rezervasyonda
+          // (Gökhan, 2026-08-18: "garsonun kendi listesinde not varsa ikinci satır açılacak").
+          // Yan çevrilince her şey tek satıra döner, orada yer var.
+          const notSatiri = sadeceBenim && !yatay && !!r.note?.trim();
           return (
             <button
               key={r.id}
@@ -628,20 +618,18 @@ function MobilRezervasyonListesi({
                 paddingLeft: postamVar && benimMi(r) ? 10 : undefined,
               }}
             >
-              {/* Sıra numarası — masaüstü tablodaki SNO ile aynı (Gökhan, 2026-08-08). */}
-              <span className="tnum" style={{ fontSize: 13.5, fontWeight: 700, color: "var(--ink)", flexShrink: 0, width: 16, textAlign: "right" }}>{i + 1}</span>
-              {vip && <Star size={13} style={{ color: "var(--gold-text)", flexShrink: 0 }} fill="var(--gold-text)" />}
-              {/* Yan çevrilince satırda yer var — masaüstündeki gibi SAAT de görünür
-                  (Gökhan, 2026-08-10). Telefon denendi, gereksiz bulundu: karta dokununca
-                  zaten çıkıyor. Dik hâlde satır dar, saat de çıkmaz. */}
-              {yatay && <span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", flexShrink: 0, whiteSpace: "nowrap" }}>{saatFmt.format(new Date(r.reserved_at))}</span>}
-              <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
-              {/* MİSAFİR — bu kişinin ikinci masası, misafirleri için (Gökhan, 2026-08-15). */}
-              {r.misafir_masasi && (
-                <span title="Misafir masası — bu kişinin ikinci masası" style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3, flexShrink: 0, padding: "2px 6px", borderRadius: 980, background: "var(--recede)", color: "var(--gold-text)", border: "1px solid var(--gold)" }}>MİSAFİR</span>
-              )}
-              {r.yedek && (
-                <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 0.3, flexShrink: 0, padding: "2px 6px", borderRadius: 980, background: "var(--recede)", color: "var(--brand)" }}>YEDEK</span>
+              {/* SATIRDA NE VAR (Gökhan, 2026-08-18): saat, isim soyisim, masa, kişi sayısı,
+                  kilit. Sıra numarası, VIP yıldızı ve MİSAFİR/YEDEK etiketleri kaldırıldı —
+                  telefonda yer dar, garsonun bakacağı şeyler bunlar. Saat artık dik tutarken
+                  de yazıyor: akşamın en çok bakılan bilgisi o. */}
+              <span className="tnum" style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", flexShrink: 0, whiteSpace: "nowrap" }}>{saatFmt.format(new Date(r.reserved_at))}</span>
+              {notSatiri ? (
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</div>
+                  <div style={{ fontSize: 12, color: inkSoft, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note}</div>
+                </div>
+              ) : (
+                <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.guest_name}</span>
               )}
               {/* Masa numarası — kişi sayısının yanında (Gökhan, 2026-08-08). */}
               {masa && <span style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0, whiteSpace: "nowrap" }}>{masa}</span>}
@@ -2990,7 +2978,11 @@ export default function RezervasyonPage() {
     // kısılıyor ki liste kutusu ekranı sonuna kadar kullansın (Gökhan, 2026-08-10).
     // Yatayda alt menü çizilmiyor (bkz. RezervasyonAltNav) — altta ona yer ayırmak boş bir
     // şerit bırakıyordu. Sadece o pay kalkıyor, geri kalan düzen aynı.
-    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: yatayMobil ? 12 : (isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24), height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    // TELEFONDA KENAR BOŞLUĞU YOK (Gökhan, 2026-08-18: "beyaz kutu telefon ekranında sağa
+    // sola yaslansın, zaten yerimiz dar"). Sayfanın yan boşluğu kalkıyor, liste kutusu
+    // ekranın iki kenarına dayanıyor; satırlar da o kadar genişliyor. Üstteki kimlik satırı
+    // kenara yapışmasın diye kendi boşluğunu kendi veriyor.
+    <div style={{ background: "var(--canvas)", padding: isMobile ? "20px 0" : "20px 24px", paddingBottom: yatayMobil ? 12 : (isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24), height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
       {/* REZERVASYON ALINAMIYOR PENCERESİ — sebebi ve ne yapılması gerektiğini birlikte
@@ -3024,8 +3016,10 @@ export default function RezervasyonPage() {
       {/* MASAÜSTÜNDE BU SATIR YOK (Gökhan, 2026-08-15: "sol menü yap... en üstte işletme adı
           altında da sayfa adı olsun") — işletme adı, sayfa adı ve simgeler sol menüye taşındı.
           Mobilde düzen aynı kaldı, orada sol menü yok. */}
+      {/* Sayfanın yan boşluğu telefonda kalktığı için kimlik satırı kendi boşluğunu veriyor
+          (Gökhan, 2026-08-18) — kutu kenara dayanıyor, isim ve simgeler dayanmıyor. */}
       {!yatayMobil && isMobile && (
-      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", rowGap: 10 }}>
+      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap", rowGap: 10, padding: "0 14px" }}>
         {/* RZV rozeti — tıklanınca rezervasyon listesine döner (Gökhan, 2026-08-08). */}
         <Link href="/rezervasyon" aria-label="Rezervasyonlar" style={{ width: 34, height: 34, borderRadius: "50%", background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 10.5, letterSpacing: 0.3, flexShrink: 0, textDecoration: "none" }}>
           RZV
@@ -3049,9 +3043,9 @@ export default function RezervasyonPage() {
       </div>
       )}
 
-      {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
+      {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0, padding: isMobile ? "0 14px" : undefined }}>{err}</div>}
       {capacityNotice && (
-        <div style={{ fontSize: 12.5, color: "var(--gold-text)", background: "var(--recede)", border: "1px solid var(--gold)", borderRadius: 10, padding: "8px 12px", marginBottom: 10, flexShrink: 0 }}>
+        <div style={{ fontSize: 12.5, color: "var(--gold-text)", background: "var(--recede)", border: "1px solid var(--gold)", borderRadius: 10, padding: "8px 12px", marginBottom: 10, flexShrink: 0, marginLeft: isMobile ? 14 : undefined, marginRight: isMobile ? 14 : undefined }}>
           {capacityNotice}
         </div>
       )}
