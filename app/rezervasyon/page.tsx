@@ -162,7 +162,10 @@ ${ipucu}` : "Yedek: masa tutmaz, sıra bekler. Yer boşalınca yerleştirilir."}
 const DUZENLE_BASLIK: Record<DuzenleAlan, string> = { saat: "Saat", telefon: "Telefon", pax: "Kişi sayısı", not: "Not" };
 const DUZENLE_IPUCU: Record<DuzenleAlan, string> = { saat: "19:30", telefon: "05xx…", pax: "4", not: "Not…" };
 // Açılır pencerelerin ekran konumu — tıklanan düğmenin ölçüsünden hesaplanır (menuKonum).
-type Konum = { left: number; top: number; width: number; height: number };
+// Açılır pencerenin ekran konumu. yukari=true ise pencere düğmenin ÜSTÜNE açılıyor; o zaman
+// üst kenar değil ALT kenar sabitleniyor (altSinir), böylece pencerenin boyunu önceden
+// bilmeye gerek kalmıyor — ne kadar uzarsa yukarı doğru uzuyor.
+type Konum = { left: number; top: number; width: number; height: number; yukari: boolean; altSinir: number };
 
 // Yeni "geldi" olan kaydı fark edince kısa bir bip — dosya yok, Web Audio ile üretiliyor,
 // izin ilk dokunuşta alınıyor (tarayıcılar sesi kullanıcı hareketi olmadan başlatmıyor).
@@ -2362,13 +2365,26 @@ export default function RezervasyonPage() {
 
   const bosMasalar = tables.filter((t) => t.status === "empty");
   const tableName = (id: string | null) => tables.find((t) => t.id === id)?.name ?? null;
-  // Açılır pencere HER ZAMAN düğmenin altından aşağı açılır, yön değiştirmez (Gökhan: "hâlâ
-  // farklı yerlere açılıyor, kendi kutusundan aşağı doğru açılacak") — yukarı dönme yok.
+  // Açılır pencere kendi kutusundan AŞAĞI açılır (Gökhan: "hâlâ farklı yerlere açılıyor,
+  // kendi kutusundan aşağı doğru açılacak") — tek istisna: aşağıda pencerenin sığacağı yer
+  // kalmadıysa yukarı açılır (Gökhan, 2026-08-19: "listenin en altındaki satırın saatini
+  // değiştiremedim, aşağı açıldığı için; aşağı açılınca görünmeyen her satırın bilgisi yukarı
+  // açılsın"). Yön kararı ekranın altında kalan boşluğa bakıyor, satırın kaçıncı olduğuna
+  // değil — liste kaydırıldığında da doğru çalışsın diye.
   // Ölçü tek kural (Gökhan: "masa seç kutusu masa butonlarından sağdan soldan 2 mm büyük
   // olacak, birini küçültüp birini büyültme"): kutu = tıklanan düğme + 3'er mm, iç masa
   // düğmeleri de kutudan 2'şer mm içeride. Konum/ölçü px cinsinden buradan, mm eklemesi
   // calc() ile CSS'te yapılıyor — mm'yi px'e elle çevirmeye gerek yok.
-  const menuKonum = (rect: DOMRect): Konum => ({ left: rect.left, top: rect.bottom + 2, width: rect.width, height: rect.height });
+  const menuKonum = (rect: DOMRect, tahminiYukseklik = 150): Konum => {
+    const asagidakiYer = window.innerHeight - rect.bottom - 8;
+    // Yukarı sadece aşağısı yetmiyorsa VE yukarısı daha genişse dönülüyor; ikisi de darsa
+    // aşağıda kalması daha az şaşırtıyor.
+    const yukari = asagidakiYer < tahminiYukseklik && rect.top - 8 > asagidakiYer;
+    return {
+      left: rect.left, top: rect.bottom + 2, width: rect.width, height: rect.height,
+      yukari, altSinir: Math.max(8, window.innerHeight - rect.top + 2),
+    };
+  };
 
   // Saat/telefon/kişi/not — hücreye tıklayınca değeri hazır gelen küçük pencere açılır.
   const duzenleAc = (rect: DOMRect, r: Rez, alan: DuzenleAlan) => {
@@ -3370,7 +3386,7 @@ export default function RezervasyonPage() {
                           <span style={{ ...hucreKutu, flex: 1, minWidth: 0 }}>Masa seç…</span>
                         ) : (
                           <button
-                            onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi(rezMasalar[r.id] ?? []); setMasaAtaKonum(menuKonum(rect)); setAssigningId(r.id); }}
+                            onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi(rezMasalar[r.id] ?? []); setMasaAtaKonum(menuKonum(rect, 290)); setAssigningId(r.id); }}
                             title={secilenMasa ? undefined : onerilen ? `${onerilen.name} boşaldı — Oturt deyince bu masaya geçer. Başka masa seçmek için tıkla.` : "Sığan boş masa yok"}
                             style={{
                               ...hucreKutuBtn, flex: 1, minWidth: 0,
@@ -3555,7 +3571,7 @@ export default function RezervasyonPage() {
                       ) : masaAdlari.length > 0 ? (
                         bugunMu && aktif ? (
                           <button
-                            onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi(masaEksik ? buRezMasalari : []); setMasaAtaKonum(menuKonum(rect)); setAssigningId(r.id); }}
+                            onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi(masaEksik ? buRezMasalari : []); setMasaAtaKonum(menuKonum(rect, 290)); setAssigningId(r.id); }}
                             // Birden fazla masa varsa hepsi fare kutunun üzerine gelince alt
                             // alta çıkıyor; kutuda sadece esas masa yazıyor (Gökhan, 2026-08-18).
                             onMouseEnter={(e) => { if (masaAdlari.length > 1) setMasaBalon({ id: r.id, masalar: masaAdlari, kutu: e.currentTarget.getBoundingClientRect() }); }}
@@ -3585,7 +3601,7 @@ export default function RezervasyonPage() {
                         )
                       ) : bugunMu && aktif ? (
                         <button
-                          onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(menuKonum(rect)); setAssigningId(r.id); }}
+                          onClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); setMasaDigerAcik(false); setMasaSecimi([]); setMasaAtaKonum(menuKonum(rect, 290)); setAssigningId(r.id); }}
                           style={{ ...hucreKutuBtn, flex: 1, minWidth: 0 }}
                         >
                           Masa seç
@@ -4030,7 +4046,7 @@ export default function RezervasyonPage() {
               düğme + 3'er mm. Kaydırma çubuğu gizli: fare tekerleği/parmakla kayıyor.
               Konum: tıklanan düğmenin ORTASINA hizalı (Gökhan: "masa seçin altına ortala") —
               genişlik içeriğe göre değiştiği için sol kenardan değil, merkezden hizalanıyor. */}
-          <div style={{ position: "fixed", left: masaAtaKonum.left + masaAtaKonum.width / 2, transform: "translateX(-50%)", top: masaAtaKonum.top, zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: `calc(${masaAtaKonum.width}px + 6mm)`, maxWidth: 260, maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" }}>
+          <div style={{ position: "fixed", left: masaAtaKonum.left + masaAtaKonum.width / 2, transform: "translateX(-50%)", ...(masaAtaKonum.yukari ? { bottom: masaAtaKonum.altSinir } : { top: masaAtaKonum.top }), zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: `calc(${masaAtaKonum.width}px + 6mm)`, maxWidth: 260, maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" }}>
             {/* Masa birleştirme (Gökhan: "on kişi kapasite dolana kadar masa seçecek, mesela
                 yan yana 3 masayı birleştirdi") — birden fazla masa işaretlenebilir, kapasite
                 karşılanınca otomatik onaylanır. */}
@@ -4169,7 +4185,7 @@ export default function RezervasyonPage() {
       {duzenle && (
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setDuzenle(null)} />
-          <div style={{ position: "fixed", left: duzenle.konum.left + duzenle.konum.width / 2, transform: "translateX(-50%)", top: duzenle.konum.top, zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: 170, maxWidth: 260 }}>
+          <div style={{ position: "fixed", left: duzenle.konum.left + duzenle.konum.width / 2, transform: "translateX(-50%)", ...(duzenle.konum.yukari ? { bottom: duzenle.konum.altSinir } : { top: duzenle.konum.top }), zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: 170, maxWidth: 260 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: inkSoft, textTransform: "uppercase", paddingBottom: 4 }}>{DUZENLE_BASLIK[duzenle.alan]}</div>
             <input
               autoFocus
@@ -4291,7 +4307,7 @@ export default function RezervasyonPage() {
       {paxFiltreKonum && (
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 60 }} onClick={() => setPaxFiltreKonum(null)} />
-          <div style={{ position: "fixed", left: paxFiltreKonum.left + paxFiltreKonum.width / 2, transform: "translateX(-50%)", top: paxFiltreKonum.top, zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: 120, maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" }}>
+          <div style={{ position: "fixed", left: paxFiltreKonum.left + paxFiltreKonum.width / 2, transform: "translateX(-50%)", ...(paxFiltreKonum.yukari ? { bottom: paxFiltreKonum.altSinir } : { top: paxFiltreKonum.top }), zIndex: 61, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 2px 8px rgba(30,25,15,0.1)", padding: "2mm", boxSizing: "border-box", width: "max-content", minWidth: 120, maxHeight: 280, overflowY: "auto", scrollbarWidth: "none" }}>
             <button onClick={() => { setPaxFiltre(null); setPaxFiltreKonum(null); }} style={masaBtnStil(paxFiltre === null)}>Tümü</button>
             {paxSecenekleri.map((p) => (
               <button key={p} onClick={() => { setPaxFiltre(p); setPaxFiltreKonum(null); }} style={masaBtnStil(paxFiltre === p)}>
