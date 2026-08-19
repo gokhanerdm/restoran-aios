@@ -371,8 +371,9 @@ const masalariSec = (
     ...sutunlaraBol(siralar.flat()).map((s) => ({ hat: s, dikey: true })),
   ];
 
-  // 1) TAŞIMASIZ: gereken boyları tam karşılayan bitişik pencere.
-  const adaylar: PlanMasa[][] = [];
+  // 1) TAŞIMASIZ: gereken boyları tam karşılayan bitişik pencere. ucta = pencere hattın ucunda
+  // mı (sırayı ortadan bölmüyor mu).
+  const adaylar: { masalar: PlanMasa[]; ucta: boolean }[] = [];
   const gorulen = new Set<string>();
   hatlar.forEach(({ hat, dikey }) => {
     bosParcalar(hat).forEach((p) => {
@@ -384,7 +385,11 @@ const masalariSec = (
         const anahtar = pencere.map((m) => m.id).sort().join("|");
         if (gorulen.has(anahtar)) continue;
         gorulen.add(anahtar);
-        adaylar.push(pencere);
+        // KÜME SIRANIN UCUNDAN KURULUR (Gökhan, 2026-08-19: "Giriş 6 + Giriş 14'ü Hürriyet'e
+        // verip Zerrin'i Giriş 10'a, Salih'i Giriş 11'e verebilir"). Ortadaki masaları alıp
+        // sırayı ikiye bölen aday, uçtaki bir aday varken elenir; ortada boşalan masalar tek
+        // masalık rezervasyonlara kalır, sıra delinmez.
+        adaylar.push({ masalar: pencere, ucta: i === 0 || i + gereken.length === p.length });
       }
     });
   });
@@ -392,7 +397,7 @@ const masalariSec = (
   // 2) TAŞIMALI: hazır bitişik yer yoksa, en çok boyu karşılayan bitişik parça temel alınır,
   // eksik masalar en yakından çekilir. Çekilen masa kümenin yanına taşınır (birlesikYerlesim
   // onları çıpanın yönünde dip dibe dizer).
-  const taşımali: { masalar: PlanMasa[]; taşımaSayisi: number }[] = [];
+  const taşımali: { masalar: PlanMasa[]; taşımaSayisi: number; ucta: boolean }[] = [];
   if (adaylar.length === 0) {
     hatlar.forEach(({ hat, dikey }) => {
       bosParcalar(hat).forEach((temel) => {
@@ -413,7 +418,9 @@ const masalariSec = (
           if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
         });
         if (kalanGereken.length > 0) return;
-        taşımali.push({ masalar: secilen, taşımaSayisi: secilen.filter((m) => !temel.includes(m)).length });
+        // Temelden alınan masalar parçanın ucuna değiyorsa sıra ortadan bölünmüyor demektir.
+        const ucta = secilen.includes(temel[0]) || secilen.includes(temel[temel.length - 1]);
+        taşımali.push({ masalar: secilen, taşımaSayisi: secilen.filter((m) => !temel.includes(m)).length, ucta });
       });
     });
     if (taşımali.length === 0) return null;
@@ -455,14 +462,15 @@ const masalariSec = (
   let enIyiUzaklik = tercih?.yakin ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
   let enIyiMevcut = Number.POSITIVE_INFINITY;
   let enIyiOkuma = { x: Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER };
+  let enIyiUcta = false;
 
   // Taşımasız adaylar varsa yarışa onlar girer; yoksa taşımalılar. Taşıma sayısı burada
   // (aynı boy kümesi içinde) az olanı öne alır — boy sırasını bozmaz.
-  const yarisanlar: { masalar: PlanMasa[]; taşımaSayisi: number }[] = adaylar.length > 0
-    ? adaylar.map((masalar) => ({ masalar, taşımaSayisi: 0 }))
+  const yarisanlar: { masalar: PlanMasa[]; taşımaSayisi: number; ucta: boolean }[] = adaylar.length > 0
+    ? adaylar.map(({ masalar, ucta }) => ({ masalar, taşımaSayisi: 0, ucta }))
     : taşımali;
 
-  yarisanlar.forEach(({ masalar: secim, taşımaSayisi }) => {
+  yarisanlar.forEach(({ masalar: secim, taşımaSayisi, ucta }) => {
     // Misafir masasında ölçüt değişmiyor: ev sahibine yakınlık/uzaklık önce gelir.
     if (tercih) {
       const u = secimUzakligi(secim, tercih);
@@ -474,17 +482,19 @@ const masalariSec = (
       return;
     }
     // Boylar sabit olduğu için israf eşit; ayıran ölçütler sırayla:
-    //   az taşıma → (rezervasyonun masası varsa) o masaya yakınlık, yoksa kurulmuş kümelere
-    //   yakınlık → salonun okuma sırası (Gökhan, 2026-08-19 onayı).
-    // Masası olan rezervasyon yerinden koparılmaz; masası olmayan ise birleşmelerin toplandığı
-    // tarafa çekilir, salon dağılmaz.
+    //   az taşıma → sıranın UCUNDA olması → (rezervasyonun masası varsa) o masaya yakınlık,
+    //   yoksa kurulmuş kümelere yakınlık → salonun okuma sırası (Gökhan, 2026-08-19 onayı).
+    // Uç kuralı sırayı ortadan bölmeyi engelliyor; masası olan rezervasyon yerinden koparılmıyor,
+    // masası olmayan ise birleşmelerin toplandığı tarafa çekiliyor.
     const u = mevcutMasalar.length > 0 ? mevcudaUzaklik(secim) : kumeyeUzaklik(secim);
     const o = okumaSirasi(secim);
     const daha = !enIyi
       || taşımaSayisi < enIyi.taşımaSayisi
-      || (taşımaSayisi === enIyi.taşımaSayisi && (u < enIyiMevcut
-        || (u === enIyiMevcut && (o.y < enIyiOkuma.y || (o.y === enIyiOkuma.y && o.x < enIyiOkuma.x)))));
-    if (daha) { enIyi = { masalar: secim, taşımaSayisi }; enIyiMevcut = u; enIyiOkuma = o; }
+      || (taşımaSayisi === enIyi.taşımaSayisi && (
+        (ucta && !enIyiUcta)
+        || (ucta === enIyiUcta && (u < enIyiMevcut
+          || (u === enIyiMevcut && (o.y < enIyiOkuma.y || (o.y === enIyiOkuma.y && o.x < enIyiOkuma.x)))))));
+    if (daha) { enIyi = { masalar: secim, taşımaSayisi }; enIyiMevcut = u; enIyiOkuma = o; enIyiUcta = ucta; }
   });
   return enIyi;
 };
