@@ -522,8 +522,9 @@ function MobilRezervasyonListesi({
       {!bugunMu && <button onClick={() => onGunDegistir(bugunIstanbul())} style={btnGhost}>Bugün</button>}
       {/* Yatayda tarih ile "Yeni rezervasyon" arasında yaklaşık 1,5 cm boşluk (Gökhan,
           2026-08-10) — sayaçların ortasında yan yana dururken birbirine yapışmasınlar.
-          Dik hâlde satır dar, aralık eskisi gibi kalıyor. */}
-      <button onClick={onYeniRezervasyon} style={{ ...btnPrimary, marginLeft: yatay ? 52 : 4, padding: "9px 12px" }}><Plus size={14} /> Yeni rezervasyon</button>
+          Dik tutulduğunda düğme satırın sonuna dayanıyor: sağ kenarı alttaki rezervasyon
+          satırlarının sağ kenarıyla aynı hizada (Gökhan, 2026-08-19). */}
+      <button onClick={onYeniRezervasyon} style={{ ...btnPrimary, marginLeft: yatay ? 52 : "auto", padding: "9px 12px" }}><Plus size={14} /> Yeni rezervasyon</button>
     </>
   );
 
