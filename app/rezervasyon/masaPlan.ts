@@ -285,56 +285,95 @@ const uzaklik = (m: PlanMasa, t: YakinlikTercihi) => {
 const secimUzakligi = (secim: PlanMasa[], t: YakinlikTercihi) =>
   Math.min(...secim.map((m) => uzaklik(m, t)));
 
+// BİR REZERVASYONUN MASALARI HER ZAMAN BİTİŞİKTİR (Gökhan, 2026-08-19: "birleşmeyi yanlış
+// algılıyor, yön bilmiyor, hangi yönden alacağına karar veremiyor... masa değiştirir salonun
+// öbür ucuna, burada rezervasyonu atar ve yanındakiyle birleştirir").
+//
+// ESKİDEN: bir sıradaki yan yana boş masalar "temel" alınır, eksik kalan boy salonun BAŞKA bir
+// yerinden — aynı boyda olan en yakın masadan — çekilirdi. Yakınlık ölçüsü sadece "aynı sıra +
+// yatay uzaklık" olduğu için, temelin hemen yanındaki masa yerine beş masa ötedeki de
+// seçilebiliyordu: o masa kümeye taşınıyor, geçtiği yerdeki masaları itiyor, arkasında delik
+// bırakıyordu. Yön diye bir kural yoktu.
+//
+// ARTIK: küme, bir sırada YAN YANA duran boş masalardan seçilir; gereken boyları tam karşılayan
+// bitişik pencere aranır. Masa taşınmaz — bitişik yer başka bir yerdeyse REZERVASYON oraya
+// gider. Hiçbir sırada bitişik pencere yoksa bu boy adayı elenir, çağıran taraf başka boy
+// kombinasyonu dener (tam ölçü → üst boy → birleştirme sırası bozulmadan). Hiçbiri tutmazsa
+// rezervasyon masasız kalır ve işletmeye söylenir; masalarda müşteri otururken zaten birleştirme
+// elle yapılır.
+//
+// Böylece program masayı ancak kümenin kendi üyelerini dip dibe getirmek için oynatır
+// (bkz. birlesikYerlesim); rezervasyonu olmayan masa kendi yerinde kalır.
 const masalariSec = (
   siralar: PlanMasa[][], bosIds: Set<string>, boylar: number[], tercih?: YakinlikTercihi,
+  // Rezervasyonun ŞU ANKİ masaları — birden fazla uygun bitişik yer varsa en yakını seçilir.
+  mevcutMasalar: PlanMasa[] = [],
 ): { masalar: PlanMasa[]; taşımaSayisi: number } | null => {
-  const bosParcalar: PlanMasa[][] = [];
+  const gereken = [...boylar].sort((a, b) => b - a);
+
+  // Her sıradaki yan yana boş masa dizileri; onların içinde gereken boyları TAM karşılayan
+  // bitişik pencereler aday olur.
+  const adaylar: PlanMasa[][] = [];
   siralar.forEach((sira) => {
+    const parcalar: PlanMasa[][] = [];
     let aktif: PlanMasa[] = [];
     sira.forEach((m) => {
       if (bosIds.has(m.id)) aktif.push(m);
-      else { if (aktif.length) bosParcalar.push(aktif); aktif = []; }
+      else { if (aktif.length) parcalar.push(aktif); aktif = []; }
     });
-    if (aktif.length) bosParcalar.push(aktif);
+    if (aktif.length) parcalar.push(aktif);
+    parcalar.forEach((p) => {
+      for (let i = 0; i + gereken.length <= p.length; i++) {
+        const pencere = p.slice(i, i + gereken.length);
+        const boylari = pencere.map((m) => m.seat_count).sort((a, b) => b - a);
+        if (boylari.every((b, k) => b === gereken[k])) adaylar.push(pencere);
+      }
+    });
   });
+  if (adaylar.length === 0) return null;
 
-  const gereken = [...boylar].sort((a, b) => b - a);
+  // Rezervasyonun şu anki masalarının ortası — eşit adaylar arasında en yakını kazansın diye.
+  const mevcutMerkez = mevcutMasalar
+    .filter((m) => asilKX(m) !== null && asilKY(m) !== null)
+    .reduce<{ x: number; y: number; n: number }>(
+      (t, m) => ({ x: t.x + asilKX(m)!, y: t.y + asilKY(m)!, n: t.n + 1 }), { x: 0, y: 0, n: 0 });
+  const mevcudaUzaklik = (secim: PlanMasa[]) => {
+    if (mevcutMerkez.n === 0) return 0;
+    const mx = mevcutMerkez.x / mevcutMerkez.n, my = mevcutMerkez.y / mevcutMerkez.n;
+    return Math.min(...secim.map((m) =>
+      asilKX(m) === null || asilKY(m) === null
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(asilKX(m)! - mx, asilKY(m)! - my)));
+  };
+  // Hiçbir ölçüt ayırmazsa salon soldan sağa, yukarıdan aşağı okunur — ilk sıradaki soldaki yer.
+  const okumaSirasi = (secim: PlanMasa[]) => {
+    const x = Math.min(...secim.map((m) => asilKX(m) ?? Number.MAX_SAFE_INTEGER));
+    const y = Math.min(...secim.map((m) => asilKY(m) ?? Number.MAX_SAFE_INTEGER));
+    return { x, y };
+  };
+
   let enIyi: { masalar: PlanMasa[]; taşımaSayisi: number } | null = null;
   let enIyiUzaklik = tercih?.yakin ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+  let enIyiMevcut = Number.POSITIVE_INFINITY;
+  let enIyiOkuma = { x: Number.MAX_SAFE_INTEGER, y: Number.MAX_SAFE_INTEGER };
 
-  // Her parçayı sırayla temel alıp dene — en çok boyu hazır karşılayan kazanır.
-  bosParcalar.forEach((temel) => {
-    const kalanGereken = [...gereken];
-    const secilen: PlanMasa[] = [];
-    temel.forEach((m) => {
-      const i = kalanGereken.indexOf(m.seat_count);
-      if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
-    });
-    if (secilen.length === 0) return;
-    // Eksikleri temele en yakın masalardan çek — bunlar taşınacak masalar.
-    const merkez = secilen[0];
-    // Eksik masa AYNI SALONDAN çekilir; başka salondan masa katılmaz.
-    const disarisi = siralar.flat().filter((m) => bosIds.has(m.id) && !secilen.includes(m)
-      && (m.alanId ?? null) === (merkez.alanId ?? null));
-    komsulukSirasi(disarisi, merkez).forEach((m) => {
-      const i = kalanGereken.indexOf(m.seat_count);
-      if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
-    });
-    if (kalanGereken.length > 0) return;
-    const taşımaSayisi = secilen.filter((m) => !temel.includes(m)).length;
-    // Misafir masasında sıralama ölçütü değişir: önce ev sahibine yakınlık/uzaklık, sonra
-    // taşıma ve masa sayısı. Tercih yoksa eski davranış aynen sürer.
+  adaylar.forEach((secim) => {
+    // Misafir masasında ölçüt değişmiyor: ev sahibine yakınlık/uzaklık önce gelir.
     if (tercih) {
-      const u = secimUzakligi(secilen, tercih);
-      const daha = !enIyi || (tercih.yakin ? u < enIyiUzaklik : u > enIyiUzaklik)
-        || (u === enIyiUzaklik && taşımaSayisi < enIyi.taşımaSayisi);
-      if (daha) { enIyi = { masalar: secilen, taşımaSayisi }; enIyiUzaklik = u; }
+      const u = secimUzakligi(secim, tercih);
+      if (!enIyi || (tercih.yakin ? u < enIyiUzaklik : u > enIyiUzaklik)) {
+        enIyi = { masalar: secim, taşımaSayisi: 0 };
+        enIyiUzaklik = u;
+      }
       return;
     }
-    if (!enIyi || taşımaSayisi < enIyi.taşımaSayisi
-      || (taşımaSayisi === enIyi.taşımaSayisi && secilen.length < enIyi.masalar.length)) {
-      enIyi = { masalar: secilen, taşımaSayisi };
-    }
+    // Boylar zaten sabit olduğu için israf eşit; ayıran ölçüt şu anki masaya yakınlık, sonra
+    // salonun okuma sırası (Gökhan, 2026-08-19 onayı).
+    const u = mevcudaUzaklik(secim);
+    const o = okumaSirasi(secim);
+    const daha = !enIyi || u < enIyiMevcut
+      || (u === enIyiMevcut && (o.y < enIyiOkuma.y || (o.y === enIyiOkuma.y && o.x < enIyiOkuma.x)));
+    if (daha) { enIyi = { masalar: secim, taşımaSayisi: 0 }; enIyiMevcut = u; enIyiOkuma = o; }
   });
   return enIyi;
 };
@@ -417,10 +456,15 @@ const planKur = (
       : tercih.yakin
         ? [siralar.filter((s) => (s[0].alanId ?? null) === tercih!.alanId), siralar]
         : [siralar.filter((s) => (s[0].alanId ?? null) !== tercih!.alanId), siralar];
+    // Rezervasyonun şu anki masaları — eşit derecede uygun iki bitişik yer varsa buna en
+    // yakın olan seçilir (Gökhan, 2026-08-19).
+    const mevcutMasalari = (mevcut[rez.id] ?? [])
+      .map((id) => masalar.find((m) => m.id === id))
+      .filter((m): m is PlanMasa => !!m);
     for (const liste of aramaListeleri) {
       if (liste.length === 0) continue;
       for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
-        const secim = masalariSec(liste, bosIds, boylar, tercih);
+        const secim = masalariSec(liste, bosIds, boylar, tercih, mevcutMasalari);
         if (!secim) continue;
         if (!enIyi || secim.taşımaSayisi < enIyi.taşımaSayisi
           || (secim.taşımaSayisi === enIyi.taşımaSayisi && secim.masalar.length < enIyi.masalar.length)) {
