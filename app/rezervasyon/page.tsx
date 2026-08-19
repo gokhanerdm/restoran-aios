@@ -479,6 +479,7 @@ function MobilRezervasyonListesi({
   bekleyenMasa, bekleyenPax, fixAcik, fixSayisi, fixPax,
   masaBilgi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
   arama, onArama, yatay, acilir, kendiSuzgeci, kendiEtiketi, benimMi, sadeceBenim, onSadeceBenim,
+  tutarGirilir, onTutar,
 }: {
   rows: Rez[];
   /** Birleşenler tek sayıldıktan sonra kalan masa sayısı — webdeki "Masa" ile aynı. */
@@ -505,6 +506,9 @@ function MobilRezervasyonListesi({
   benimMi: (r: Rez) => boolean;
   sadeceBenim: boolean;
   onSadeceBenim: (v: boolean) => void;
+  /** Bu satırda hesap tutarı kutusu çıksın mı — PR'ın işi bitmiş kendi masaları. */
+  tutarGirilir: (r: Rez) => boolean;
+  onTutar: (r: Rez, metin: string) => void;
 }) {
   // VIP yıldızı satırdan kalktı (Gökhan, 2026-08-18) — onu getiren sorgu da kalktı.
 
@@ -634,8 +638,12 @@ function MobilRezervasyonListesi({
           // Yan çevrilince her şey tek satıra döner, orada yer var.
           const notSatiri = sadeceBenim && !yatay && !!r.note?.trim();
           return (
-            <button
+            // SATIR BUTON DEĞİL DIV (Gökhan, 2026-08-19): PR kendi masalarının hesabını satırın
+            // içindeki kutuya yazıyor, yazı kutusu butonun içine konamıyor. Dokunuşla kart
+            // açılması aynı şekilde çalışıyor.
+            <div
               key={r.id}
+              role="button" tabIndex={-1}
               // Kartı açamayacak rolde satır hiç tıklanmıyor (Gökhan, 2026-08-17: "hiçbir şey
               // açılmasın, tıklanamasın").
               onClick={acilir(r) ? () => onKartAc(r) : undefined}
@@ -687,6 +695,17 @@ function MobilRezervasyonListesi({
                 )}
               </span>
               <span className="tnum" style={{ fontSize: 13.5, fontWeight: 600, color: info.color, flexShrink: 0 }}>{r.party_size} px</span>
+              {/* HESAP KUTUSU — PR gece sonunda kendi masalarının hesabını buraya yazıyor
+                  (Gökhan, 2026-08-19: "masa kalkmadan hesabı nasıl bilebilir, kalkacak, gece
+                  sonunda kendi masalarının hesaplarını öğrenip yazacak"). Bu yüzden kutu
+                  yalnızca işi bitmiş kendi masalarında çıkıyor. İleride AIOS'a bağlanınca
+                  tutarı program kendisi yazacak, kutu da gerekmeyecek.
+                  Dokunuş satıra geçmiyor: kutuya basınca kart açılmıyor, sayı yazılıyor. */}
+              {tutarGirilir(r) && (
+                <span onClick={(e) => e.stopPropagation()} style={{ display: "inline-flex", flexShrink: 0 }}>
+                  <TutarKutusu tutar={r.hesap_tutari} onKaydet={(metin) => onTutar(r, metin)} />
+                </span>
+              )}
               {/* Masa kilidi telefonda da olmalı — masaüstü tabloda vardı, kart görünümüne
                   konmamıştı (Gökhan, 2026-08-12: "rezervasyon kilidini unuttuk"). Kart bir
                   buton olduğu için iç içe buton kullanılmıyor; dokunuş kartın açılmasını
@@ -700,7 +719,7 @@ function MobilRezervasyonListesi({
               >
                 {r.masa_kilit ? <Lock size={14} /> : <Unlock size={14} />}
               </span>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -3331,6 +3350,9 @@ export default function RezervasyonPage() {
             yatay={yatayMobil}
             kendiSuzgeci={kendiSuzgeci}
             kendiEtiketi={kendiEtiketi}
+            // Hesabı PR kendi masası kalktıktan sonra yazıyor (Gökhan, 2026-08-19).
+            tutarGirilir={(r) => rolum === "pr" && r.status === "tamamlandi" && benimRezMi(r)}
+            onTutar={tutarKaydet}
             benimMi={benimRezMi}
             sadeceBenim={sadeceBenim}
             onSadeceBenim={setSadeceBenim}
