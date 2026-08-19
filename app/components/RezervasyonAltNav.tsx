@@ -111,10 +111,24 @@ export default function RezervasyonAltNav() {
   // nava koyuyoruz"). Planlı ekran artık "Posta salon" adıyla sadece gösteriyor; seçme,
   // listeleme ve garson atama bu yeni sayfada. İkisi nav'da yan yana duruyor.
   if (rolum === "salon_sefi") {
+    // Salon simgesi şefte de duruyor (Gökhan, 2026-08-19: "şefe salon ve posta simgelerini
+    // nava ekle") — işletmenin yetki tablosunda kapalı olsa bile, garsondaki gibi.
+    if (!items.some((it) => it.sayfa === "salon")) {
+      items.splice(1, 0, {
+        href: "/rezervasyon/salon", label: "Salon", sayfa: "salon",
+        active: pathname.startsWith("/rezervasyon/salon"), icon: <LayoutGrid size={22} />,
+      });
+    }
     const sira = items.findIndex((it) => it.sayfa === "posta");
     if (sira >= 0) {
       items[sira] = { ...items[sira], label: "Posta salon" };
       items.splice(sira + 1, 0, {
+        href: "/rezervasyon/postalar", label: "Posta", sayfa: "postalar",
+        active: pathname.startsWith("/rezervasyon/postalar"), icon: <ClipboardList size={22} />,
+      });
+    } else if (!items.some((it) => it.sayfa === "postalar")) {
+      // Posta yetkisi kapalıysa liste yine de duruyor: atamayı şef yapıyor.
+      items.splice(2, 0, {
         href: "/rezervasyon/postalar", label: "Posta", sayfa: "postalar",
         active: pathname.startsWith("/rezervasyon/postalar"), icon: <ClipboardList size={22} />,
       });
