@@ -471,11 +471,20 @@ function MusteriAdaylariListesi({ adaylar, onSec }: { adaylar: MusteriAday[]; on
 // (bkz. kartFor bloğu). Kategori işareti şimdilik sadece VIP (kisi_kartlari.vip), toplu ve
 // tek sorguyla getiriliyor — her satır için ayrı ayrı sorgu atmıyor.
 function MobilRezervasyonListesi({
-  rows, toplamMasa, toplamKapasite, doluluk, yedekMasa, yedekPax, masaAdi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
+  rows, toplamMasa, masaDolu, toplamKapasite, doluluk, yedekMasa, yedekPax,
+  bekleyenMasa, bekleyenPax, fixAcik, fixSayisi, fixPax,
+  masaAdi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
   arama, onArama, yatay, acilir, postamVar, benimMi, sadeceBenim, onSadeceBenim,
 }: {
-  rows: Rez[]; toplamMasa: number; toplamKapasite: number; doluluk: number;
+  rows: Rez[];
+  /** Birleşenler tek sayıldıktan sonra kalan masa sayısı — webdeki "Masa" ile aynı. */
+  toplamMasa: number;
+  /** Masa tutan rezervasyon sayısı — webdeki "RZV" ile aynı. */
+  masaDolu: number;
+  toplamKapasite: number; doluluk: number;
   yedekMasa: number; yedekPax: number;
+  bekleyenMasa: number; bekleyenPax: number;
+  fixAcik: boolean; fixSayisi: number; fixPax: number;
   masaAdi: (r: Rez) => string | null;
   gun: string; bugunMu: boolean; onGunDegistir: (g: string) => void;
   onYeniRezervasyon: () => void; onKartAc: (r: Rez) => void; onKilit: (r: Rez) => void;
@@ -532,13 +541,22 @@ function MobilRezervasyonListesi({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 13, color: inkSoft, flexShrink: 0 }}>
         {/* Masa ve pax tek satırda: "63/4 Masa" — toplam / rezervasyonlu (Gökhan,
             2026-08-17). Karşısındaki blok da aynı biçimde: kapasite / doluluk. */}
+        {/* Rakamlar webdeki sayaçlarla AYNI kaynaktan geliyor (Gökhan, 2026-08-19: "aynı
+            yerden çalışamıyor mu"). Masa = birleşenler tek sayıldıktan sonra kalan masa,
+            dolu = masa tutan rezervasyon; iptal, gelmedi, bekleyen ve yedek girmiyor.
+            Eskiden burada toplam masa ile listedeki satır sayısı yazıyordu, web yeni hesaba
+            geçince telefon eski rakamda kalmıştı. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
             Masa{" "}
             <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamMasa}</span>
             <span style={{ color: inkSoft }}>/</span>
-            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{rows.length}</span> dolu
+            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{masaDolu}</span> dolu
           </div>
+          {/* BEKLEYEN — kapıda sıra bekleyenler; masa tutmuyorlar, kapasiteye girmiyorlar. */}
+          {bekleyenMasa > 0 && (
+            <div>Bekleyen <span className="tnum" style={{ fontWeight: 600, color: "var(--gold-text)" }}>{bekleyenMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--gold-text)" }}>{bekleyenPax}</span> pax</div>
+          )}
         </div>
         {yatay && (
           <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
@@ -556,6 +574,10 @@ function MobilRezervasyonListesi({
               Yedek yoksa satır hiç çıkmaz. */}
           {yedekMasa > 0 && (
             <div>Yedek <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekPax}</span> pax</div>
+          )}
+          {/* FİX — Ayarlar'da fix menü kapalıysa satır hiç görünmüyor, webdeki kuralın aynısı. */}
+          {fixAcik && (
+            <div>Fix <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{fixSayisi}</span> rzv · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{fixPax}</span> pax</div>
           )}
         </div>
       </div>
@@ -3177,11 +3199,19 @@ export default function RezervasyonPage() {
         {isMobile && (
           <MobilRezervasyonListesi
             rows={filtreliRows}
-            toplamMasa={tables.length}
+            // Sayaçlar webdekiyle aynı değerlerden besleniyor (Gökhan, 2026-08-19) — hesap
+            // tek yerde, iki görünüm de aynı rakamı gösteriyor.
+            toplamMasa={etkinMasaSayisi}
+            masaDolu={kapasiteliRows.length}
             toplamKapasite={toplamKapasite}
-            doluluk={gunPax}
+            doluluk={Math.min(gunPax, toplamKapasite)}
             yedekMasa={yedekRows.length}
             yedekPax={yedekPax}
+            bekleyenMasa={bekleyenRows.length}
+            bekleyenPax={bekleyenPax}
+            fixAcik={fixAcik}
+            fixSayisi={fixSayisi}
+            fixPax={fixPax}
             // Mutfak şefinde masa yerine fix/alakart (Gökhan, 2026-08-17). Masanın yanına
             // eklenen "· Fix" kaldırıldı (Gökhan, 2026-08-18): webde fix bilgisi ismin
             // altında duruyor, telefon düzeni ayrıca ele alınacak.
