@@ -336,6 +336,11 @@ const masalariSec = (
   siralar: PlanMasa[][], bosIds: Set<string>, boylar: number[], tercih?: YakinlikTercihi,
   // Rezervasyonun ŞU ANKİ masaları — birden fazla uygun yer varsa en yakını seçilir.
   mevcutMasalar: PlanMasa[] = [],
+  // O gün ŞİMDİYE KADAR kurulmuş birleşik kümelerin merkezleri (Gökhan, 2026-08-19:
+  // "birleştirmeleri mümkünse aynı tarafta yapsın... düzenden kaçmasın, düzen sağlasın").
+  // Birleşmeler salonun dört bir yanına dağılmasın diye eşit adaylar arasında bunlara en
+  // yakın olan kazanır — 5+8 birleştiyse ikinci birleşme 4+9 gibi hemen yanından devam eder.
+  kumeMerkezleri: { x: number; y: number }[] = [],
 ): { masalar: PlanMasa[]; taşımaSayisi: number } | null => {
   const gereken = [...boylar].sort((a, b) => b - a);
 
@@ -427,6 +432,18 @@ const masalariSec = (
         ? Number.POSITIVE_INFINITY
         : Math.hypot(asilKX(m)! - mx, asilKY(m)! - my)));
   };
+  // BİRLEŞMELER BİR ARADA DURSUN (Gökhan, 2026-08-19: "bahçede 5 ve 8'i birleştirmiş, bir de
+  // 1 ve 9'u; bu yolun kapanmasına neden olmuş. Birleştirmeleri mümkünse aynı tarafta yapsın").
+  // O güne kadar kurulmuş kümelere olan uzaklık — eşit adaylar arasında en yakını kazanır,
+  // böylece ikinci birleşme birincinin hemen yanından devam eder. Hiç küme yoksa ölçüt yok.
+  const kumeyeUzaklik = (secim: PlanMasa[]) => {
+    if (kumeMerkezleri.length === 0) return 0;
+    const noktalar = secim
+      .filter((m) => asilKX(m) !== null && asilKY(m) !== null)
+      .map((m) => ({ x: asilKX(m)!, y: asilKY(m)! }));
+    if (noktalar.length === 0) return Number.POSITIVE_INFINITY;
+    return Math.min(...kumeMerkezleri.flatMap((k) => noktalar.map((n) => Math.hypot(n.x - k.x, n.y - k.y))));
+  };
   // Hiçbir ölçüt ayırmazsa salon soldan sağa, yukarıdan aşağı okunur — ilk sıradaki soldaki yer.
   const okumaSirasi = (secim: PlanMasa[]) => {
     const x = Math.min(...secim.map((m) => asilKX(m) ?? Number.MAX_SAFE_INTEGER));
@@ -456,9 +473,12 @@ const masalariSec = (
       }
       return;
     }
-    // Boylar sabit olduğu için israf eşit; ayıran ölçütler sırayla: az taşıma → rezervasyonun
-    // şu anki masasına yakınlık → salonun okuma sırası (Gökhan, 2026-08-19 onayı).
-    const u = mevcudaUzaklik(secim);
+    // Boylar sabit olduğu için israf eşit; ayıran ölçütler sırayla:
+    //   az taşıma → (rezervasyonun masası varsa) o masaya yakınlık, yoksa kurulmuş kümelere
+    //   yakınlık → salonun okuma sırası (Gökhan, 2026-08-19 onayı).
+    // Masası olan rezervasyon yerinden koparılmaz; masası olmayan ise birleşmelerin toplandığı
+    // tarafa çekilir, salon dağılmaz.
+    const u = mevcutMasalar.length > 0 ? mevcudaUzaklik(secim) : kumeyeUzaklik(secim);
     const o = okumaSirasi(secim);
     const daha = !enIyi
       || taşımaSayisi < enIyi.taşımaSayisi
@@ -508,6 +528,8 @@ const planKur = (
   });
 
   const yerlesemeyen: string[] = [];
+  // O gün kurulan birleşik kümelerin merkezleri — sonraki birleşmeler bunların yanına toplanır.
+  const kumeMerkezleri: { x: number; y: number }[] = [];
   // Büyükten küçüğe: kalabalık grupların seçeneği az, önce onlar yerleşmeli. Misafir masaları
   // EN SONA bırakılır — ev sahibinin masası belli olmadan yakın/uzak hesaplanamaz.
   const sirali = [...serbest].filter((r) => !atamalar[r.id]).sort((a, b) => {
@@ -557,7 +579,7 @@ const planKur = (
     for (const liste of aramaListeleri) {
       if (liste.length === 0) continue;
       for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
-        const secim = masalariSec(liste, bosIds, boylar, tercih, mevcutMasalari);
+        const secim = masalariSec(liste, bosIds, boylar, tercih, mevcutMasalari, kumeMerkezleri);
         if (!secim) continue;
         // Misafir masasında (yakın/uzak) bütün adaylar gezilir, en uygun uzaklık kazanır;
         // normalde boy sırası zaten doğru sırada geldiği için ilk tutan aday kazanır.
@@ -572,6 +594,17 @@ const planKur = (
     if (!enIyi) { yerlesemeyen.push(rez.id); return; }
     enIyi.masalar.forEach((m) => bosIds.delete(m.id));
     atamalar[rez.id] = enIyi.masalar.map((m) => m.id);
+    // Kurulan BİRLEŞİK küme sonrakiler için merkez olur — birleşmeler bir arada toplansın
+    // (Gökhan, 2026-08-19). Tek masalık atama küme sayılmaz.
+    if (enIyi.masalar.length > 1) {
+      const noktalar = enIyi.masalar.filter((m) => asilKX(m) !== null && asilKY(m) !== null);
+      if (noktalar.length > 0) {
+        kumeMerkezleri.push({
+          x: noktalar.reduce((s, m) => s + asilKX(m)!, 0) / noktalar.length,
+          y: noktalar.reduce((s, m) => s + asilKY(m)!, 0) / noktalar.length,
+        });
+      }
+    }
   });
 
   return { atamalar, yerlesemeyen };
