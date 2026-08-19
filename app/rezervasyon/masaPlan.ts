@@ -26,14 +26,24 @@ export type MasaBilgi = { seat_count: number };
 // kararları da bozulan bir sarmala giriyordu (Gökhan: "18 kişilik 3 rezervasyon yaptım, aynı
 // sıradaki masaları birleştirmesi gerekiyordu, ne yaptığına sen bak" — ilki doğru sıraya
 // oturttu ama masalar bir kez kaydıktan sonra ikinci ve üçüncüsü dağınık masalar topladı).
-export type KonumluMasa = MasaBilgi & { position_x: number | null; position_y: number | null; normalX?: number | null; normalY?: number | null };
+// varsayilanX/varsayilanY: işletmenin RAPTİYE ile kaydettiği kalıcı düzen. Yerleşim önce buna
+// bakar (Gökhan, 2026-08-19). normalX/normalY ise sadece "program bu masayı birleştirme için
+// oynatmadan önce buradaydı" demek — kalıcı düzen varken ona bakılmaz, çünkü her tur yeniden
+// yazıldığı için kayma birikiyordu.
+export type KonumluMasa = MasaBilgi & {
+  position_x: number | null; position_y: number | null;
+  normalX?: number | null; normalY?: number | null;
+  varsayilanX?: number | null; varsayilanY?: number | null;
+};
 const SIRA_TOLERANS = 60; // px — aynı sırada sayılmak için izin verilen yükseklik farkı
 // Ayrı rezervasyonların masaları arasında bırakılacak en az boşluk (px). Aynı rezervasyonun
 // masaları dip dibe durur; farklı rezervasyonlarınki hep ayrık görünsün diye.
 export const AYRI_MESAFE = 26;
 
-const asilKX = (m: KonumluMasa) => m.normalX ?? m.position_x;
-const asilKY = (m: KonumluMasa) => m.normalY ?? m.position_y;
+// Masanın ASIL (ev) yeri: önce kayıtlı düzen, yoksa birleştirmeden önceki yeri, o da yoksa
+// bulunduğu yer.
+const asilKX = (m: KonumluMasa) => m.varsayilanX ?? m.normalX ?? m.position_x;
+const asilKY = (m: KonumluMasa) => m.varsayilanY ?? m.normalY ?? m.position_y;
 
 export const ayniSirada = (a: KonumluMasa, b: KonumluMasa) =>
   asilKY(a) !== null && asilKY(b) !== null && Math.abs(asilKY(a)! - asilKY(b)!) <= SIRA_TOLERANS;
@@ -630,8 +640,10 @@ export const birlesikYerlesim = (
   tumMasalar: PlanMasa[],
   kilitliIds: ReadonlySet<string> = new Set(),
 ): MasaYeri[] => {
-  const evX = (m: PlanMasa) => m.normalX ?? m.position_x; // masanın ASIL (ev) yeri
-  const evY = (m: PlanMasa) => m.normalY ?? m.position_y;
+  // Masanın ASIL (ev) yeri: önce işletmenin kaydettiği düzen (raptiye), sonra birleştirmeden
+  // önceki yeri, o da yoksa bulunduğu yer (Gökhan, 2026-08-19).
+  const evX = (m: PlanMasa) => m.varsayilanX ?? m.normalX ?? m.position_x;
+  const evY = (m: PlanMasa) => m.varsayilanY ?? m.normalY ?? m.position_y;
   // BİRLEŞİRKEN ÇEVRİLECEK MASALAR (Gökhan, 2026-08-19: "o birleştirmeyi yapabilir ama masayı
   // çevirmesi gerekir"). Kümede biri enine biri dikine duruyorsa çıpa yerinde ve yönünde kalır,
   // katılan masa onun yönüne çevrilir — böylece kısa kenarlar öpüşür. Çevrilen masanın eni ve

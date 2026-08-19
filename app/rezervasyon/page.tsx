@@ -94,7 +94,10 @@ type TableRow = {
   position_x: number | null; position_y: number | null;
   shape: MasaSekli; rotated: boolean; normal_x: number | null; normal_y: number | null;
   // normal_rotated: birleşmek için çevrilmeden önceki asıl duruş (Gökhan, 2026-08-19).
-  normal_rotated: boolean | null; area_id: string | null;
+  normal_rotated: boolean | null;
+  // varsayilan_*: işletmenin raptiye ile kaydettiği kalıcı düzen — masanın gerçek evi.
+  varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null;
+  area_id: string | null;
 };
 
 const gunIstanbul = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date(iso));
@@ -1410,7 +1413,7 @@ export default function RezervasyonPage() {
         // sırayla döndürüyor, liste 6 saniyede bir tazelendiği için satırlar oynuyordu.
         // reserved_at ve id eşitliği kırıyor — sıra artık her tazelemede aynı.
         .order("created_at").order("reserved_at").order("id"),
-      supabase.from("restaurant_tables").select("id, name, seat_count, status, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, seat_count, status, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       supabase.from("restaurant_settings").select("kvkk_notice, default_duration_minutes, auto_seating, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde, masa_ek_sandalye, gun_kapanis, fix_menu_acik, karma_fix_alakart, isletme_tipi, mesaj_acik, mesaj_onay_acik, mesaj_onay_metni, mesaj_teyit_acik, mesaj_teyit_saat, mesaj_teyit_bitis, mesaj_teyit_metni, mesaj_sessiz_baslangic, mesaj_sessiz_bitis").eq("restaurant_id", restId).maybeSingle(),
     ]);
     if (error) { setErr(error.message); return; }
@@ -2481,7 +2484,7 @@ export default function RezervasyonPage() {
         .in("status", ["bekleniyor", "geldi", "oturdu"])
         .gte("reserved_at", start).lt("reserved_at", end),
       // area_id ŞART — bkz. aşağıdaki planMasa.
-      supabase.from("restaurant_tables").select("id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, area_id")
+      supabase.from("restaurant_tables").select("id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id")
         .eq("restaurant_id", restaurantId).is("deleted_at", null).order("sort_order"),
     ]);
     type TazeRez = {
@@ -2490,7 +2493,7 @@ export default function RezervasyonPage() {
       note: string | null; tercih_alan_id: string | null;
       reservation_tables: { table_id: string }[] | null;
     };
-    type TazeMasa = { id: string; seat_count: number; position_x: number | null; position_y: number | null; shape: MasaSekli; rotated: boolean; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null; area_id: string | null };
+    type TazeMasa = { id: string; seat_count: number; position_x: number | null; position_y: number | null; shape: MasaSekli; rotated: boolean; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null; varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null; area_id: string | null };
     const rezler = (rData as TazeRez[]) ?? [];
     const masalar = (tData as TazeMasa[]) ?? [];
     if (masalar.length === 0) return;
@@ -2507,6 +2510,8 @@ export default function RezervasyonPage() {
       // tek rezervasyona veriyordu (Gökhan, 2026-08-15: "12 kişi hem bahçeden hem terastan
       // masa seçilmiş"). Artık bir rezervasyonun bütün masaları TEK salondan gelir.
       alanId: t.area_id,
+      // İşletmenin raptiye ile kaydettiği kalıcı düzen — yerleşim önce buna bakar.
+      varsayilanX: t.varsayilan_x, varsayilanY: t.varsayilan_y,
       // Birleşirken duruşu çıpaya uydurulacak masa buradan anlaşılıyor (Gökhan, 2026-08-19).
       shape: t.shape, rotated: t.rotated,
     });
@@ -2617,10 +2622,11 @@ export default function RezervasyonPage() {
     );
     for (const t of masalar) {
       if (kilitliMasaIds.has(t.id)) continue; // kilitli masa asıl yerine de dönmez
-      if (birlesikMasaIds.has(t.id) || t.normal_x === null || t.normal_y === null) continue;
-      const evX = t.normal_x, evY = t.normal_y;
+      // Eve dönüş: varsa işletmenin kayıtlı düzeni (raptiye), yoksa birleştirmeden önceki yer.
+      const evX = t.varsayilan_x ?? t.normal_x, evY = t.varsayilan_y ?? t.normal_y;
+      if (birlesikMasaIds.has(t.id) || evX === null || evY === null) continue;
       // Eve dönen masa eski YÖNÜNE de döner — birleşmek için çevrilmişse düzelir.
-      const eskiYon = t.normal_rotated;
+      const eskiYon = t.varsayilan_rotated ?? t.normal_rotated;
       await supabase.from("restaurant_tables")
         .update({
           position_x: evX, position_y: evY, normal_x: null, normal_y: null,
@@ -2687,13 +2693,15 @@ export default function RezervasyonPage() {
   // Masaları normal yerine döndürür — gün kapanınca salon eski hâline gelsin diye.
   const masalariNormaleAl = async () => {
     for (const t of tables) {
-      if (t.normal_x === null || t.normal_y === null) continue;
+      // Eve dönüş: varsa işletmenin kayıtlı düzeni (raptiye), yoksa birleştirmeden önceki yer.
+      const evX = t.varsayilan_x ?? t.normal_x, evY = t.varsayilan_y ?? t.normal_y;
+      if (evX === null || evY === null) continue;
       // Birleşmek için çevrilen masa eski yönüne de döner (Gökhan, 2026-08-19).
+      const eskiYon = t.varsayilan_rotated ?? t.normal_rotated;
       await supabase.from("restaurant_tables")
         .update({
-          position_x: t.normal_x, position_y: t.normal_y, normal_x: null, normal_y: null,
-          ...(t.normal_rotated !== null && t.normal_rotated !== undefined
-            ? { rotated: t.normal_rotated, normal_rotated: null } : {}),
+          position_x: evX, position_y: evY, normal_x: null, normal_y: null,
+          ...(eskiYon !== null && eskiYon !== undefined ? { rotated: eskiYon, normal_rotated: null } : {}),
         })
         .eq("id", t.id);
     }

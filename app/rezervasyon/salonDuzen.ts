@@ -25,12 +25,15 @@ const gunSiniri = (gun: string) => {
 
 // normal_rotated: birleşmek için çevrilmeden önceki asıl duruş (Gökhan, 2026-08-19) — masa
 // evine dönerken eski yönüne de döner.
+// varsayilan_*: işletmenin raptiye ile kaydettiği kalıcı düzen — masanın gerçek evi budur.
 type Masa = {
   id: string; seat_count: number; position_x: number | null; position_y: number | null;
   shape: Shape; rotated: boolean; normal_x: number | null; normal_y: number | null;
-  normal_rotated: boolean | null; area_id: string | null;
+  normal_rotated: boolean | null;
+  varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null;
+  area_id: string | null;
 };
-const MASA_ALAN = "id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, area_id";
+const MASA_ALAN = "id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id";
 
 // Salonun (dining_area) GERÇEK eni piksel olarak — yerleşimin sağ duvarı budur, masa buranın
 // dışına çıkarılmaz. Eskiden salonun eni hiç bilinmiyordu; sağ duvar "o sıradaki en sağdaki
@@ -75,6 +78,7 @@ export const salonDuzeniniTazele = async (restaurantId: string, gun: string) => 
     genislik: govdeCizim(t.shape, t.seat_count, t.rotated).width,
     yukseklik: govdeCizim(t.shape, t.seat_count, t.rotated).height,
     normalX: t.normal_x, normalY: t.normal_y,
+    varsayilanX: t.varsayilan_x, varsayilanY: t.varsayilan_y,
     // Birleşirken duruşu çıpaya uydurulacak masayı seçebilmek için şekil ve yön de veriliyor.
     shape: t.shape, rotated: t.rotated,
     alanId: t.area_id, alanEni: (t.area_id && alanEni.get(t.area_id)) || null,
@@ -94,11 +98,13 @@ export const salonDuzeniniTazele = async (restaurantId: string, gun: string) => 
   // yoksa aşağıdaki yerleşim eski konumlara bakıp "değişmemiş" sanıyor ve masa altta kalıyor.
   for (const t of masalar) {
     if (kilitliIds.has(t.id)) continue; // kilitli masa asıl yerine de dönmez
-    if (birlesik.has(t.id) || t.normal_x === null || t.normal_y === null) continue;
-    const ex = t.normal_x, ey = t.normal_y;
+    // Eve dönüş: varsa işletmenin kayıtlı düzeni, yoksa birleştirmeden önceki yer.
+    const evXx = t.varsayilan_x ?? t.normal_x, evYy = t.varsayilan_y ?? t.normal_y;
+    if (birlesik.has(t.id) || evXx === null || evYy === null) continue;
+    const ex = evXx, ey = evYy;
     // Masa evine dönerken ESKİ YÖNÜNE de döner — birleşmek için çevrilmişse düzelir
     // (Gökhan, 2026-08-19).
-    const eskiYon = t.normal_rotated;
+    const eskiYon = t.varsayilan_rotated ?? t.normal_rotated;
     await supabase.from("restaurant_tables")
       .update({
         position_x: ex, position_y: ey, normal_x: null, normal_y: null,
@@ -167,6 +173,7 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
     genislik: govdeCizim(t.shape, t.seat_count, t.rotated).width,
     yukseklik: govdeCizim(t.shape, t.seat_count, t.rotated).height,
     normalX: t.normal_x, normalY: t.normal_y,
+    varsayilanX: t.varsayilan_x, varsayilanY: t.varsayilan_y,
     // Birleşirken duruşu çıpaya uydurulacak masayı seçebilmek için şekil ve yön de veriliyor.
     shape: t.shape, rotated: t.rotated,
     alanId: t.area_id, alanEni: (t.area_id && alanEni.get(t.area_id)) || null,
@@ -304,11 +311,13 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
 
   for (const t of masalar) {
     if (kilitliIds.has(t.id)) continue; // kilitli masa asıl yerine de dönmez, olduğu yerde kalır
-    if (birlesik.has(t.id) || t.normal_x === null || t.normal_y === null) continue;
-    const ex = t.normal_x, ey = t.normal_y;
+    // Eve dönüş: varsa işletmenin kayıtlı düzeni, yoksa birleştirmeden önceki yer.
+    const evXx = t.varsayilan_x ?? t.normal_x, evYy = t.varsayilan_y ?? t.normal_y;
+    if (birlesik.has(t.id) || evXx === null || evYy === null) continue;
+    const ex = evXx, ey = evYy;
     // Masa evine dönerken ESKİ YÖNÜNE de döner — birleşmek için çevrilmişse düzelir
     // (Gökhan, 2026-08-19).
-    const eskiYon = t.normal_rotated;
+    const eskiYon = t.varsayilan_rotated ?? t.normal_rotated;
     await supabase.from("restaurant_tables")
       .update({
         position_x: ex, position_y: ey, normal_x: null, normal_y: null,

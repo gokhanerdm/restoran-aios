@@ -392,11 +392,22 @@ function SalonInner() {
       await supabase.from("reservations").update({ table_id: null }).in("id", rezIds);
     }
 
-    // 2) Masalar asıl yerlerine döner ve boşalır. Birleşmek için çevrilen masa asıl YÖNÜNE de
-    // döner (Gökhan, 2026-08-19) — normal_rotated doluysa oraya dönülür.
-    const { data } = await supabase.from("restaurant_tables")
-      .select("id, normal_x, normal_y, normal_rotated")
+    // 2) Masalar asıl yerlerine döner ve boşalır. Asıl yer önce işletmenin KAYITLI DÜZENİ
+    // (raptiye ile yazılan varsayilan_*), o yoksa birleştirmeden önceki yer (normal_*).
+    // Birleşmek için çevrilen masa asıl YÖNÜNE de döner (Gökhan, 2026-08-19).
+    const { data: hamData } = await supabase.from("restaurant_tables")
+      .select("id, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated")
       .eq("restaurant_id", restaurantId).is("deleted_at", null);
+    type HamMasa = {
+      id: string; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null;
+      varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null;
+    };
+    const data = ((hamData as HamMasa[]) ?? []).map((d) => ({
+      id: d.id,
+      normal_x: d.varsayilan_x ?? d.normal_x,
+      normal_y: d.varsayilan_y ?? d.normal_y,
+      normal_rotated: d.varsayilan_rotated ?? d.normal_rotated,
+    }));
 
     // Kilitli masalar yerinden oynamıyor; onların KAPLADIĞI alan dolu sayılır. Asıl yerine
     // dönecek bir masa oraya denk geliyorsa gönderilmez, olduğu yerde bırakılır — yoksa
@@ -424,7 +435,7 @@ function SalonInner() {
     // HENÜZ YERİNE DÖNMEMİŞ masaların gidecekleri yerler de doludur. Yoksa sıradaki masa,
      // birazdan başka bir masanın oturacağı noktaya konuyor ve ikisi üst üste biniyordu
      // (Gökhan, 2026-08-14 ekran görüntüsü: Bahçe 41 ile Bahçe 1 iç içe).
-    const hedefler = ((data as { id: string; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null }[]) ?? [])
+    const hedefler = (data)
       .map((d) => {
         const m = tables.find((x) => x.id === d.id);
         if (!m) return null;
@@ -435,7 +446,7 @@ function SalonInner() {
       .filter((x): x is { id: string; masa: TableRow; k: ReturnType<typeof kutu> } => !!x);
     let engellenen = 0;
 
-    for (const t of (data as { id: string; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null }[]) ?? []) {
+    for (const t of data) {
       // KİLİTLİ MASA DA YERİNE DÖNER. Kilit, masanın başkasına verilmesini ve programın onu
       // kendiliğinden oynatmasını engeller; ama bu düğme işletmenin açık emri: "her şeyi
       // kayıtlı düzene döndür". Kilitliler hariç tutulunca yanlış yere park etmiş bir kilitli
@@ -787,11 +798,23 @@ function SalonInner() {
     );
     if (!ok) return;
     setVarsayilanBusy(true); setErr(null);
-    const { error } = await supabase.from("restaurant_tables")
-      .update({ normal_x: null, normal_y: null })
-      .eq("restaurant_id", restaurantId).eq("area_id", selectedAreaId).is("deleted_at", null);
+    // KAYITLI DÜZEN (Gökhan, 2026-08-19). Eskiden bu düğme sadece normal_x/normal_y'yi siliyordu,
+    // yani "masanın evi şu an neredeyse orası" deniyordu; masa tam yerine dönemediği her turda o
+    // yanlış yer bir sonraki turun evi oluyor, dizilim kayıyordu. Artık her masanın ŞU ANKİ yeri
+    // ve duruşu varsayilan_* alanlarına yazılıyor — yerleşim, birleştirme ve çevirme bu alanlara
+    // dokunmuyor, "Varsayılana getir" her zaman buraya dönüyor.
+    let hata: string | null = null;
+    for (const t of buSalon) {
+      const { error } = await supabase.from("restaurant_tables")
+        .update({
+          varsayilan_x: t.position_x, varsayilan_y: t.position_y, varsayilan_rotated: t.rotated,
+          normal_x: null, normal_y: null, normal_rotated: null,
+        })
+        .eq("id", t.id);
+      if (error && !hata) hata = error.message;
+    }
     setVarsayilanBusy(false);
-    if (error) { setErr(error.message); return; }
+    if (hata) { setErr(hata); return; }
     await load(restaurantId);
   };
 
