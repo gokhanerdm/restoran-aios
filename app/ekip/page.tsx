@@ -48,14 +48,8 @@ const ROL_ADI: Record<string, string> = {
   pr: "PR",
   yonetici: "Yönetici",
 };
-const ROL_ADRESI: Record<string, string> = {
-  garson: "/rezervasyon/garson",
-  salon_sefi: "/rezervasyon/sef",
-  mutfak: "/rezervasyon",
-  karsilama: "/rezervasyon",
-  pr: "/rezervasyon/pr",
-  yonetici: "/rezervasyon",
-};
+// Role göre ayrı adres tablosu kalktı (Gökhan, 2026-08-19): her rol aynı rezervasyon
+// listesine giriyor, kısıtlar listenin içinde rolüne göre uygulanıyor.
 
 // Şifresiz giriş açıkken kullanıcının yazdığı e-posta cihazda tutuluyor — kod panelinde
 // adını hazır getirmek için.
@@ -82,9 +76,14 @@ export default function PersonelUyelik() {
     if (!session) { setAsama("giris"); return; }
     const { data } = await supabase.rpc("personel_rolum");
     const r = (data as Rolum[] | null)?.[0] ?? null;
+    // ONAYLI PERSONEL DOĞRUDAN REZERVASYONA (Gökhan, 2026-08-19: "artık panele git sayfasına
+    // gerek yok, giriş yapınca direkt rezervasyon sayfasına gelsin"). Arada duracak bir ekran
+    // yok: bağı kurulmuş, onaylanmış kişi kendi listesini görsün.
+    // Bekleyen ya da kapatılmış bağda durum ekranı duruyor — orada söylenecek bir söz var.
+    if (r && r.durum === "onayli") { router.replace("/rezervasyon"); return; }
     setRolum(r);
     setAsama(r ? "durum" : "kod");
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const t = setTimeout(() => { durumuOku(); }, 0);
@@ -274,11 +273,10 @@ export default function PersonelUyelik() {
             {rolum.ad_soyad} · {ROL_ADI[rolum.rol] ?? rolum.rol}
           </div>
 
-          {rolum.durum === "onayli" ? (
-            <button onClick={() => router.push(ROL_ADRESI[rolum.rol] ?? "/rezervasyon")} style={anaBtn}>
-              Panele git
-            </button>
-          ) : rolum.durum === "bekliyor" ? (
+          {/* "Panele git" düğmesi kalktı (Gökhan, 2026-08-19) — onaylı personel bu ekrana
+              hiç uğramıyor, doğrudan rezervasyon listesine gidiyor. Burada sadece bağı
+              beklemede olan ya da kapatılmış kişi kalıyor. */}
+          {rolum.durum === "bekliyor" ? (
             <div style={{ fontSize: 12.5, color: "var(--gold-text)", border: "1px solid var(--gold)", borderRadius: 12, padding: "12px 14px", lineHeight: 1.6, textAlign: "center" }}>
               İsteğin işletmeye iletildi. Onaylanınca panelin açılacak.
             </div>
