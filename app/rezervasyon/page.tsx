@@ -3164,15 +3164,19 @@ export default function RezervasyonPage() {
             </span>
           </div>
           {/* FİX MENÜ — o gün fix menü alan kaç rezervasyon, kaç kişi (Gökhan, 2026-08-18).
-              Kimse almadıysa sıfır olarak duruyor, satır kaybolmuyor. */}
-          <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
-            <span>Fix</span>
-            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{fixSayisi}</span>
-            <span>rzv</span>
-            <span />
-            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{fixPax}</span>
-            <span>pax</span>
-          </div>
+              Kimse almadıysa sıfır olarak duruyor, satır kaybolmuyor. Ayarlar'da fix menü
+              KAPALIYSA satır hiç görünmüyor (Gökhan, 2026-08-19: "gece kulübü türündeyim,
+              fix işaretli olmamasına rağmen yukarıda fix menü bilgisi var"). */}
+          {fixAcik && (
+            <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
+              <span>Fix</span>
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{fixSayisi}</span>
+              <span>rzv</span>
+              <span />
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{fixPax}</span>
+              <span>pax</span>
+            </div>
+          )}
           {/* BEKLEYEN — kapıda sıra bekleyenler (Gökhan, 2026-08-18). Masa tutmazlar,
               kapasiteye girmezler; buradaki sayı "kaç masa, kaç kişi bekliyor" demek. */}
           {bekleyenRows.length > 0 && (
@@ -3440,7 +3444,7 @@ export default function RezervasyonPage() {
                   </div>
                   {/* FİX — ismin altında küçük yazı, paxın altındaki "2K 1E" gibi (Gökhan,
                       2026-08-18). Alakart ayrıca yazılmıyor: yazmıyorsa alakart demek. */}
-                  {r.servis_tipi === "fix" && (
+                  {fixAcik && r.servis_tipi === "fix" && (
                     <div style={{ fontSize: 9.5, lineHeight: 1, color: "var(--brand-strong)", fontWeight: 600 }}>Fix</div>
                   )}
                   {doluUyari && (
