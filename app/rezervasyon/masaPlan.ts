@@ -194,9 +194,12 @@ export const havuzDokumu = (havuz: Havuz): string =>
 // alanId/alanEni: masanın hangi salonda (dining_areas) olduğu ve o salonun GERÇEK eni (px).
 // Yerleşim her salonu ayrı hesaplar (ayrı salonların tuvalleri ayrı, koordinatları karışmaz) ve
 // alanEni salonun sağ duvarıdır — masa bu duvarın dışına çıkarılmaz.
+// shape/rotated: masanın şekli ve şu anki duruşu. Birleşirken duruşu farklı olan masa çıpanın
+// yönüne çevriliyor (Gökhan, 2026-08-19) — hangi masanın çevrilebileceği şekilden anlaşılıyor,
+// çevirme yalnız dikdörtgende anlamlı.
 export type PlanMasa = KonumluMasa & {
   id: string; genislik?: number; yukseklik?: number; normalX?: number | null; normalY?: number | null;
-  alanId?: string | null; alanEni?: number | null;
+  alanId?: string | null; alanEni?: number | null; shape?: string; rotated?: boolean;
 };
 export type PlanRez = { id: string; kisi: number };
 export type PlanSonuc = { atamalar: Record<string, string[]>; yerlesemeyen: string[] };
@@ -586,7 +589,8 @@ export const salonuPlanla = (
 // Birleşen masaların salon planındaki YERLERİ (Gökhan: "6-1 ile 4-1 birleşti, masa planında
 // da yan yana gelecek ki garsonlar planı görüp yapacaklar"). Programın kendisi masayı çekemez;
 // çekilecek hâli plana yazar, garson görüp uygular.
-export type MasaYeri = { id: string; x: number; y: number };
+// rotated: masa birleşmek için çevrilecekse yeni duruşu; çevrilmiyorsa alan hiç gelmez.
+export type MasaYeri = { id: string; x: number; y: number; rotated?: boolean };
 
 // ————————————————————————————————————————————————————————————————————————
 // YERLEŞİM — baştan yazıldı (Gökhan, 2026-08-12).
@@ -628,8 +632,13 @@ export const birlesikYerlesim = (
 ): MasaYeri[] => {
   const evX = (m: PlanMasa) => m.normalX ?? m.position_x; // masanın ASIL (ev) yeri
   const evY = (m: PlanMasa) => m.normalY ?? m.position_y;
-  const gen = (m: PlanMasa) => m.genislik ?? 0;
-  const yuk = (m: PlanMasa) => m.yukseklik ?? 0;
+  // BİRLEŞİRKEN ÇEVRİLECEK MASALAR (Gökhan, 2026-08-19: "o birleştirmeyi yapabilir ama masayı
+  // çevirmesi gerekir"). Kümede biri enine biri dikine duruyorsa çıpa yerinde ve yönünde kalır,
+  // katılan masa onun yönüne çevrilir — böylece kısa kenarlar öpüşür. Çevrilen masanın eni ve
+  // boyu da yer değiştirdiği için bütün ölçü hesabı bunu bilmek zorunda.
+  const cevrilecek = new Map<string, boolean>(); // masa id -> yeni "rotated" değeri
+  const gen = (m: PlanMasa) => (cevrilecek.has(m.id) ? (m.yukseklik ?? 0) : (m.genislik ?? 0));
+  const yuk = (m: PlanMasa) => (cevrilecek.has(m.id) ? (m.genislik ?? 0) : (m.yukseklik ?? 0));
   // position_x sürükleme KUTUSUNUN sol kenarı, gövde kutunun ortasında çizilir (masaOlcu.ts).
   // Hesap gövde kenarlarıyla yapılır, sonuç position_x'e geri çevrilir.
   const govdeSol = (m: PlanMasa, x: number) => x + (BOX_W - gen(m)) / 2;
@@ -809,6 +818,19 @@ export const birlesikYerlesim = (
       const dikeyMi = gen(cipa) === yuk(cipa)
         ? ayniSutundakiler > ayniSiradakiler
         : yuk(cipa) > gen(cipa);
+
+      // DURUŞU FARKLI ÜYE ÇIPANIN YÖNÜNE ÇEVRİLİR (Gökhan, 2026-08-19: Ceyda Güven'in masaları —
+      // "biri dikine biri enine duruyor, oradan yanıldı; o birleştirmeyi yapabilir ama masayı
+      // çevirmesi gerekir"). Çıpa hem yerinde hem yönünde kalır. Çevirme yalnız dikdörtgende
+      // anlamlı: kare ve yuvarlakta yön diye bir şey yok. Kilitli masa çevrilmez.
+      sirali.forEach((m) => {
+        if (m.id === cipa.id || (m.shape ?? "") !== "dikdortgen" || kilitliIds.has(m.id)) return;
+        const g = m.genislik ?? 0, y = m.yukseklik ?? 0;
+        if (g === y) return;
+        const suanDik = y > g;
+        if (suanDik !== dikeyMi) cevrilecek.set(m.id, !(m.rotated ?? false));
+      });
+
       if (dikeyMi) {
         const x = govdeSol(cipa, evX(cipa)!);
         const enGenis = Math.max(...sirali.map((m) => gen(m)));
@@ -1158,7 +1180,13 @@ export const birlesikYerlesim = (
   tumMasalar.forEach((m) => {
     if (kilitliIds.has(m.id) && !kilitliTasinan.has(m.id)) return;
     const yeni = yerlesmis.get(m.id);
-    if (yeni && (m.position_x !== yeni.x || m.position_y !== yeni.y)) yerler.push({ id: m.id, x: yeni.x, y: yeni.y });
+    if (!yeni) return;
+    // Çevrilecek masa, yeri hiç değişmese bile yazılmalı — duruşu değişiyor.
+    const yeniYon = cevrilecek.get(m.id);
+    const yerDegisti = m.position_x !== yeni.x || m.position_y !== yeni.y;
+    const yonDegisti = yeniYon !== undefined && yeniYon !== (m.rotated ?? false);
+    if (!yerDegisti && !yonDegisti) return;
+    yerler.push({ id: m.id, x: yeni.x, y: yeni.y, ...(yonDegisti ? { rotated: yeniYon } : {}) });
   });
   return yerler;
 };

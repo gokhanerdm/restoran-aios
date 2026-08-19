@@ -392,9 +392,10 @@ function SalonInner() {
       await supabase.from("reservations").update({ table_id: null }).in("id", rezIds);
     }
 
-    // 2) Masalar asıl yerlerine döner ve boşalır.
+    // 2) Masalar asıl yerlerine döner ve boşalır. Birleşmek için çevrilen masa asıl YÖNÜNE de
+    // döner (Gökhan, 2026-08-19) — normal_rotated doluysa oraya dönülür.
     const { data } = await supabase.from("restaurant_tables")
-      .select("id, normal_x, normal_y")
+      .select("id, normal_x, normal_y, normal_rotated")
       .eq("restaurant_id", restaurantId).is("deleted_at", null);
 
     // Kilitli masalar yerinden oynamıyor; onların KAPLADIĞI alan dolu sayılır. Asıl yerine
@@ -423,7 +424,7 @@ function SalonInner() {
     // HENÜZ YERİNE DÖNMEMİŞ masaların gidecekleri yerler de doludur. Yoksa sıradaki masa,
      // birazdan başka bir masanın oturacağı noktaya konuyor ve ikisi üst üste biniyordu
      // (Gökhan, 2026-08-14 ekran görüntüsü: Bahçe 41 ile Bahçe 1 iç içe).
-    const hedefler = ((data as { id: string; normal_x: number | null; normal_y: number | null }[]) ?? [])
+    const hedefler = ((data as { id: string; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null }[]) ?? [])
       .map((d) => {
         const m = tables.find((x) => x.id === d.id);
         if (!m) return null;
@@ -434,7 +435,7 @@ function SalonInner() {
       .filter((x): x is { id: string; masa: TableRow; k: ReturnType<typeof kutu> } => !!x);
     let engellenen = 0;
 
-    for (const t of (data as { id: string; normal_x: number | null; normal_y: number | null }[]) ?? []) {
+    for (const t of (data as { id: string; normal_x: number | null; normal_y: number | null; normal_rotated: boolean | null }[]) ?? []) {
       // KİLİTLİ MASA DA YERİNE DÖNER. Kilit, masanın başkasına verilmesini ve programın onu
       // kendiliğinden oynatmasını engeller; ama bu düğme işletmenin açık emri: "her şeyi
       // kayıtlı düzene döndür". Kilitliler hariç tutulunca yanlış yere park etmiş bir kilitli
@@ -492,9 +493,12 @@ function SalonInner() {
         }
       }
       const bosalt = kilitliMasaIds.has(t.id) ? {} : { status: "empty", reservation_note: null };
+      // Birleşmek için çevrilmiş masa asıl yönüne de döner.
+      const yonGeri = t.normal_rotated !== null && t.normal_rotated !== undefined
+        ? { rotated: t.normal_rotated, normal_rotated: null } : {};
       const geri = t.normal_x !== null && t.normal_y !== null
-        ? { position_x: t.normal_x, position_y: t.normal_y, normal_x: null, normal_y: null, ...bosalt }
-        : bosalt;
+        ? { position_x: t.normal_x, position_y: t.normal_y, normal_x: null, normal_y: null, ...yonGeri, ...bosalt }
+        : { ...yonGeri, ...bosalt };
       await supabase.from("restaurant_tables").update(geri).eq("id", t.id);
       // Yerine oturan masa da bundan sonrakiler için doludur.
       if (masa) {
