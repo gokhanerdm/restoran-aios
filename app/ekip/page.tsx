@@ -28,7 +28,8 @@ import { Eye } from "lucide-react";
 // AKIŞ:
 //   1) KAYIT   — ad soyad, e-posta, şifre, KVKK onayı. Hesap personelin kendisinin.
 //   2) GİRİŞ   — e-posta + şifre.
-//   3) KOD     — içeri girince kod paneli çıkar. İşletmenin verdiği kodu yazar.
+//   3) KOD     — içeri girince kod paneli çıkar. İşletmenin verdiği kodu yazar; doğru kod
+//                bağı hemen açar, ayrıca onay beklenmez (Gökhan, 2026-08-19).
 //   4) PANEL   — bağ kurulduktan sonra hep o işletmenin ekranına, yetkisi dahilinde düşer.
 //
 // GEÇİCİ KOLAYLIK (Gökhan, 2026-08-16: "giriş için sadece mail isteyen yere maili yazmak
