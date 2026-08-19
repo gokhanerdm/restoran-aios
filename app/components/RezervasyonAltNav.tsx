@@ -119,15 +119,12 @@ export default function RezervasyonAltNav() {
         active: pathname.startsWith("/rezervasyon/salon"), icon: <LayoutGrid size={22} />,
       });
     }
-    const sira = items.findIndex((it) => it.sayfa === "posta");
-    if (sira >= 0) {
-      items[sira] = { ...items[sira], label: "Posta salon" };
-      items.splice(sira + 1, 0, {
-        href: "/rezervasyon/postalar", label: "Posta", sayfa: "postalar",
-        active: pathname.startsWith("/rezervasyon/postalar"), icon: <ClipboardList size={22} />,
-      });
-    } else if (!items.some((it) => it.sayfa === "postalar")) {
-      // Posta yetkisi kapalıysa liste yine de duruyor: atamayı şef yapıyor.
+    // Ayrı plan ekranı şefte de kalktı (Gökhan, 2026-08-19) — planı artık Salon simgesinden
+    // görüyor, iki simge aynı şeyi açmasın.
+    const postaSira = items.findIndex((it) => it.sayfa === "posta");
+    if (postaSira >= 0) items.splice(postaSira, 1);
+    // Posta listesi, yetki tablosunda posta kapalı olsa bile duruyor: atamayı şef yapıyor.
+    if (!items.some((it) => it.sayfa === "postalar")) {
       items.splice(2, 0, {
         href: "/rezervasyon/postalar", label: "Posta", sayfa: "postalar",
         active: pathname.startsWith("/rezervasyon/postalar"), icon: <ClipboardList size={22} />,
