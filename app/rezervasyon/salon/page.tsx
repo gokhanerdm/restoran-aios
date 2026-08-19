@@ -1379,7 +1379,7 @@ function SalonInner() {
     );
   }
 
-  // GARSON VE ŞEFİN SALON EKRANI (Gökhan, 2026-08-19: "garsonun posta ekranını salona geçir,
+  // GARSON, ŞEF VE PR'IN SALON EKRANI (Gökhan, 2026-08-19: "garsonun posta ekranını salona geçir,
   // salon ayarlarında bozulma olmasın" / "şefin salon ekranı yöneticiyle aynı, dün yaptığımız
   // salon ekranına çevir"). İkisi de telefonda salonu düzenlemiyor; masaların planını, kimin
   // nerede oturduğunu ve postaları görüyorlar. Aradaki fark panelin kendi içinde: şef posta
@@ -1387,7 +1387,7 @@ function SalonInner() {
   // Garson ve şef posta kurma dışında bir şey değiştirmiyor; seçme, listeleme ve garson atama
   // ayrı Posta listesi ekranında (bkz. atamaVar). Salon düzenleyicisi aşağıda olduğu gibi
   // duruyor, bu dal ona hiç karışmıyor — yönetici, karşılama ve işletme sahibi onu görüyor.
-  if (isMobile && (rolum === "garson" || rolum === "salon_sefi")) {
+  if (isMobile && (rolum === "garson" || rolum === "salon_sefi" || rolum === "pr")) {
     return (
       <div className="salon-sayfa" style={{
         padding: "8px 8px", paddingBottom: yatayMobil ? 8 : ALT_NAV_YUKSEKLIK + 8,

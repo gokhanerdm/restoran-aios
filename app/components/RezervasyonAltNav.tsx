@@ -96,7 +96,8 @@ export default function RezervasyonAltNav() {
   // salona geçir"). Nav'da artık ayrı posta simgesi yok, Salon simgesi var; garson oraya
   // basınca düzenleyiciyi değil kendi posta planını görüyor. İşletmenin yetki tablosunda
   // salon kapalı olsa bile bu simge duruyor — garsonun salonu görmesi rolün kendisinden.
-  if (rolum === "garson") {
+  // PR de aynı: planı Salon simgesinden görüyor, posta kurmuyor (Gökhan, 2026-08-19).
+  if (rolum === "garson" || rolum === "pr") {
     const postaSira = items.findIndex((it) => it.sayfa === "posta");
     if (postaSira >= 0) items.splice(postaSira, 1);
     if (!items.some((it) => it.sayfa === "salon")) {

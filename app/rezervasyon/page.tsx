@@ -475,7 +475,7 @@ function MobilRezervasyonListesi({
   rows, toplamMasa, masaDolu, toplamKapasite, doluluk, yedekMasa, yedekPax,
   bekleyenMasa, bekleyenPax, fixAcik, fixSayisi, fixPax,
   masaBilgi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
-  arama, onArama, yatay, acilir, postamVar, benimMi, sadeceBenim, onSadeceBenim,
+  arama, onArama, yatay, acilir, kendiSuzgeci, kendiEtiketi, benimMi, sadeceBenim, onSadeceBenim,
 }: {
   rows: Rez[];
   /** Birleşenler tek sayıldıktan sonra kalan masa sayısı — webdeki "Masa" ile aynı. */
@@ -494,9 +494,11 @@ function MobilRezervasyonListesi({
   arama: string; onArama: (v: string) => void; yatay: boolean;
   /** Bu satır tıklanıp kartı açılabilir mi — kısıtlı rollerde sadece kendi girdikleri. */
   acilir: (r: Rez) => boolean;
-  /** Bakanın postası var mı — yoksa "benim masalarım" düğmesi hiç çıkmaz. */
-  postamVar: boolean;
-  /** Bu rezervasyonun masası bakanın postasında mı. */
+  /** Süzgeç düğmesi çıksın mı — garsonda postası dağıtılmışsa, PR'da her zaman. */
+  kendiSuzgeci: boolean;
+  /** Düğmenin yazısı: garsonda "Benim masalarım", PR'da "Benim rezervasyonlarım". */
+  kendiEtiketi: string;
+  /** Bu satır bakanın kendi işi mi — garsonda postasındaki masa, PR'da kendi girdiği kayıt. */
   benimMi: (r: Rez) => boolean;
   sadeceBenim: boolean;
   onSadeceBenim: (v: boolean) => void;
@@ -604,7 +606,7 @@ function MobilRezervasyonListesi({
           kendi masalarını"). Liste tam kalıyor; garsonun kendi postasındaki satırlar zaten
           işaretli, bu düğme de tek dokunuşla sadece onları bırakıyor. Postası olmayan
           garsonda düğme hiç çıkmıyor — basınca boş liste kalırdı. */}
-      {postamVar && (
+      {kendiSuzgeci && (
         <div style={{ display: "flex", flexShrink: 0 }}>
           <button
             onClick={() => onSadeceBenim(!sadeceBenim)}
@@ -615,7 +617,7 @@ function MobilRezervasyonListesi({
               color: sadeceBenim ? "var(--brand)" : "var(--muted)", fontSize: 12.5, fontWeight: 600,
             }}
           >
-            Benim masalarım
+            {kendiEtiketi}
           </button>
         </div>
       )}
@@ -642,8 +644,8 @@ function MobilRezervasyonListesi({
                 paddingRight: "calc(14px - 2mm)",
                 // Garsonun kendi postasındaki masa, tam listenin içinde bir bakışta ayrılsın
                 // diye kenarı işaretli (Gökhan, 2026-08-18).
-                borderLeft: postamVar && benimMi(r) ? "4px solid var(--brand)" : undefined,
-                paddingLeft: postamVar && benimMi(r) ? 10 : undefined,
+                borderLeft: kendiSuzgeci && benimMi(r) ? "4px solid var(--brand)" : undefined,
+                paddingLeft: kendiSuzgeci && benimMi(r) ? 10 : undefined,
               }}
             >
               {/* SATIRDA NE VAR (Gökhan, 2026-08-18): sıra no, saat, isim soyisim, masa
@@ -1580,13 +1582,22 @@ export default function RezervasyonPage() {
       ? false
       : !kisitli || (!!r.alan_hesap_id && r.alan_hesap_id === benimPersonelId);
 
-  /** Bu rezervasyonun masası garsonun kendi postasında mı — birleşen masalardan biri yetiyor. */
+  /**
+   * "Benim" ölçütü role göre değişiyor (Gökhan, 2026-08-19: "PR'ın da kendi rezervasyon
+   * listesini görebilsin, garson gibi"). Garsonda masa kendi postasında mı diye bakılıyor —
+   * birleşen masalardan biri yetiyor; PR'da rezervasyonu kendisi mi girmiş diye.
+   */
   const benimRezMi = (r: Rez) => {
+    if (rolum === "pr") return !!r.alan_hesap_id && r.alan_hesap_id === benimPersonelId;
     const idler = rezMasalar[r.id] ?? (r.table_id ? [r.table_id] : []);
     return idler.some((id) => postamMasalar.has(id));
   };
-  /** Kendi masalarını işaretleme ve süzme sadece telefonda, postası dağıtılmış garsonda. */
-  const postamVar = isMobile && rolum === "garson" && postamMasalar.size > 0;
+  /** İşaretleme ve süzme sadece telefonda: postası dağıtılmış garson ve PR. */
+  const kendiSuzgeci = isMobile && (
+    (rolum === "garson" && postamMasalar.size > 0)
+    || (rolum === "pr" && !!benimPersonelId)
+  );
+  const kendiEtiketi = rolum === "pr" ? "Benim rezervasyonlarım" : "Benim masalarım";
   useEffect(() => {
     setMenuKapali(window.localStorage.getItem("rzv_menu_kapali") === "1");
   }, []);
@@ -2995,8 +3006,8 @@ export default function RezervasyonPage() {
       if (!(r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi")) return false;
     }
     if (paxFiltre !== null && r.party_size !== paxFiltre) return false;
-    // "Benim masalarım" sadece telefondaki garsonda açılabiliyor (bkz. postamVar).
-    if (sadeceBenim && postamVar && !benimRezMi(r)) return false;
+    // Süzgeç sadece telefondaki garson ve PR'da açılabiliyor (bkz. kendiSuzgeci).
+    if (sadeceBenim && kendiSuzgeci && !benimRezMi(r)) return false;
     if (!aramaQ) return true;
     const masaAdi = tableName(r.table_id) ?? "";
     return (
@@ -3302,7 +3313,8 @@ export default function RezervasyonPage() {
             arama={arama}
             onArama={setArama}
             yatay={yatayMobil}
-            postamVar={postamVar}
+            kendiSuzgeci={kendiSuzgeci}
+            kendiEtiketi={kendiEtiketi}
             benimMi={benimRezMi}
             sadeceBenim={sadeceBenim}
             onSadeceBenim={setSadeceBenim}
