@@ -1,18 +1,16 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId, getMyReservationRestaurants, isMultiBranchAccount, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
-import { toUpperTr, toTitleTr } from "@/lib/text";
+import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
-import { Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft, Store } from "lucide-react";
+import { ChevronDown, Plus, Store, X } from "lucide-react";
 import { useConfirm } from "../../components/useConfirm";
-import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK } from "../../components/RezervasyonAltNav";
+import RezervasyonAltNav, { ALT_NAV_YUKSEKLIK, useYatayMobil } from "../../components/RezervasyonAltNav";
 import RezervasyonUstBar from "../../components/RezervasyonUstBar";
-import EditableText from "../../components/EditableText";
-import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, ActionsCell } from "../../components/ListRow";
+import { MenuBaslik, MenuNav } from "../../components/RezervasyonMenu";
 
 // REZERVASYON > AYARLAR — programın kendi ayar ekranı (Gökhan onayı, 2026-08-04).
 //
@@ -24,11 +22,348 @@ import { ListHeader, HeaderCell, HeaderSep, ListRow, RowSep, Cell, Spacer, Actio
 // saatler/KVKK restaurant_settings, işletme bilgileri restaurants. Sadece varsayılan
 // oturma süresi yeni eklendi (bkz. 20260804120000).
 //
-// Sol panel masalar (satır tabanlı liste, salon başlıklarıyla gruplu — PAGE_STANDARDS #3/#4),
-// sağ panel diğer ayarlar (tek Kaydet — PAGE_STANDARDS #2).
+// Sol menüde ayar başlıkları, sağda seçilenin içeriği (Gökhan, 2026-08-15: "sol menüde
+// başlıklarımız olacak, ona göre içeriği açılacak, aşağı kayma olmayacak"). Kaydet tektir,
+// hangi bölümde olursan ol hepsini birlikte kaydeder (PAGE_STANDARDS #2).
+type Fotograf = { id: string; dosya_yolu: string; sira: number };
 
-type Area = { id: string; name: string; sort_order: number };
-type Table = { id: string; name: string; area_id: string | null; seat_count: number; sort_order: number };
+// Ülke kodları. BAYRAK EMOJİSİ KULLANILMIYOR (Gökhan, 2026-08-15: "TR'nin yerine Türk
+// bayrağı olsun") — Windows bayrak emojilerini çizmiyor, yerine iki harf ("TR", "DE")
+// gösteriyor. Bayraklar aşağıda SVG olarak çiziliyor: dış kaynağa bağlı değil.
+const ULKELER = [
+  { kod: "+90", iso: "tr", ad: "Türkiye" },
+  { kod: "+90392", iso: "kktc", ad: "KKTC" },
+  { kod: "+49", iso: "de", ad: "Almanya" },
+  { kod: "+31", iso: "nl", ad: "Hollanda" },
+  { kod: "+44", iso: "gb", ad: "İngiltere" },
+  { kod: "+33", iso: "fr", ad: "Fransa" },
+  { kod: "+1", iso: "us", ad: "ABD" },
+  { kod: "+7", iso: "ru", ad: "Rusya" },
+  { kod: "+994", iso: "az", ad: "Azerbaycan" },
+  { kod: "+971", iso: "ae", ad: "BAE" },
+];
+
+function Bayrak({ iso }: { iso: string }) {
+  const o = { width: 20, height: 14, viewBox: "0 0 30 20", style: { borderRadius: 2, flexShrink: 0, display: "block" } };
+  const ayYildiz = (renk: string) => (
+    <>
+      <circle cx="11" cy="10" r="5" fill={renk} />
+      <circle cx="12.6" cy="10" r="4" fill="currentColor" />
+      <path d="M17.4 7.6 18.3 9.4 20.3 9.6 18.8 10.9 19.3 12.9 17.4 11.9 15.6 12.9 16.1 10.9 14.6 9.6 16.6 9.4z" fill={renk} />
+    </>
+  );
+  switch (iso) {
+    case "tr": return <svg {...o} color="#E30A17"><rect width="30" height="20" fill="#E30A17" />{ayYildiz("#fff")}</svg>;
+    case "kktc": return <svg {...o} color="#fff"><rect width="30" height="20" fill="#fff" /><rect y="2.5" width="30" height="2" fill="#E30A17" /><rect y="15.5" width="30" height="2" fill="#E30A17" />{ayYildiz("#E30A17")}</svg>;
+    case "de": return <svg {...o}><rect width="30" height="6.67" fill="#000" /><rect y="6.67" width="30" height="6.67" fill="#D00" /><rect y="13.34" width="30" height="6.66" fill="#FFCE00" /></svg>;
+    case "nl": return <svg {...o}><rect width="30" height="6.67" fill="#AE1C28" /><rect y="6.67" width="30" height="6.67" fill="#fff" /><rect y="13.34" width="30" height="6.66" fill="#21468B" /></svg>;
+    case "gb": return (
+      <svg {...o}>
+        <rect width="30" height="20" fill="#012169" />
+        <path d="M0 0 30 20M30 0 0 20" stroke="#fff" strokeWidth="4" />
+        <path d="M0 0 30 20M30 0 0 20" stroke="#C8102E" strokeWidth="2" />
+        <path d="M15 0V20M0 10H30" stroke="#fff" strokeWidth="6" />
+        <path d="M15 0V20M0 10H30" stroke="#C8102E" strokeWidth="3" />
+      </svg>
+    );
+    case "fr": return <svg {...o}><rect width="10" height="20" fill="#0055A4" /><rect x="10" width="10" height="20" fill="#fff" /><rect x="20" width="10" height="20" fill="#EF4135" /></svg>;
+    case "us": return (
+      <svg {...o}>
+        <rect width="30" height="20" fill="#fff" />
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => <rect key={i} y={i * 3.08} width="30" height="1.54" fill="#B22234" />)}
+        <rect width="13" height="10.8" fill="#3C3B6E" />
+      </svg>
+    );
+    case "ru": return <svg {...o}><rect width="30" height="6.67" fill="#fff" /><rect y="6.67" width="30" height="6.67" fill="#0039A6" /><rect y="13.34" width="30" height="6.66" fill="#D52B1E" /></svg>;
+    case "az": return <svg {...o} color="#EF3340"><rect width="30" height="6.67" fill="#00B5E2" /><rect y="6.67" width="30" height="6.67" fill="#EF3340" /><rect y="13.34" width="30" height="6.66" fill="#509E2F" />{ayYildiz("#fff")}</svg>;
+    case "ae": return <svg {...o}><rect width="30" height="6.67" fill="#00732F" /><rect y="6.67" width="30" height="6.67" fill="#fff" /><rect y="13.34" width="30" height="6.66" fill="#000" /><rect width="8" height="20" fill="#F00" /></svg>;
+    default: return null;
+  }
+}
+
+// Ülke kodu kutusu — native <select> içine görsel konamadığı için kendi açılır listesi var.
+function UlkeKodu({ deger, onDegis }: { deger: string; onDegis: (k: string) => void }) {
+  const [acik, setAcik] = useState(false);
+  const secili = ULKELER.find((u) => u.kod === deger) ?? ULKELER[0];
+  return (
+    <div style={{ position: "relative", width: 66, flexShrink: 0 }}>
+      <button
+        type="button" onClick={() => setAcik((v) => !v)} aria-label="Ülke kodu" title={secili.ad}
+        style={{ ...inp, width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", padding: "8px 4px" }}
+      >
+        <Bayrak iso={secili.iso} />
+        <span className="tnum" style={{ fontSize: 12 }}>{secili.kod}</span>
+      </button>
+      {acik && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setAcik(false)} />
+          <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 41, minWidth: 190, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 6px 18px rgba(0,0,0,0.12)", overflow: "hidden" }}>
+            {ULKELER.map((u) => (
+              <button
+                key={u.kod} type="button"
+                onClick={() => { onDegis(u.kod); setAcik(false); }}
+                style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%", boxSizing: "border-box", padding: "7px 10px", fontSize: 13, background: u.kod === deger ? "var(--recede)" : "transparent", color: "var(--ink)" }}
+              >
+                <Bayrak iso={u.iso} />
+                <span style={{ flex: 1 }}>{u.ad}</span>
+                <span className="tnum" style={{ color: "var(--muted-2)", fontSize: 12 }}>{u.kod}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// İŞLETME TÜRÜ KUTUSU — işletme adının yanında, aşağı açılan liste (Gökhan, 2026-08-16:
+// "işletme adı satırını ikiye böl ve yanına işletme türünü koy, akordion açılsın oradan seçsin").
+// Ülke kodu kutusuyla aynı desen: native <select> yerine kendi listesi, çünkü seçili türün
+// yazısı kutuda tam görünsün isteniyor.
+function TurSecici({ deger, onDegis }: { deger: IsletmeTipi; onDegis: (t: IsletmeTipi) => void }) {
+  const [acik, setAcik] = useState(false);
+  const secili = ISLETME_TIPLERI.find((t) => t.anahtar === deger) ?? ISLETME_TIPLERI[0];
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        type="button" onClick={() => setAcik((v) => !v)}
+        style={{ ...inp, width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, cursor: "pointer", textAlign: "left" }}
+      >
+        <span>{secili.ad}</span>
+        <ChevronDown size={14} style={{ flexShrink: 0, color: "var(--muted-2)", transform: acik ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+      </button>
+      {acik && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setAcik(false)} />
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 41, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 6px 18px rgba(0,0,0,0.12)", overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
+            {ISLETME_TIPLERI.map((t) => (
+              <button
+                key={t.anahtar} type="button"
+                onClick={() => { onDegis(t.anahtar); setAcik(false); }}
+                style={{ all: "unset", cursor: "pointer", display: "block", width: "100%", boxSizing: "border-box", padding: "8px 11px", fontSize: 13, color: t.anahtar === deger ? "var(--brand-strong)" : "var(--ink)", background: t.anahtar === deger ? "var(--recede)" : "transparent", fontWeight: t.anahtar === deger ? 600 : 400 }}
+              >
+                {t.ad}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Dosya adı için benzersiz metin. crypto.randomUUID KULLANILMIYOR: sayfa localhost dışında bir
+ * adresten açıldığında (telefondan, yerel ağ IP'siyle) tarayıcı bu işlevi tanımıyor ve fotoğraf
+ * yükleme sessizce patlıyordu (Gökhan, 2026-08-16: "foto yüklemeye çalıştım ama yükleme
+ * yapmadı"). Burada güvenlik değil çakışmama gerekiyor; zaman + rastgele yeterli.
+ */
+const benzersizAd = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+/** "1.500,50" ya da "1500.50" — ikisini de sayıya çevirir. Boşsa 0. */
+const sayiyaCevir = (girdi: string): number => {
+  const t = girdi.trim().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(t);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+
+/** Instagram: tam adres yapıştırılsa da kullanıcı adına indiriliyor. */
+const instagramTemizle = (girdi: string) =>
+  girdi.trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^(www\.)?instagram\.com\//i, "")
+    .replace(/^@/, "")
+    .replace(/[/?].*$/, "");
+
+// AYAR BAŞLIKLARI (Gökhan, 2026-08-16 — konuşarak çıkarıldı, sırasıyla onaylandı).
+// Kurulum sırası: önce işletmenin kim olduğu, sonra mekânın fiziği, sonra parası, en sonda
+// yasal metinler. İşletme tipi ikinci sırada çünkü altındaki her şeyin varsayılanını o basıyor.
+type AyarBolumu =
+  | "isletme" | "subeler" | "saatler" | "salon" | "geceler"
+  | "rezervasyon" | "pr" | "paneller" | "notlar" | "mesajlar"
+  | "ai" | "kvkk";
+const AYAR_BOLUMLERI: { anahtar: AyarBolumu; ad: string }[] = [
+  { anahtar: "isletme", ad: "İşletme bilgileri" },
+  { anahtar: "subeler", ad: "Şubeler" },
+  { anahtar: "saatler", ad: "Çalışma saatleri" },
+  { anahtar: "salon", ad: "Salon ve masa" },
+  { anahtar: "rezervasyon", ad: "Rezervasyonlar" },
+  { anahtar: "pr", ad: "Özellikler" },
+  { anahtar: "paneller", ad: "Paneller ve yetkiler" },
+  { anahtar: "notlar", ad: "Notlar ve etiketler" },
+  { anahtar: "mesajlar", ad: "Mesajlar" },
+  { anahtar: "ai", ad: "Yapay zekâ" },
+  { anahtar: "kvkk", ad: "KVKK" },
+  { anahtar: "geceler", ad: "Etkinlikler" },
+];
+
+// İŞLETME TİPİ — sadece VARSAYILANI basar (Gökhan: "ona göre varsayılan ayarlansın, işletme
+// istediği yerleri değiştirsin"). Tip sonradan değişince mevcut ayarlara dokunulmaz; ekran
+// "varsayılanları uygula" diye ayrı bir düğme gösterir, basmak işletmenin kararıdır.
+// Kayıt ekranındaki tür listesiyle BİREBİR aynı — oradaki seçim buraya düşüyor.
+// Varsayılanlar veritabanındaki isletme_tipi_varsayilani ile aynı değerler; ikisi ayrışırsa
+// kayıtta basılan ayar ile buradaki "varsayılanları uygula" farklı sonuç verir.
+type IsletmeTipi =
+  | "gece_kulubu" | "yn_meyhane" | "canli_muzik" | "gazino" | "meyhane" | "bar_pub"
+  | "restoran" | "kafe" | "kafeterya" | "pastane" | "fast_food" | "diger";
+// Her türün KENDİ ÇALIŞMA SAATİ de var (Gökhan, 2026-08-16: "her türün kendi varsayılanı
+// olacak, tür değişti ise varsayılan saat de değişir"). İşletme günü ayrıca sorulmuyor —
+// kapanış gece yarısını aşıyorsa o saatten okunuyor.
+type TipVarsayilan = {
+  acilis: string; kapanis: string; oturmaSuresi: string;
+  fixMenu: boolean; minimumHarcama: boolean; masaPaketi: boolean; ozelGece: boolean;
+  pr: boolean; guestList: boolean;
+};
+const gunduz = (acilis: string, kapanis: string, sure: string): TipVarsayilan => ({
+  acilis, kapanis, oturmaSuresi: sure,
+  fixMenu: false, minimumHarcama: false, masaPaketi: false, ozelGece: false, pr: false, guestList: false,
+});
+const ISLETME_TIPLERI: { anahtar: IsletmeTipi; ad: string; aciklama: string; v: TipVarsayilan }[] = [
+  {
+    anahtar: "gece_kulubu", ad: "Gece kulübü",
+    aciklama: "Masa satılır, minimum harcama vardır, PR çalışır. Gece sabaha kadar sürer.",
+    v: { acilis: "23:00", kapanis: "06:00", oturmaSuresi: "180", fixMenu: false, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true },
+  },
+  {
+    anahtar: "yn_meyhane", ad: "Yeni nesil meyhane",
+    aciklama: "Eğlence mekânı gibi çalışır ama fix menü de satar. Masa paketi ve PR açık gelir.",
+    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true },
+  },
+  {
+    anahtar: "canli_muzik", ad: "Canlı müzik",
+    aciklama: "Sahne programı var; fiyat gecenin sanatçısına göre değişir.",
+    v: { acilis: "20:00", kapanis: "03:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false },
+  },
+  {
+    anahtar: "gazino", ad: "Gazino",
+    aciklama: "Fasıl ve sahne ağırlıklı; masa paketle satılır, gece geç biter.",
+    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "240", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false },
+  },
+  {
+    anahtar: "meyhane", ad: "Meyhane",
+    aciklama: "Genelde fix menüyle çalışır, masa gece boyu aynı misafirindir.",
+    v: { acilis: "18:00", kapanis: "03:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false },
+  },
+  {
+    anahtar: "bar_pub", ad: "Bar / Pub",
+    aciklama: "Geç kapanır ama masa satmaz, minimum harcama uygulamaz.",
+    v: { acilis: "18:00", kapanis: "04:00", oturmaSuresi: "120", fixMenu: false, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false },
+  },
+  { anahtar: "restoran", ad: "Restoran", aciklama: "Masa gün içinde birkaç kez döner.", v: gunduz("12:00", "23:59", "90") },
+  // "Otel restoranı" kaldırıldı (Gökhan, 2026-08-16) — restorandan farkı yoktu.
+  { anahtar: "kafe", ad: "Kafe", aciklama: "Hızlı devir, kısa oturma süresi.", v: gunduz("08:00", "23:00", "60") },
+  { anahtar: "kafeterya", ad: "Kafeterya", aciklama: "Hızlı devir, kısa oturma süresi.", v: gunduz("08:00", "23:00", "60") },
+  { anahtar: "pastane", ad: "Pastane / Fırın", aciklama: "Çok kısa oturma, yüksek devir.", v: gunduz("07:00", "21:00", "45") },
+  { anahtar: "fast_food", ad: "Fast food", aciklama: "En kısa oturma süresi.", v: gunduz("10:00", "23:59", "30") },
+  { anahtar: "diger", ad: "Diğer", aciklama: "Restoran varsayılanıyla başlar, her ayarı kendiniz kurarsınız.", v: gunduz("09:00", "23:00", "90") },
+];
+
+// Masa grubunun fiyatlama modu (ARASTIRMA-2-GECE-KULUBU.md 1.2 — tek "minimum" yetmiyor;
+// aynı salonda dört mod yan yana çalışabiliyor).
+const FIYATLAMA_MODLARI: { anahtar: string; ad: string; aciklama: string }[] = [
+  { anahtar: "yok", ad: "Fiyat yok", aciklama: "Bu grupta fiyat şartı yok" },
+  { anahtar: "sabit_ucret", ad: "Masa fiyatı", aciklama: "Masanın peşin fiyatı — harcamadan bağımsız" },
+  { anahtar: "masa_minimum", ad: "Harcama limiti (masa)", aciklama: "Masa şu tutarın altında hesap kapatamaz" },
+  { anahtar: "kisi_minimum", ad: "Harcama limiti (kişi)", aciklama: "Kişi sayısı çarpı tutar kadar limit" },
+];
+
+// Para kutusu — solunda TL yazar (Gökhan, 2026-08-16: "fiyat girdiğimiz her yerde yanına tl
+// işareti gelsin, sol yanına"). Rakam sağa yaslı, TL kutunun içinde solda duruyor.
+function ParaGirisi({ deger, yerTutucu, onKaydet, genislik = 110 }: {
+  deger: number | null | undefined; yerTutucu?: string; onKaydet: (v: number) => void; genislik?: number;
+}) {
+  return (
+    <div style={{ ...inp, width: genislik, flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "0 10px" }}>
+      <span style={{ fontSize: 12, color: "var(--muted-2)", flexShrink: 0 }}>TL</span>
+      <input
+        defaultValue={deger || ""} placeholder={yerTutucu} inputMode="decimal" className="tnum"
+        onBlur={(e) => onKaydet(sayiyaCevir(e.target.value))}
+        style={{ border: "none", outline: "none", background: "transparent", color: "var(--ink)", fontSize: 13, width: "100%", minWidth: 0, textAlign: "center", padding: "1mm 0", lineHeight: 1.2 }}
+      />
+    </div>
+  );
+}
+
+// Renk kutusu — tek düğme, tıklayınca sekiz renk açılıyor. Satır yan yana dursun diye
+// paletin tamamı satıra serilmiyor (Gökhan, 2026-08-16).
+function RenkSecici({ deger, onDegis }: { deger: string; onDegis: (r: string) => void }) {
+  const [acik, setAcik] = useState(false);
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <button
+        type="button" onClick={() => setAcik((v) => !v)} aria-label="Renk"
+        // Yükseklik yanındaki kutularla aynı olsun diye dikey dolgu inp'in kendi değeriyle
+        // aynı bırakıldı — daraltılınca kutu komşularından kısa kalıyordu (Gökhan, 2026-08-16).
+        style={{ ...inp, width: 46, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "1mm 10px" }}
+      >
+        <span style={{ width: 20, height: 14, borderRadius: 4, background: deger, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.15)" }} />
+      </button>
+      {acik && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setAcik(false)} />
+          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, zIndex: 41, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 6px 18px rgba(0,0,0,0.12)", padding: 7, display: "grid", gridTemplateColumns: "repeat(4, 22px)", gap: 5 }}>
+            {GRUP_RENKLERI.map((r) => (
+              <button
+                key={r} type="button" aria-label="Renk"
+                onClick={() => { onDegis(r); setAcik(false); }}
+                style={{ all: "unset", cursor: "pointer", width: 22, height: 22, borderRadius: 6, background: r, boxShadow: deger === r ? "0 0 0 2px var(--ink)" : "inset 0 0 0 1px rgba(0,0,0,.15)" }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Personel panelleri — katılım koduyla bağlanan personelin rolü.
+const PERSONEL_ROLLERI: { anahtar: string; ad: string }[] = [
+  { anahtar: "garson", ad: "Garson" },
+  { anahtar: "salon_sefi", ad: "Salon şefi" },
+  { anahtar: "mutfak", ad: "Mutfak şefi" },
+  { anahtar: "karsilama", ad: "Karşılama" },
+  { anahtar: "pr", ad: "PR" },
+  { anahtar: "yonetici", ad: "Yönetici" },
+];
+
+const YETKI_SECENEKLERI: { anahtar: string; ad: string }[] = [
+  { anahtar: "yonetici", ad: "Sadece yönetici" },
+  { anahtar: "salon_sefi", ad: "Yönetici ve salon şefi" },
+  { anahtar: "karsilama", ad: "Yönetici, salon şefi ve karşılama" },
+  { anahtar: "herkes", ad: "Herkes" },
+];
+
+// Liste hâlindeki ayarların satır tipleri — her biri kendi tablosunda.
+type MasaGrubu = { id: string; ad: string; renk: string; fiyatlama_modu: string; tutar: number; dahil_kisi: number | null; asan_kisi_ucreti: number | null; sira: number };
+// Grup renkleri — salon planında masa bu renkle çizilir. Boş/dolu/rezerve renkleriyle
+// karışmasın diye orta koyulukta, birbirinden ayırt edilebilir bir dizi.
+const GRUP_RENKLERI = ["#8B93A7", "#B4654A", "#5E8C61", "#8E6BA8", "#C08A2E", "#3F7CAC", "#A34D6B", "#4F7A78"];
+type FixMenu = { id: string; ad: string; kisi_basi_fiyat: number; aciklama: string | null; sira: number };
+type MasaPaketi = { id: string; ad: string; fiyat: number; icindekiler: string | null; kisi_tavani: number | null; sira: number };
+type OzelGece = { id: string; gun: string; ad: string; sanatci: string | null };
+type RezEtiketi = { id: string; ad: string; mutfaga_gitsin: boolean; uyari: boolean; sira: number };
+type PersonelHesabi = { id: string; ad_soyad: string; telefon: string | null; rol: string; durum: string };
+type KatilimKodu = { id: string; rol: string; kod: string };
+// Rolün görebileceği sayfalar — kod satırının yanındaki akordeondan işaretleniyor.
+const SAYFALAR: { anahtar: string; ad: string }[] = [
+  { anahtar: "rezervasyon", ad: "Rezervasyonlar" },
+  { anahtar: "posta", ad: "Posta" },
+  { anahtar: "salon", ad: "Salon" },
+  { anahtar: "istatistik", ad: "İstatistikler" },
+  { anahtar: "ayarlar", ad: "Ayarlar" },
+];
+// Menüdeki başlık düğmesi — salon ekranındaki menü düğmeleriyle aynı ölçü.
+const menuBtn: React.CSSProperties = {
+  all: "unset", cursor: "pointer", boxSizing: "border-box", width: "100%",
+  border: "1px solid var(--line-2)", borderRadius: 10, padding: "calc(7px - 1.5mm) 14px",
+  fontSize: 13.5, flexShrink: 0,
+};
+
+// Nota yazılınca ne yapılacağı: 'salon' = o salona yerleştir, 'her_zamanki_masa' = misafirin
+// kendi masasını bul.
 
 // Masa ölçüleri (Gökhan, 2026-08-05: "masa ölçülerini de girsinler ayarlardan, hangi
 // masaları varsa onları seçip ölçü girsin") — Salon ekranındaki (app/rezervasyon/salon)
@@ -88,12 +423,27 @@ const mergeHours = (raw: unknown): OpeningHours => {
 };
 
 // Salonu olmayan masalar kaybolmasın diye otomatik grup (PAGE_STANDARDS #4).
-const DIGER = "__diger__";
 
 // Kapanış saati açılıştan önceyse gece yarısını geçmiş demektir (gece kulübü 23:00–04:00,
 // meyhane 18:00–01:00 gibi) — ayrı bir "ertesi gün" kutucuğu yok, saatlerden çıkarılıyor.
 // Giriş ekranındaki (app/rezervasyon/giris) aynı isimli fonksiyonla aynı mantık.
 const kapanisErtesiGun = (acilis: string, kapanis: string) => Boolean(acilis) && Boolean(kapanis) && kapanis < acilis;
+
+/**
+ * İŞLETME GÜNÜ, çalışma saatlerinden okunur — ayrı bir ayar YOK (Gökhan, 2026-08-16).
+ * Gece yarısını aşan bir gün varsa günün bittiği saat o günlerin EN GEÇ kapanışıdır
+ * (23:00 → 04:00 ise 04:00). Hiçbiri aşmıyorsa gün normal takvim günüdür: 00:00.
+ */
+const isletmeGunuSaatiHesapla = (hours: OpeningHours): string => {
+  let enGec = "";
+  for (const d of DAYS) {
+    const v = hours[d.k];
+    if (!v || v.kapali) continue;
+    if (!kapanisErtesiGun(v.acilis, v.kapanis)) continue;
+    if (v.kapanis > enGec) enGec = v.kapanis;
+  }
+  return enGec || "00:00";
+};
 
 export default function RezervasyonAyarlarPage() {
   const router = useRouter();
@@ -101,10 +451,14 @@ export default function RezervasyonAyarlarPage() {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [kaydedildi, setKaydedildi] = useState(false);
+  // Sol menüde seçili ayar başlığı.
+  const [bolum, setBolum] = useState<AyarBolumu>("isletme");
   const { confirm, dialog: confirmDialog } = useConfirm();
   // Alt nav mobilde sabit — içerik onun altında kalmasın diye boşluk bırakılıyor
   // (Gökhan, 2026-08-08: "sayfalarda navın altında bir şeylerin kalmadığından emin ol").
   const [isMobile, setIsMobile] = useState(false);
+  // Yan çevrilmişken alt menü çizilmiyor — altta ona yer ayrılmıyor (Gökhan, 2026-08-10).
+  const yatayMobil = useYatayMobil();
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 860px)");
     const update = () => setIsMobile(mq.matches);
@@ -113,24 +467,29 @@ export default function RezervasyonAyarlarPage() {
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  const [areas, setAreas] = useState<Area[]>([]);
-  const [tables, setTables] = useState<Table[]>([]);
-  const [kapali, setKapali] = useState<Set<string>>(new Set());
 
   const [masaOlculeri, setMasaOlculeri] = useState<MasaOlcusu[]>([]);
   const [duzenlenenHucre, setDuzenlenenHucre] = useState<{ shape: MasaSekli; tier: number } | null>(null);
   const [taslakGenislik, setTaslakGenislik] = useState("");
   const [taslakBoy, setTaslakBoy] = useState("");
 
-  const [newAreaName, setNewAreaName] = useState("");
-  // Hangi salona masa ekleniyor — satır içi mini form, ayrı pencere değil.
-  const [addingTableFor, setAddingTableFor] = useState<string | null>(null);
-  const [newTableName, setNewTableName] = useState("");
-  const [newTableSeats, setNewTableSeats] = useState("4");
 
   const [isim, setIsim] = useState("");
   const [telefon, setTelefon] = useState("");
   const [adres, setAdres] = useState("");
+  // İşletme bilgileri — No63'teki bölümün aynısı (Gökhan, 2026-08-15).
+  const [ulkeKodu, setUlkeKodu] = useState("+90");
+  const [instagram, setInstagram] = useState("");
+  const [eposta, setEposta] = useState("");
+  const [vergiNo, setVergiNo] = useState("");
+  const [haritaLinki, setHaritaLinki] = useState("");
+  const [il, setIl] = useState("");
+  const [ilce, setIlce] = useState("");
+  const [fotograflar, setFotograflar] = useState<Fotograf[]>([]);
+  const [fotoYukleniyor, setFotoYukleniyor] = useState(false);
+  // Fotoğraf hatası sayfanın en üstünde değil, fotoğraf kutusunun altında gösteriliyor —
+  // orada duran kişi hatayı göremiyordu.
+  const [fotoErr, setFotoErr] = useState<string | null>(null);
   const [hours, setHours] = useState<OpeningHours>(defaultHours());
   // Yeni rezervasyon penceresinin açılış saati (Gökhan: "varsayılan saat de ayarlanabilsin").
   const [varsayilanSaat, setVarsayilanSaat] = useState("19:00");
@@ -139,14 +498,109 @@ export default function RezervasyonAyarlarPage() {
   // Otomatik yerleşme (Gökhan: "kullanmak isteyen kullanacak, istemeyen kullanmayacak") —
   // açıkken kişi sayısı büyüyüp masa yetmeyince program masayı kendi tamamlıyor.
   const [otoYerlesme, setOtoYerlesme] = useState(false);
+  // Gün kapanışı: "otomatik" sessizce kapatır, "sor" sorar (Gökhan, 2026-08-13).
+  const [gunKapanis, setGunKapanis] = useState("sor");
+  // Masa başına eklenebilecek sandalye (Gökhan, 2026-08-12).
+  const [ekSandalye, setEkSandalye] = useState("1");
   // Saate göre masa hesabı — isteğe bağlı, varsayılan kapalı. Kapalıyken günün tamamı tek
   // havuz sayılır (öğle/akşam ayrımı kaldırıldı — program eğlence mekanlarına yapılıyor).
-  const [saateGore, setSaateGore] = useState(false);
-  const [masaArasiPay, setMasaArasiPay] = useState("0");
   // Kişi kartındaki "Müdavim"/"No-show riski" etiketleri bu eşiklere göre otomatik hesaplanır
   // (Gökhan: "eşikler sabit kodlanmasın, ileride ayarlardan değiştirilebilecek mantıkta olsun").
   const [esikMudavim, setEsikMudavim] = useState("5");
   const [esikNoShow, setEsikNoShow] = useState("30");
+  // NOT KURALLARI (Gökhan, 2026-08-12: "ayarlara içinde geçecek kelimeleri koyacağımız bir alan
+  // yapabiliriz, şu yazılırsa nota şunu yap gibi"). Rezervasyon notuna bu kelimelerden biri
+  // yazılırsa program rezervasyonu ona göre yerleştirir — büyük/küçük harf ve Türkçe karakter
+  // farkı yutulur, "TERAS" ile "teras" aynı sayılır.
+  // Sadık misafirin masası aranırken geriye kaç gelişine bakılacağı. 0 = hepsi.
+  const [sadikGecmis, setSadikGecmis] = useState("3");
+
+  // ONLINE REZERVASYON (Gökhan, 2026-08-15 — araştırma sonrası ilk paket).
+  // DOLULUK HIZI (pacing) BİLEREK YOK: "bunun bir sınırı yok... limit yok, burası Türkiye."
+  // Saate kala sınırı da yok: "yer olduğu sürece bununla ilgili problem yok."
+  const [gunUfku, setGunUfku] = useState("60");
+  const [onlineAcik, setOnlineAcik] = useState(true);
+  const [onlineMin, setOnlineMin] = useState("1");
+  const [onlineMax, setOnlineMax] = useState("12");
+  const [onlineTelEsigi, setOnlineTelEsigi] = useState("12");
+  const [onlineSalonSecimi, setOnlineSalonSecimi] = useState(false);
+  const [onlineGelmeyenEngeli, setOnlineGelmeyenEngeli] = useState(true);
+  // Hangi salonlar online listede görünecek. Masa/salon yönetimi Salon ekranında; burada
+  // sadece "online'a açık mı" işareti tutuluyor.
+  const [salonlar, setSalonlar] = useState<{ id: string; name: string; online_acik: boolean }[]>([]);
+
+  // ————————————————————————————————————————————————————————————————
+  // İŞLETME TİPİ VE GECE KULÜBÜ AYARLARI (Gökhan, 2026-08-16)
+  // ————————————————————————————————————————————————————————————————
+  const [isletmeTipi, setIsletmeTipi] = useState<IsletmeTipi>("restoran");
+  const [fixMenuAcik, setFixMenuAcik] = useState(false);
+  const [karmaFixAlakart, setKarmaFixAlakart] = useState(false);
+  const [minimumHarcamaAcik, setMinimumHarcamaAcik] = useState(false);
+  const [masaPaketiAcik, setMasaPaketiAcik] = useState(false);
+  const [ozelGeceAcik, setOzelGeceAcik] = useState(false);
+  const [prAcik, setPrAcik] = useState(false);
+  const [prKomisyonTipi, setPrKomisyonTipi] = useState("kisi");
+  const [prKomisyonTutar, setPrKomisyonTutar] = useState("0");
+  const [prKendiGorsun, setPrKendiGorsun] = useState(false);
+  const [guestListAcik, setGuestListAcik] = useState(false);
+  const [rezAlanGorunsun, setRezAlanGorunsun] = useState(true);
+  const [yapNotAcik, setYapNotAcik] = useState(true);
+  const [silmeYetkisi, setSilmeYetkisi] = useState("yonetici");
+  const [hesapYetkisi, setHesapYetkisi] = useState("yonetici");
+  const [ayarYetkisi, setAyarYetkisi] = useState("yonetici");
+  const [aiOzetAcik, setAiOzetAcik] = useState(true);
+  const [aiIsimMaskele, setAiIsimMaskele] = useState(true);
+  const [varsayilanaGetirAcik, setVarsayilanaGetirAcik] = useState(true);
+  const [garsonSadeceKendiSalonu, setGarsonSadeceKendiSalonu] = useState(true);
+  const [onlineOnayGerekli, setOnlineOnayGerekli] = useState(true);
+  // Rezervasyonu tek elden alma — telefondaki personel kayıt açamaz (Gökhan, 2026-08-18).
+  const [sadeceAnaPanel, setSadeceAnaPanel] = useState(false);
+  // MESAJLAR (Gökhan, 2026-08-18) — WhatsApp bağlantısı işletme kullanmaya başlayınca
+  // takılacak; buradaki ayarlar o güne hazır dursun diye şimdiden çalışıyor.
+  const [mesajAcik, setMesajAcik] = useState(false);
+  const [mesajOnayAcik, setMesajOnayAcik] = useState(true);
+  const [mesajOnayMetni, setMesajOnayMetni] = useState("");
+  const [mesajTeyitAcik, setMesajTeyitAcik] = useState(true);
+  const [mesajTeyitSaat, setMesajTeyitSaat] = useState("12:00");
+  const [mesajTeyitBitis, setMesajTeyitBitis] = useState("13:00");
+  const [mesajTeyitMetni, setMesajTeyitMetni] = useState("");
+  const [mesajSessizBas, setMesajSessizBas] = useState("23:00");
+  const [mesajSessizBitis, setMesajSessizBitis] = useState("09:00");
+  const [mesajAnketAcik, setMesajAnketAcik] = useState(false);
+  const [mesajAnketMetni, setMesajAnketMetni] = useState("");
+
+  // Liste hâlindeki ayarlar — her biri kendi tablosunda, ekle/sil ile yönetiliyor.
+  const [masaGruplari, setMasaGruplari] = useState<MasaGrubu[]>([]);
+  const [fixMenuler, setFixMenuler] = useState<FixMenu[]>([]);
+  const [masaPaketleri, setMasaPaketleri] = useState<MasaPaketi[]>([]);
+  const [ozelGeceler, setOzelGeceler] = useState<OzelGece[]>([]);
+  const [rezEtiketleri, setRezEtiketleri] = useState<RezEtiketi[]>([]);
+  // Hangi grupta kaç masa var — "Masalar" kutusunun yanında görünüyor.
+  const [grupMasaSayisi, setGrupMasaSayisi] = useState<Record<string, number>>({});
+  const [listeBusy, setListeBusy] = useState(false);
+  // Personel katılım kodu ve kodla bağlanan personel istekleri.
+  const [katilimKodlari, setKatilimKodlari] = useState<KatilimKodu[]>([]);
+  const [rolSayfalari, setRolSayfalari] = useState<Record<string, string[]>>({});
+  const [acikYetki, setAcikYetki] = useState<string | null>(null);
+  const [personelIstekleri, setPersonelIstekleri] = useState<PersonelHesabi[]>([]);
+
+  // AÇIKLAMALAR SAĞ TIKTA (Gökhan, 2026-08-16: "açıklamaların hepsini kaldır, açıklamalar
+  // başlık üzerine sağ tıklayınca gelsin"). Ekran sade duruyor; ayarın ne işe yaradığını
+  // merak eden yazısına sağ tıklıyor, açıklama küçük bir kutuda çıkıyor.
+  const [aciklama, setAciklama] = useState<{ x: number; y: number; metin: string } | null>(null);
+  const sagTik = (metin: string) => ({
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      // Kutu ekranın sağından/altından taşmasın diye konum sınırlanıyor.
+      setAciklama({
+        x: Math.min(e.clientX, Math.max(8, window.innerWidth - 320)),
+        y: Math.min(e.clientY, Math.max(8, window.innerHeight - 170)),
+        metin,
+      });
+    },
+    // style DÖNDÜRMÜYOR — elemanların kendi style'ı var, ikisi çakışıyordu.
+    title: "Açıklama için sağ tıkla",
+  });
 
   // Şubeler — sadece çok şubeli hesapta gösterilir (Gökhan, 2026-08-04: "çok şubeli
   // işletmede şube ekle olmalı, girilen bilgiler aynı olmalı, değişkenlik gösteren
@@ -231,32 +685,128 @@ export default function RezervasyonAyarlarPage() {
   };
 
   const load = useCallback(async (restId: string) => {
-    const [{ data: a }, { data: t }, { data: r }, { data: s }, { data: mo }] = await Promise.all([
-      supabase.from("dining_areas").select("id, name, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, seat_count, sort_order").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurants").select("name, phone, address").eq("id", restId).maybeSingle(),
-      supabase.from("restaurant_settings").select("opening_hours, kvkk_notice, default_duration_minutes, auto_seating, saate_gore_masa, masa_arasi_pay, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde").eq("restaurant_id", restId).maybeSingle(),
+    const [{ data: r }, { data: s }, { data: mo }, { data: fo }, { data: sa }, { data: mg }, { data: fm }, { data: mp }, { data: og }, { data: re }, { data: mt }, { data: ph }, { data: kk }] = await Promise.all([
+      supabase.from("restaurants").select("name, phone, address, ulke_kodu, instagram, eposta, tax_number, harita_linki, il, ilce, katilim_kodu").eq("id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("*").eq("restaurant_id", restId).maybeSingle(),
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
+      supabase.from("restaurant_photos").select("id, dosya_yolu, sira").eq("restaurant_id", restId).order("sira"),
+      supabase.from("dining_areas").select("id, name, online_acik").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("masa_gruplari").select("id, ad, renk, fiyatlama_modu, tutar, dahil_kisi, asan_kisi_ucreti, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("fix_menuler").select("id, ad, kisi_basi_fiyat, aciklama, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("masa_paketleri").select("id, ad, fiyat, icindekiler, kisi_tavani, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("ozel_geceler").select("id, gun, ad, sanatci").eq("restaurant_id", restId).is("deleted_at", null).order("gun"),
+      supabase.from("rezervasyon_etiketleri").select("id, ad, mutfaga_gitsin, uyari, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("restaurant_tables").select("grup_id").eq("restaurant_id", restId).is("deleted_at", null),
+      supabase.from("personel_hesaplari").select("id, ad_soyad, telefon, rol, durum").eq("restaurant_id", restId).order("created_at"),
+      supabase.from("katilim_kodlari").select("id, rol, kod").eq("restaurant_id", restId),
     ]);
-    setAreas((a as Area[]) ?? []);
-    setTables((t as Table[]) ?? []);
-    const rRow = r as { name: string; phone: string | null; address: string | null } | null;
+    const rRow = r as {
+      name: string; phone: string | null; address: string | null; ulke_kodu: string | null;
+      instagram: string | null; eposta: string | null; tax_number: string | null;
+      harita_linki: string | null; il: string | null; ilce: string | null; katilim_kodu: string | null;
+    } | null;
     setIsim(rRow?.name ?? "");
-    setTelefon(rRow?.phone ?? "");
+    setTelefon((rRow?.phone ?? "").replace(/\D/g, "").replace(/^0+/, ""));
     setAdres(rRow?.address ?? "");
+    setUlkeKodu(rRow?.ulke_kodu ?? "+90");
+    setInstagram(rRow?.instagram ?? "");
+    setEposta(rRow?.eposta ?? "");
+    setVergiNo(rRow?.tax_number ?? "");
+    setHaritaLinki(rRow?.harita_linki ?? "");
+    setIl(rRow?.il ?? "");
+    setIlce(rRow?.ilce ?? "");
+    setFotograflar((fo as Fotograf[]) ?? []);
     const sRow = s as {
-      opening_hours: unknown; kvkk_notice: string | null; default_duration_minutes: number; auto_seating: boolean; saate_gore_masa: boolean; masa_arasi_pay: number;
+      opening_hours: unknown; kvkk_notice: string | null; default_duration_minutes: number; auto_seating: boolean;
       varsayilan_rezervasyon_saati: string; musteri_sadakat_ziyaret_esigi: number; musteri_no_show_risk_yuzde: number;
+      masa_ek_sandalye: number; sadik_masa_gecmis_sayisi: number; gun_kapanis: string;
+      rezervasyon_gun_ufku: number; online_acik: boolean; online_min_kisi: number;
+      online_max_kisi: number; online_telefon_esigi: number; online_salon_secimi: boolean;
+      online_gelmeyen_engeli: boolean; online_onay_gerekli: boolean;
+      sadece_ana_panel_rezervasyon: boolean;
+      mesaj_acik: boolean; mesaj_onay_acik: boolean; mesaj_onay_metni: string | null;
+      mesaj_teyit_acik: boolean; mesaj_teyit_saat: string; mesaj_teyit_bitis: string;
+      mesaj_teyit_metni: string | null; mesaj_sessiz_baslangic: string; mesaj_sessiz_bitis: string;
+      mesaj_anket_acik: boolean; mesaj_anket_metni: string | null;
+      isletme_tipi: IsletmeTipi; isletme_gunu_saati: string;
+      fix_menu_acik: boolean; karma_fix_alakart: boolean;
+      minimum_harcama_acik: boolean; masa_paketi_acik: boolean; ozel_gece_acik: boolean;
+      pr_acik: boolean; pr_komisyon_tipi: string; pr_komisyon_tutar: number;
+      pr_kendi_gorsun: boolean; pr_sadece_gelene: boolean; guest_list_acik: boolean;
+      rezervasyon_alan_gorunsun: boolean; yapilandirilmis_not_acik: boolean;
+      silme_yetkisi: string; hesap_girme_yetkisi: string; ayar_yetkisi: string;
+      ai_ozet_acik: boolean; ai_isim_maskele: boolean; varsayilana_getir_acik: boolean;
+      garson_sadece_kendi_salonu: boolean;
+      rol_sayfalari: Record<string, string[]> | null;
     } | null;
     setHours(mergeHours(sRow?.opening_hours));
     setVarsayilanSaat(sRow?.varsayilan_rezervasyon_saati ?? "19:00");
     setOturmaSuresi(String(sRow?.default_duration_minutes ?? 90));
     setKvkkNotice(sRow?.kvkk_notice ?? "");
     setOtoYerlesme(sRow?.auto_seating ?? false);
-    setSaateGore(sRow?.saate_gore_masa ?? false);
-    setMasaArasiPay(String(sRow?.masa_arasi_pay ?? 0));
+    setGunKapanis(sRow?.gun_kapanis ?? "sor");
+    setEkSandalye(String(sRow?.masa_ek_sandalye ?? 1));
     setEsikMudavim(String(sRow?.musteri_sadakat_ziyaret_esigi ?? 5));
     setEsikNoShow(String(sRow?.musteri_no_show_risk_yuzde ?? 30));
+    setSadikGecmis(String(sRow?.sadik_masa_gecmis_sayisi ?? 3));
+    setGunUfku(String(sRow?.rezervasyon_gun_ufku ?? 60));
+    setOnlineAcik(sRow?.online_acik ?? true);
+    setOnlineMin(String(sRow?.online_min_kisi ?? 1));
+    setOnlineMax(String(sRow?.online_max_kisi ?? 12));
+    setOnlineTelEsigi(String(sRow?.online_telefon_esigi ?? 12));
+    setOnlineSalonSecimi(sRow?.online_salon_secimi ?? false);
+    setOnlineGelmeyenEngeli(sRow?.online_gelmeyen_engeli ?? true);
+    setSalonlar((sa as { id: string; name: string; online_acik: boolean }[]) ?? []);
+    setOnlineOnayGerekli(sRow?.online_onay_gerekli ?? true);
+    setSadeceAnaPanel(sRow?.sadece_ana_panel_rezervasyon ?? false);
+    setMesajAcik(sRow?.mesaj_acik ?? false);
+    setMesajOnayAcik(sRow?.mesaj_onay_acik ?? true);
+    setMesajOnayMetni(sRow?.mesaj_onay_metni ?? "");
+    setMesajTeyitAcik(sRow?.mesaj_teyit_acik ?? true);
+    setMesajTeyitSaat((sRow?.mesaj_teyit_saat ?? "12:00").slice(0, 5));
+    setMesajTeyitBitis((sRow?.mesaj_teyit_bitis ?? "13:00").slice(0, 5));
+    setMesajTeyitMetni(sRow?.mesaj_teyit_metni ?? "");
+    setMesajSessizBas((sRow?.mesaj_sessiz_baslangic ?? "23:00").slice(0, 5));
+    setMesajSessizBitis((sRow?.mesaj_sessiz_bitis ?? "09:00").slice(0, 5));
+    setMesajAnketAcik(sRow?.mesaj_anket_acik ?? false);
+    setMesajAnketMetni(sRow?.mesaj_anket_metni ?? "");
+
+    setIsletmeTipi(sRow?.isletme_tipi ?? "restoran");
+    setFixMenuAcik(sRow?.fix_menu_acik ?? false);
+    setKarmaFixAlakart(sRow?.karma_fix_alakart ?? false);
+    setMinimumHarcamaAcik(sRow?.minimum_harcama_acik ?? false);
+    setMasaPaketiAcik(sRow?.masa_paketi_acik ?? false);
+    setOzelGeceAcik(sRow?.ozel_gece_acik ?? false);
+    setPrAcik(sRow?.pr_acik ?? false);
+    setPrKomisyonTipi(sRow?.pr_komisyon_tipi ?? "kisi");
+    setPrKomisyonTutar(String(sRow?.pr_komisyon_tutar ?? 0));
+    setPrKendiGorsun(sRow?.pr_kendi_gorsun ?? false);
+    setGuestListAcik(sRow?.guest_list_acik ?? false);
+    setRezAlanGorunsun(sRow?.rezervasyon_alan_gorunsun ?? true);
+    setYapNotAcik(sRow?.yapilandirilmis_not_acik ?? true);
+    setSilmeYetkisi(sRow?.silme_yetkisi ?? "yonetici");
+    setHesapYetkisi(sRow?.hesap_girme_yetkisi ?? "yonetici");
+    setAyarYetkisi(sRow?.ayar_yetkisi ?? "yonetici");
+    setAiOzetAcik(sRow?.ai_ozet_acik ?? true);
+    setAiIsimMaskele(sRow?.ai_isim_maskele ?? true);
+    setVarsayilanaGetirAcik(sRow?.varsayilana_getir_acik ?? true);
+    setRolSayfalari(sRow?.rol_sayfalari ?? {});
+    setGarsonSadeceKendiSalonu(sRow?.garson_sadece_kendi_salonu ?? true);
+
+    setMasaGruplari((mg as MasaGrubu[]) ?? []);
+    {
+      const sayim: Record<string, number> = {};
+      ((mt as { grup_id: string | null }[]) ?? []).forEach((t) => {
+        if (t.grup_id) sayim[t.grup_id] = (sayim[t.grup_id] ?? 0) + 1;
+      });
+      setGrupMasaSayisi(sayim);
+    }
+    setFixMenuler((fm as FixMenu[]) ?? []);
+    setMasaPaketleri((mp as MasaPaketi[]) ?? []);
+    setOzelGeceler((og as OzelGece[]) ?? []);
+    setRezEtiketleri((re as RezEtiketi[]) ?? []);
+    setPersonelIstekleri((ph as PersonelHesabi[]) ?? []);
+    setKatilimKodlari((kk as KatilimKodu[]) ?? []);
     setMasaOlculeri((mo as MasaOlcusu[]) ?? []);
   }, []);
 
@@ -297,90 +847,160 @@ export default function RezervasyonAyarlarPage() {
     await yenile();
   };
 
-  // --- Salonlar ---
-  const addArea = async () => {
-    if (!restaurantId || !newAreaName.trim()) return;
-    setErr(null);
-    const { error } = await supabase.from("dining_areas").insert({
-      restaurant_id: restaurantId, name: toUpperTr(newAreaName), sort_order: areas.length,
-    });
-    if (error) { setErr(error.message); return; }
-    setNewAreaName("");
-    await yenile();
-  };
-  const renameArea = async (id: string, name: string) => {
-    if (!name.trim()) return;
-    setErr(null);
-    const { error } = await supabase.from("dining_areas").update({ name: toUpperTr(name) }).eq("id", id);
-    if (error) { setErr(error.message); return; }
-    await yenile();
-  };
-  const deleteArea = async (a: Area) => {
-    const icindeki = tables.filter((t) => t.area_id === a.id).length;
-    if (icindeki > 0) {
-      const ok = await confirm(`"${a.name}" içinde ${icindeki} masa var. Salon silinince masalar "Diğer" grubuna düşer. Silinsin mi?`, { confirmLabel: "Sil" });
-      if (!ok) return;
+  // --- İşletme fotoğrafları (No63'teki akışın aynısı) ---
+  const fotoUrl = (yol: string) => supabase.storage.from("isletme").getPublicUrl(yol).data.publicUrl;
+  const fotoYukle = async (dosyalar: FileList | null) => {
+    if (!dosyalar || dosyalar.length === 0 || fotoYukleniyor || !restaurantId) return;
+    setFotoYukleniyor(true); setFotoErr(null); setErr(null);
+    try {
+      let sira = fotograflar.length;
+      for (const dosya of Array.from(dosyalar)) {
+        if (!dosya.type.startsWith("image/")) { setFotoErr(`${dosya.name} bir resim dosyası değil.`); break; }
+        // 10 MB üstü telefon fotoğrafları yüklemeyi dakikalarca bekletiyor; baştan söylüyoruz.
+        if (dosya.size > 10 * 1024 * 1024) { setFotoErr(`${dosya.name} çok büyük (10 MB üstü).`); break; }
+        const uzanti = dosya.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+        // Dosya adı kullanılmıyor: Türkçe karakter ve boşluk depoda sorun çıkarıyor.
+        const yol = `${restaurantId}/${benzersizAd()}.${uzanti}`;
+        const { error: yuklemeHatasi } = await supabase.storage.from("isletme").upload(yol, dosya, { contentType: dosya.type });
+        if (yuklemeHatasi) { setFotoErr("Fotoğraf yüklenemedi: " + yuklemeHatasi.message); break; }
+        const { error } = await supabase.from("restaurant_photos")
+          .insert({ restaurant_id: restaurantId, dosya_yolu: yol, sira });
+        if (error) {
+          // Kayıt açılamadıysa dosya depoda öksüz kalmasın.
+          await supabase.storage.from("isletme").remove([yol]);
+          setFotoErr("Fotoğraf kaydedilemedi: " + error.message);
+          break;
+        }
+        sira += 1;
+      }
+    } catch (e) {
+      // Beklenmedik hata sessizce yutulmasın — eskiden burada patlayan bir şey olduğunda
+      // ekranda hiçbir şey görünmüyordu, "yükleme yapmadı" deniyordu (Gökhan, 2026-08-16).
+      setFotoErr("Fotoğraf yüklenirken beklenmedik bir hata oldu: " + (e instanceof Error ? e.message : String(e)));
     }
+    setFotoYukleniyor(false);
+    await yenile();
+  };
+  const fotoSil = async (f: Fotograf) => {
+    await supabase.storage.from("isletme").remove([f.dosya_yolu]);
+    await supabase.from("restaurant_photos").delete().eq("id", f.id);
+    await yenile();
+  };
+
+  // Bir rolün kodunu yeniler — eski kod çalışmaz, o rolle bağlı personel etkilenmez.
+  const koduYenile = async (rol: string) => {
+    if (!restaurantId) return;
     setErr(null);
-    const { error } = await supabase.from("dining_areas").update({ deleted_at: new Date().toISOString() }).eq("id", a.id);
+    const { data, error } = await supabase.rpc("katilim_kodu_uret");
+    if (error || !data) { setErr(error?.message ?? "Kod üretilemedi."); return; }
+    const yeni = data as string;
+    const mevcut = katilimKodlari.find((k) => k.rol === rol);
+    const { error: yErr } = mevcut
+      ? await supabase.from("katilim_kodlari").update({ kod: yeni }).eq("id", mevcut.id)
+      : await supabase.from("katilim_kodlari").insert({ restaurant_id: restaurantId, rol, kod: yeni });
+    if (yErr) { setErr(yErr.message); return; }
+    await yenile();
+  };
+
+  // Personelin rolünü ya da durumunu değiştirir (onayla / kapat).
+  const personelGuncelle = async (id: string, yama: Record<string, unknown>) => {
+    setPersonelIstekleri((liste) => liste.map((h) => (h.id === id ? { ...h, ...yama } as PersonelHesabi : h)));
+    const { error } = await supabase.from("personel_hesaplari").update(yama).eq("id", id);
+    if (error) setErr(error.message);
+  };
+
+  // --- Liste hâlindeki ayarlar: ekle / değiştir / sil ---
+  // Beşi de aynı desen: satır eklenince hemen kaydedilir, alan değişince yerinde güncellenir,
+  // silme yumuşak (deleted_at). Tek "Kaydet" düğmesi bunları beklemez — liste işlemleri
+  // anında yazılır, yoksa yeni eklenen satırın kimliği olmadan alt satırlar bağlanamaz.
+  const listeEkle = async (tablo: string, satir: Record<string, unknown>) => {
+    if (!restaurantId || listeBusy) return;
+    setListeBusy(true); setErr(null);
+    const { error } = await supabase.from(tablo).insert({ restaurant_id: restaurantId, ...satir });
+    setListeBusy(false);
+    if (error) { setErr(error.message); return; }
+    await yenile();
+  };
+  const listeGuncelle = async (tablo: string, id: string, yama: Record<string, unknown>) => {
+    const { error } = await supabase.from(tablo).update(yama).eq("id", id);
+    if (error) setErr(error.message);
+  };
+  const listeSil = async (tablo: string, id: string) => {
+    if (!restaurantId) return;
+    setErr(null);
+    const { error } = await supabase.from(tablo).update({ deleted_at: new Date().toISOString() }).eq("id", id);
     if (error) { setErr(error.message); return; }
     await yenile();
   };
 
-  // --- Masalar ---
-  const addTable = async (areaId: string | null) => {
-    if (!restaurantId || !newTableName.trim()) return;
-    const koltuk = parseInt(newTableSeats, 10);
-    if (!Number.isFinite(koltuk) || koltuk < 1 || koltuk > 50) { setErr("Koltuk sayısı 1 ile 50 arasında olmalı."); return; }
-    setErr(null);
-    const { error } = await supabase.from("restaurant_tables").insert({
-      restaurant_id: restaurantId, name: toTitleTr(newTableName), area_id: areaId,
-      seat_count: koltuk, status: "empty", sort_order: tables.filter((t) => t.area_id === areaId).length,
+  // İŞLETME TİPİ VARSAYILANLARI — tip seçilince kendiliğinden BASILMAZ, işletme düğmeye
+  // basınca basılır (Gökhan: "işletme istediği yerleri değiştirsin"). Yoksa tipi merak edip
+  // deneyen biri kendi ayarlarını kaybeder.
+  // Tür değişince varsayılanlar KENDİLİĞİNDEN basılmaz, önce sorulur. Bu kutu artık işletme
+  // bilgilerinin içinde — telefonu düzeltmeye giren biri yanlışlıkla türe dokunduğunda fix
+  // menü, minimum harcama, PR gibi ayarların sessizce değişmemesi gerekiyor.
+  const turDegistir = async (yeni: IsletmeTipi) => {
+    if (yeni === isletmeTipi) return;
+    const turAdi = (t: IsletmeTipi) => ISLETME_TIPLERI.find((x) => x.anahtar === t)?.ad ?? t;
+    const onay = await confirm(
+      `İşletme türü ${turAdi(isletmeTipi)} → ${turAdi(yeni)} olarak değişsin mi?`,
+      { danger: false },
+    );
+    if (!onay) return;
+    setIsletmeTipi(yeni);
+    tipVarsayilaniUygula(yeni);
+  };
+
+  const tipVarsayilaniUygula = (tip: IsletmeTipi) => {
+    const v = ISLETME_TIPLERI.find((t) => t.anahtar === tip)?.v;
+    if (!v) return;
+    // Çalışma saatleri de türün varsayılanına döner (Gökhan, 2026-08-16). Kapalı işaretlenmiş
+    // günlere dokunulmuyor — hangi gün kapalı olduğu işletmenin kendi bilgisi, tür değişince
+    // kaybolmamalı. İşletme günü bu saatlerden hesaplanıyor.
+    setHours((h) => {
+      const yeni = { ...h };
+      for (const d of DAYS) yeni[d.k] = { ...h[d.k], acilis: v.acilis, kapanis: v.kapanis };
+      return yeni;
     });
-    if (error) { setErr(error.message); return; }
-    setNewTableName(""); setNewTableSeats("4"); setAddingTableFor(null);
-    await yenile();
-  };
-  const renameTable = async (id: string, name: string) => {
-    if (!name.trim()) return;
-    setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ name: toTitleTr(name) }).eq("id", id);
-    if (error) { setErr(error.message); return; }
-    await yenile();
-  };
-  const setSeats = async (id: string, raw: string) => {
-    const n = parseInt(raw.replace(/\D/g, ""), 10);
-    if (!Number.isFinite(n) || n < 1 || n > 50) { setErr("Koltuk sayısı 1 ile 50 arasında olmalı."); return; }
-    setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ seat_count: n }).eq("id", id);
-    if (error) { setErr(error.message); return; }
-    await yenile();
-  };
-  const deleteTable = async (t: Table) => {
-    const ok = await confirm(`"${t.name}" silinsin mi?`, { confirmLabel: "Sil" });
-    if (!ok) return;
-    setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ deleted_at: new Date().toISOString() }).eq("id", t.id);
-    if (error) { setErr(error.message); return; }
-    await yenile();
-  };
-  const moveTableToArea = async (tableId: string, areaId: string | null) => {
-    setErr(null);
-    const { error } = await supabase.from("restaurant_tables").update({ area_id: areaId }).eq("id", tableId);
-    if (error) { setErr(error.message); return; }
-    await yenile();
+    setOturmaSuresi(v.oturmaSuresi);
+    setFixMenuAcik(v.fixMenu);
+    setMinimumHarcamaAcik(v.minimumHarcama);
+    setMasaPaketiAcik(v.masaPaketi);
+    setOzelGeceAcik(v.ozelGece);
+    setPrAcik(v.pr);
+    setGuestListAcik(v.guestList);
   };
 
+  // --- Not kuralları ---
+
+  // Salon ve masa işlevleri Salon ekranına taşındı (Gökhan, 2026-08-15).
   // --- Tek Kaydet (PAGE_STANDARDS #2): sağ paneldeki her şey birlikte kaydedilir ---
   const kaydet = async () => {
     if (!restaurantId) return;
     setBusy(true); setErr(null); setKaydedildi(false);
     const sure = Math.max(15, Math.min(600, parseInt(oturmaSuresi.replace(/\D/g, ""), 10) || 90));
+    // En küçük grup en büyüğü geçemez — geçerse ikisi de aynı sayıya çekilir, kayıt bloke olmaz.
+    const enKucukKisi = Math.max(1, parseInt(onlineMin, 10) || 1);
+    const enBuyukKisi = Math.max(enKucukKisi, parseInt(onlineMax, 10) || enKucukKisi);
 
+    // Vergi numarası 10 ya da 11 hane olmalı (No63'teki kuralın aynısı).
+    const temizVergi = vergiNo.replace(/\D/g, "");
+    if (temizVergi && !/^[0-9]{10,11}$/.test(temizVergi)) {
+      setBusy(false); setErr("Vergi kimlik numarası 10 ya da 11 hane olmalı.");
+      return;
+    }
     const { error: rErr } = await supabase.from("restaurants").update({
       name: isim.trim() ? toTitleTr(isim) : "İşletme",
-      phone: telefon.trim() || null,
+      phone: telefon.replace(/\D/g, "").replace(/^0+/, "") || null,
       address: adres.trim() ? toTitleTr(adres) : null,
+      ulke_kodu: ulkeKodu,
+      instagram: instagramTemizle(instagram) || null,
+      // DİKKAT: Türkçe küçültme DEĞİL — "BILGI@..." Türkçe kuralla "bılgı@..." olur, adres bozulur.
+      eposta: eposta.trim().toLowerCase() || null,
+      tax_number: temizVergi || null,
+      harita_linki: haritaLinki.trim() || null,
+      il: il.trim() ? toTitleTr(il) : null,
+      ilce: ilce.trim() ? toTitleTr(ilce) : null,
     }).eq("id", restaurantId);
     if (rErr) { setBusy(false); setErr(rErr.message); return; }
 
@@ -390,35 +1010,79 @@ export default function RezervasyonAyarlarPage() {
       default_duration_minutes: sure,
       kvkk_notice: kvkkNotice.trim() || null,
       auto_seating: otoYerlesme,
-      saate_gore_masa: saateGore,
-      masa_arasi_pay: Math.max(0, parseInt(masaArasiPay, 10) || 0),
+      gun_kapanis: gunKapanis,
+      masa_ek_sandalye: Math.max(0, parseInt(ekSandalye, 10) || 0),
+      saate_gore_masa: false,
+      masa_arasi_pay: 0,
       varsayilan_rezervasyon_saati: /^\d{2}:\d{2}$/.test(varsayilanSaat) ? varsayilanSaat : "19:00",
       musteri_sadakat_ziyaret_esigi: Math.max(1, parseInt(esikMudavim, 10) || 5),
       musteri_no_show_risk_yuzde: Math.max(0, Math.min(100, parseInt(esikNoShow, 10) || 30)),
+      sadik_masa_gecmis_sayisi: Math.max(0, parseInt(sadikGecmis, 10) || 0),
+      rezervasyon_gun_ufku: Math.max(0, parseInt(gunUfku, 10) || 0),
+      online_acik: onlineAcik,
+      online_min_kisi: enKucukKisi,
+      online_max_kisi: enBuyukKisi,
+      online_telefon_esigi: Math.max(0, parseInt(onlineTelEsigi, 10) || 0),
+      online_salon_secimi: onlineSalonSecimi,
+      online_gelmeyen_engeli: onlineGelmeyenEngeli,
+      online_onay_gerekli: onlineOnayGerekli,
+      sadece_ana_panel_rezervasyon: sadeceAnaPanel,
+      mesaj_acik: mesajAcik,
+      mesaj_onay_acik: mesajOnayAcik,
+      mesaj_onay_metni: mesajOnayMetni.trim() || null,
+      mesaj_teyit_acik: mesajTeyitAcik,
+      mesaj_teyit_saat: mesajTeyitSaat,
+      mesaj_teyit_bitis: mesajTeyitBitis,
+      mesaj_teyit_metni: mesajTeyitMetni.trim() || null,
+      mesaj_sessiz_baslangic: mesajSessizBas,
+      mesaj_sessiz_bitis: mesajSessizBitis,
+      mesaj_anket_acik: mesajAnketAcik,
+      mesaj_anket_metni: mesajAnketMetni.trim() || null,
+
+      isletme_tipi: isletmeTipi,
+      // Ayrı kutu yok — çalışma saatlerinden hesaplanıp yazılıyor (Gökhan, 2026-08-16).
+      isletme_gunu_saati: isletmeGunuSaatiHesapla(hours),
+      fix_menu_acik: fixMenuAcik,
+      karma_fix_alakart: karmaFixAlakart,
+      minimum_harcama_acik: minimumHarcamaAcik,
+      masa_paketi_acik: masaPaketiAcik,
+      ozel_gece_acik: ozelGeceAcik,
+      pr_acik: prAcik,
+      pr_komisyon_tipi: prKomisyonTipi,
+      pr_komisyon_tutar: sayiyaCevir(prKomisyonTutar),
+      pr_kendi_gorsun: prKendiGorsun,
+      // Ayar değil kural: komisyon her zaman gerçekten gelene ödenir (Gökhan, 2026-08-16).
+      pr_sadece_gelene: true,
+      guest_list_acik: guestListAcik,
+      rezervasyon_alan_gorunsun: rezAlanGorunsun,
+      yapilandirilmis_not_acik: yapNotAcik,
+      silme_yetkisi: silmeYetkisi,
+      hesap_girme_yetkisi: hesapYetkisi,
+      ayar_yetkisi: ayarYetkisi,
+      ai_ozet_acik: aiOzetAcik,
+      ai_isim_maskele: aiIsimMaskele,
+      varsayilana_getir_acik: varsayilanaGetirAcik,
+      rol_sayfalari: rolSayfalari,
+      garson_sadece_kendi_salonu: garsonSadeceKendiSalonu,
     }, { onConflict: "restaurant_id" });
+    if (sErr) { setBusy(false); setErr(sErr.message); return; }
+
+    // Salonların online işareti tek tek yazılır — Salon ekranındaki öteki alanlara dokunulmasın.
+    for (const s of salonlar) {
+      const { error } = await supabase.from("dining_areas").update({ online_acik: s.online_acik }).eq("id", s.id);
+      if (error) { setBusy(false); setErr(error.message); return; }
+    }
     setBusy(false);
-    if (sErr) { setErr(sErr.message); return; }
     setOturmaSuresi(String(sure));
+    setOnlineMin(String(enKucukKisi));
+    setOnlineMax(String(enBuyukKisi));
     setKaydedildi(true);
     setTimeout(() => setKaydedildi(false), 3000);
   };
 
   const setDay = (k: DayKey, patch: Partial<DayHours>) => setHours((h) => ({ ...h, [k]: { ...h[k], ...patch } }));
 
-  const toggleGrup = (id: string) => setKapali((s) => {
-    const next = new Set(s);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  });
 
-  // Salonlar + sonda "Diğer" (salonu olmayan masalar). Diğer sadece içinde masa varsa görünür.
-  const digerMasalar = tables.filter((t) => !t.area_id || !areas.some((a) => a.id === t.area_id));
-  const gruplar: { id: string; name: string; gercek: boolean; masalar: Table[] }[] = [
-    ...areas.map((a) => ({ id: a.id, name: a.name, gercek: true, masalar: tables.filter((t) => t.area_id === a.id) })),
-    ...(digerMasalar.length > 0 ? [{ id: DIGER, name: "DİĞER", gercek: false, masalar: digerMasalar }] : []),
-  ];
-
-  const toplamKoltuk = tables.reduce((s, t) => s + t.seat_count, 0);
 
   if (!restaurantId) {
     return (
@@ -431,174 +1095,168 @@ export default function RezervasyonAyarlarPage() {
   }
 
   return (
-    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24, height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <div style={{ background: "var(--canvas)", padding: "20px 24px", paddingBottom: yatayMobil ? 10 : (isMobile ? ALT_NAV_YUKSEKLIK + 16 : 24), height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
       {confirmDialog}
 
-      <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="Ayarlar" />
-
-      <div style={{ marginBottom: 14, flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
-        <Link href="/rezervasyon" aria-label="Rezervasyon listesine dön" style={{ ...navBtn, textDecoration: "none" }}><ArrowLeft size={18} /></Link>
-      </div>
+      {/* MASAÜSTÜNDE ÜST BAR YOK — kimlik ve geçişler sol menüde (Gökhan, 2026-08-15:
+          "salon ve rezervasyon ekranındaki gibi sol menü koy"). Telefonda düzen aynı. */}
+      {isMobile && <RezervasyonUstBar restaurantId={restaurantId} sayfaBaslik="Ayarlar" />}
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
 
-      <div style={{ display: "flex", gap: 20, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "flex", gap: isMobile ? 0 : 12, flex: 1, minHeight: 0 }}>
 
-        {/* SOL — MASALAR */}
-        <div style={{ flex: 1.15, minWidth: 380, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexShrink: 0 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-green)" }}>Masalar</div>
-            <div style={{ fontSize: 12, color: inkSoft }}>
-              <span className="tnum">{tables.length}</span> masa · toplam <span className="tnum">{toplamKoltuk}</span> kişilik
-            </div>
+        {!isMobile && (
+          <aside style={{
+            // Başlık sayısı arttıkça menü taşıyordu; kutular arası boşluk daraltıldı
+            // (Gökhan, 2026-08-16: "soldaki kutuların aralarını biraz daralt, sığsın").
+            width: 226, flexShrink: 0, display: "flex", flexDirection: "column", gap: 5,
+            border: "1px solid var(--line)", borderRadius: 16, background: "var(--card)",
+            padding: 12, boxSizing: "border-box", overflowY: "auto",
+          }}>
+            <MenuBaslik restaurantId={restaurantId} sayfaBaslik="Ayarlar" />
+            <div style={{ height: 1, background: "var(--line)", flexShrink: 0 }} />
+            <MenuNav />
+            <div style={{ height: 1, background: "var(--line)", flexShrink: 0 }} />
+            {/* AYAR BAŞLIKLARI — hangisine basılırsa içeriği sağda açılır (Gökhan,
+                2026-08-15). Hepsi alt alta tek ekranda duruyordu, sayfa aşağı kayıyordu. */}
+            {AYAR_BOLUMLERI.filter((b) => b.anahtar !== "subeler" || cokSubeli).map((b) => (
+              <button
+                key={b.anahtar}
+                onClick={() => setBolum(b.anahtar)}
+                style={{
+                  ...menuBtn,
+                  background: bolum === b.anahtar ? "var(--recede)" : "var(--card)",
+                  color: bolum === b.anahtar ? "var(--brand)" : "var(--ink)",
+                  fontWeight: bolum === b.anahtar ? 600 : 500,
+                }}
+              >
+                {b.ad}
+              </button>
+            ))}
+          </aside>
+        )}
+
+        {/* SOL PANELDEKİ MASA LİSTESİ KALDIRILDI (Gökhan, 2026-08-15: "ayarlardan
+            masaları kaldırarak başlayalım") — masa ve salon yönetimi artık Salon
+            ekranında yapılıyor, iki yerde durması karışıklık çıkarıyordu. */}
+        {/* İŞLETME VE ÇALIŞMA AYARLARI (tek Kaydet) */}
+        {/* Tek bölüm gösterildiği için kutu artık ekranın kalanını kullanıyor — daha önce
+            480 px'e sıkışıp yanında koca boşluk bırakıyordu. İçerideki alanlar okunabilir
+            genişlikte kalsın diye içerik 560 px'le sınırlı. */}
+        <div style={{ flex: 1, minWidth: 340, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {/* Başlık soldan seçilen bölümün adı. */}
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-green)", marginBottom: 12, flexShrink: 0 }}>
+            {AYAR_BOLUMLERI.find((b) => b.anahtar === bolum)?.ad ?? "Ayarlar"}
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 12, flexShrink: 0 }}>
-            <input
-              value={newAreaName}
-              onChange={(e) => setNewAreaName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addArea()}
-              placeholder="Yeni salon adı (Bahçe, Teras…)"
-              style={{ ...inp, flex: 1 }}
-            />
-            <button onClick={addArea} disabled={!newAreaName.trim()} style={{ ...btnPrimary, opacity: !newAreaName.trim() ? 0.5 : 1 }}><Plus size={14} /> Salon ekle</button>
-          </div>
-
-          <ListHeader>
-            <HeaderCell width={200} marginLeft={10}>Masa</HeaderCell>
-            <HeaderSep />
-            <HeaderCell width={70} align="center">Koltuk</HeaderCell>
-            <HeaderSep />
-            <HeaderCell width={150} align="center">Salon</HeaderCell>
-            <Spacer />
-            <HeaderCell width={40} align="center">Sil</HeaderCell>
-          </ListHeader>
-
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            {gruplar.length === 0 && (
-              <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0", lineHeight: 1.6 }}>
-                Henüz salon yok. Önce bir salon ekle (Bahçe, Teras, İç salon…), sonra içine masaları gir.
+          {/* İşletme bilgileri iki sütun — alta taşan kısım yan sütuna geçiyor, kaydırma
+              kalkıyor (Gökhan, 2026-08-15). Öteki bölümler tek sütun, okunabilir genişlikte. */}
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0, maxWidth: bolum === "isletme" || bolum === "salon" || bolum === "rezervasyon" ? undefined : 560 }}>
+            {bolum === "isletme" && (<>
+            {/* Sütun arasında ince çizgi (Gökhan, 2026-08-16). Dar ekranda sütunlar alt alta
+                indiğinde çizgi kendiliğinden yatay olur ve bölümleri ayırır. */}
+            <div style={{ ...ikiSutun, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+            <div>
+            {/* İşletme adı ve türü aynı satırda (Gökhan, 2026-08-16) — tür ayrı başlıktan
+                buraya alındı, işletmenin kimliğiyle aynı yere ait. */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <div>
+                <label style={lbl}>İşletme adı</label>
+                <input value={isim} onChange={(e) => setIsim(e.target.value)} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
               </div>
-            )}
-
-            {gruplar.map((g) => {
-              const acik = !kapali.has(g.id);
-              const grupKoltuk = g.masalar.reduce((s, t) => s + t.seat_count, 0);
-              return (
-                <div key={g.id} style={{ marginBottom: 6 }}>
-                  {/* Salon başlığı — tıklayınca açılır/kapanır, adı çift tıklayınca düzenlenir. */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--recede)", borderRadius: 10 }}>
-                    <button onClick={() => toggleGrup(g.id)} aria-label={acik ? "Kapat" : "Aç"} style={{ ...navBtn, padding: 2 }}>
-                      {acik ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                    </button>
-                    {g.gercek ? (
-                      <EditableText
-                        value={g.name}
-                        onSave={(next) => renameArea(g.id, next)}
-                        style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.4, color: "var(--ink)" }}
-                      />
-                    ) : (
-                      <span title="Salonu olmayan masalar" style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.4, color: inkSoft }}>{g.name}</span>
-                    )}
-                    <span style={{ fontSize: 11.5, color: inkSoft }}>
-                      · <span className="tnum">{g.masalar.length}</span> masa, <span className="tnum">{grupKoltuk}</span> kişilik
-                    </span>
-                    <Spacer />
-                    {g.gercek && (
-                      <>
-                        <button onClick={() => { setAddingTableFor(g.id); setNewTableName(""); setNewTableSeats("4"); }} style={btnGhostRow}>Masa ekle</button>
-                        <button onClick={() => deleteArea(areas.find((a) => a.id === g.id)!)} aria-label="Salonu sil" style={{ ...navBtn, padding: 4, color: "var(--danger)" }}><Trash2 size={15} /></button>
-                      </>
-                    )}
-                  </div>
-
-                  {acik && addingTableFor === g.id && (
-                    <div style={{ display: "flex", gap: 8, padding: "8px 10px 4px" }}>
-                      <input
-                        autoFocus value={newTableName}
-                        onChange={(e) => setNewTableName(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addTable(g.gercek ? g.id : null)}
-                        placeholder="Masa adı (1, 2, Köşe…)" style={{ ...inp, flex: 1 }}
-                      />
-                      <input
-                        value={newTableSeats}
-                        onChange={(e) => setNewTableSeats(e.target.value.replace(/\D/g, ""))}
-                        onKeyDown={(e) => e.key === "Enter" && addTable(g.gercek ? g.id : null)}
-                        placeholder="Koltuk" inputMode="numeric" className="tnum" style={{ ...inp, width: 70, textAlign: "right" }}
-                      />
-                      <button onClick={() => addTable(g.gercek ? g.id : null)} disabled={!newTableName.trim()} style={{ ...btnPrimary, opacity: !newTableName.trim() ? 0.5 : 1 }}>Ekle</button>
-                      <button onClick={() => setAddingTableFor(null)} style={btnGhost}>Vazgeç</button>
-                    </div>
-                  )}
-
-                  {acik && g.masalar.length === 0 && addingTableFor !== g.id && (
-                    <div style={{ fontSize: 12, color: "var(--muted-2)", padding: "8px 10px" }}>Bu salonda masa yok.</div>
-                  )}
-
-                  {acik && g.masalar.map((t) => (
-                    <ListRow key={t.id}>
-                      <Cell width={200} marginLeft={10}>
-                        <EditableText
-                          value={t.name}
-                          onSave={(next) => renameTable(t.id, next)}
-                          style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        />
-                      </Cell>
-                      <RowSep />
-                      <Cell width={70} align="center">
-                        <EditableText
-                          value={String(t.seat_count)}
-                          onSave={(next) => setSeats(t.id, next)}
-                          style={{ fontSize: 12.5, color: "var(--ink)", fontVariantNumeric: "tabular-nums" }}
-                        />
-                      </Cell>
-                      <RowSep />
-                      <Cell width={150} align="center">
-                        {/* Masayı başka salona taşımak — ayrı bir ekran açmadan, olduğu yerde. */}
-                        <select
-                          value={t.area_id ?? ""}
-                          onChange={(e) => moveTableToArea(t.id, e.target.value || null)}
-                          style={{ ...inp, width: "100%", padding: "4px 6px", fontSize: 12 }}
-                        >
-                          <option value="">Diğer</option>
-                          {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                        </select>
-                      </Cell>
-                      <Spacer />
-                      <ActionsCell width={40} align="center">
-                        <button onClick={() => deleteTable(t)} aria-label="Masayı sil" style={{ ...navBtn, padding: 4, color: "var(--danger)" }}><Trash2 size={15} /></button>
-                      </ActionsCell>
-                    </ListRow>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* SAĞ — İŞLETME VE ÇALIŞMA AYARLARI (tek Kaydet) */}
-        <div style={{ flex: 1, minWidth: 340, maxWidth: 480, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-green)", marginBottom: 12, flexShrink: 0 }}>İşletme</div>
-
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <label style={lbl}>İşletme adı</label>
-            <input value={isim} onChange={(e) => setIsim(e.target.value)} style={{ ...inp, width: "100%", marginBottom: 10 }} />
-
-            <label style={lbl}>Telefon</label>
-            <input value={telefon} onChange={(e) => setTelefon(e.target.value)} inputMode="tel" style={{ ...inp, width: "100%", marginBottom: 10 }} />
-
-            <label style={lbl}>Adres</label>
-            <input value={adres} onChange={(e) => setAdres(e.target.value)} style={{ ...inp, width: "100%", marginBottom: 16 }} />
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: -10, marginBottom: 16, lineHeight: 1.6 }}>
-              Bu bilgiler misafirin kendi rezervasyonunu yaptığı sayfada görünür.
+              <div>
+                <label style={lbl}>İşletme türü</label>
+                <TurSecici deger={isletmeTipi} onDegis={turDegistir} />
+              </div>
             </div>
 
+            {/* Telefon: solda ülke kodu (bayrakla), sağda baştaki sıfır olmadan numara —
+                No63'teki işletme bilgileriyle aynı düzen (Gökhan, 2026-08-15). */}
+            <label style={lbl}>Telefon</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <UlkeKodu deger={ulkeKodu} onDegis={setUlkeKodu} />
+              <input
+                value={telefon}
+                onChange={(e) => setTelefon(e.target.value.replace(/\D/g, "").replace(/^0+/, ""))}
+                inputMode="tel" placeholder="532 111 22 33" className="tnum"
+                style={{ ...inp, flex: 1, minWidth: 0 }}
+              />
+            </div>
+
+            <label style={lbl} {...sagTik("Tam adresi yapıştırsan da kullanıcı adına indirilir.")}>Instagram</label>
+            <input value={instagram} onChange={(e) => setInstagram(e.target.value)} autoCapitalize="none" placeholder="restoranadi" style={{ ...inp, width: "100%", marginBottom: 4 }} />
+
+            <label style={lbl}>E-posta</label>
+            <input value={eposta} onChange={(e) => setEposta(e.target.value)} type="email" inputMode="email" autoCapitalize="none" placeholder="iletisim@ornek.com" style={{ ...inp, width: "100%", marginBottom: 12 }} />
+
+            {/* Bu açıklama sağ tıkta değil, etiketin yanında parantez içinde (Gökhan, 2026-08-16). */}
+            <label style={lbl}>Vergi kimlik numarası (şahıs işletmesinde TC kimlik numarası)</label>
+            <input value={vergiNo} onChange={(e) => setVergiNo(e.target.value.replace(/\D/g, ""))} inputMode="numeric" maxLength={11} placeholder="10 ya da 11 hane" className="tnum" style={{ ...inp, width: "100%", marginBottom: 4 }} />
+
+            </div>
+
+            {/* İKİNCİ SÜTUN — Konum buraya, en üste alındı (Gökhan, 2026-08-15: "sol alttaki
+                konumu da sağ üste alırsan kaymaz"). */}
+            <div style={sagSutun(isMobile)}>
+            <label style={lbl} {...sagTik("Haritada işletmeyi aç, Paylaş > Bağlantıyı kopyala, buraya yapıştır.")}>Konum</label>
+            <input value={haritaLinki} onChange={(e) => setHaritaLinki(e.target.value)} autoCapitalize="none" placeholder="Google Haritalar bağlantısı" style={{ ...inp, width: "100%", marginBottom: 4, boxSizing: "border-box" }} />
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <div>
+                <label style={lbl}>İl</label>
+                <input value={il} onChange={(e) => setIl(e.target.value)} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+              </div>
+              <div>
+                <label style={lbl}>İlçe</label>
+                <input value={ilce} onChange={(e) => setIlce(e.target.value)} style={{ ...inp, width: "100%", boxSizing: "border-box" }} />
+              </div>
+            </div>
+
+            {/* Adres kutusu 1,5 cm alçaltıldı; altındaki açıklama satırı kaldırıldı
+                (Gökhan, 2026-08-15). */}
+            <label style={lbl}>Adres</label>
+            {/* Adres artık tek satırlık kutu — öteki alanlarla aynı yükseklikte ve köşesinden
+                çekilip büyütülemiyor (Gökhan, 2026-08-16). */}
+            <input
+              value={adres} onChange={(e) => setAdres(e.target.value)}
+              style={{ ...inp, width: "100%", boxSizing: "border-box", marginBottom: 12 }}
+            />
+
+            {/* Fotoğraflar — ileride açılacak internet sitesi bunları kullanacak. */}
+            <div style={{ ...lbl, marginTop: 8 }} {...sagTik("Bu fotoğraflar işletmenin ileride açılacak internet sitesinde kullanılacak.")}>İşletme fotoğrafları</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 8 }}>
+              {fotograflar.map((f) => (
+                <div key={f.id} style={{ position: "relative", height: "calc(96px - 1cm)", borderRadius: 10, overflow: "hidden", border: "1px solid var(--line-2)" }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={fotoUrl(f.dosya_yolu)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                  <button
+                    onClick={() => fotoSil(f)} aria-label="Fotoğrafı kaldır"
+                    style={{ all: "unset", cursor: "pointer", position: "absolute", top: 2, right: 2, background: "rgba(34,31,29,.6)", color: "#fff", borderRadius: 999, width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center" }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+              {/* Ekleme kutusu 1 cm alçak (Gökhan, 2026-08-15) — kare değil, basık. */}
+              <label style={{ height: "calc(96px - 1cm)", border: "1px dashed var(--line-2)", borderRadius: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", color: "var(--muted)", fontSize: 11.5 }}>
+                <Plus size={18} />
+                {fotoYukleniyor ? "Yükleniyor…" : "Fotoğraf"}
+                <input type="file" accept="image/*" multiple hidden onChange={(e) => fotoYukle(e.target.files)} />
+              </label>
+            </div>
+            {fotoErr && (
+              <div style={{ fontSize: 12, color: "var(--danger)", marginTop: 8, lineHeight: 1.5 }}>{fotoErr}</div>
+            )}
+            </div>
+            </div>
+            </>)}
+            {bolum === "subeler" && (<>
             {/* Şubeler — sadece çok şubeli hesapta. Marka bilgisi (işletme türü, yetkili)
                 kayıtta zaten girildi, tekrar sorulmuyor; şube eklerken sadece değişen alanlar
                 (ad, telefon, il, ilçe, adres, çalışma saatleri) istenir. */}
             {cokSubeli && (
               <>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Şubeler</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                   {subeler.map((s) => (
                     <button
@@ -688,13 +1346,112 @@ export default function RezervasyonAyarlarPage() {
               </>
             )}
 
-            {/* Masa ölçüleri (Gökhan: "masa ölçülerini de girsinler ayarlardan, hangi
-                masaları varsa onları seçip ölçü girsin") — hücreye tıkla, düzenle, kaydet.
-                Değiştirmezsen standart ölçü (VARSAYILAN_OLCU) kullanılmaya devam eder. */}
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 4 }}>Masa ölçüleri</div>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 8, lineHeight: 1.5 }}>
-              Salon ekranındaki masaların gerçek santim (en×boy) ölçüsü. Değiştirmezsen standart ölçüler kullanılır.
+            </>)}
+            {bolum === "salon" && (<>
+            {/* MASA GRUPLARI (Gökhan, 2026-08-16: "gruba" — minimum harcama masaya tek tek
+                değil gruba giriliyor). Grupların kendisi burada, hangi masanın hangi grupta
+                olduğu Salon ekranında seçilecek. */}
+            {/* İki sütun — solda ekleme listeleri (gruplar, paketler), sağda masa ölçüleri
+                (Gökhan, 2026-08-16). İşletme bilgilerindeki düzenin aynısı. */}
+            <div style={{ ...ikiSutun, gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
+            <div>
+            {/* Ekleme düğmesi listenin altında değil, başlığın yanında (Gökhan, 2026-08-16). */}
+            <div style={bolumBasligi}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Sahne önü, loca, bahçe gibi. Gruba verdiğin renkle masa salon planında o renkte çizilir, üstünde grubun adı görünür. Masaların hangi gruba ait olduğu Salon ekranında masaya sağ tıklanarak seçilir. Fiyat ve harcama limiti isteğe bağlıdır.")}>Masa grupları</span>
+              <button
+                onClick={() => listeEkle("masa_gruplari", { ad: "", sira: masaGruplari.length, renk: GRUP_RENKLERI[masaGruplari.length % GRUP_RENKLERI.length] })}
+                style={ekleBtn} aria-label="Masa grubu ekle" title="Masa grubu ekle"
+              >
+                <Plus size={13} />Ekle
+              </button>
             </div>
+            {/* Her grup TEK SATIR, kutular yan yana (Gökhan, 2026-08-16):
+                grup adı · masalar · renk · fiyat/harcama limiti. */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {masaGruplari.map((g) => (
+                // Kutular DOĞRUDAN satırda — dıştaki çerçeveli kutu kaldırıldı, kutu içinde
+                // kutu görünmesin (Gökhan, 2026-08-16).
+                <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    defaultValue={g.ad} placeholder="Grup adı"
+                    onBlur={(e) => listeGuncelle("masa_gruplari", g.id, { ad: e.target.value.trim() || g.ad })}
+                    style={{ ...inp, flex: 1, minWidth: 90 }}
+                  />
+                  {/* Masalar — Salon ekranına gidip o gruba ait masaları seçtiriyor. */}
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/rezervasyon/salon?grup=${g.id}`)}
+                    style={{ ...inp, width: 110, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}
+                    title="Salon ekranında bu gruba ait masaları seç"
+                  >
+                    <span>Masalar</span>
+                    <span className="tnum" style={{ color: "var(--muted-2)", fontSize: 12 }}>{grupMasaSayisi[g.id] ?? 0}</span>
+                  </button>
+                  <RenkSecici deger={g.renk} onDegis={(r) => { listeGuncelle("masa_gruplari", g.id, { renk: r }); yenile(); }} />
+                  <select
+                    defaultValue={g.fiyatlama_modu}
+                    onChange={(e) => { listeGuncelle("masa_gruplari", g.id, { fiyatlama_modu: e.target.value }); yenile(); }}
+                    style={{ ...inp, width: 150 }}
+                  >
+                    {FIYATLAMA_MODLARI.map((m) => <option key={m.anahtar} value={m.anahtar}>{m.ad}</option>)}
+                  </select>
+                  {g.fiyatlama_modu !== "yok" && (
+                    <ParaGirisi
+                      deger={g.tutar} yerTutucu="Tutar" genislik={110}
+                      onKaydet={(v) => listeGuncelle("masa_gruplari", g.id, { tutar: v })}
+                    />
+                  )}
+                  <button onClick={() => listeSil("masa_gruplari", g.id)} style={silBtn} aria-label="Grubu sil"><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+            {/* MASA PAKETİ — Fiyatlandırma'dan buraya alındı (Gökhan, 2026-08-16). */}
+            <div style={{ ...bolumBasligi, marginTop: 18 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Hazır masa paketleri: adı, fiyatı ve içinde ne olduğu. Rezervasyon alınırken seçilir, hesap kendiliğinden gelir, mutfak ve bar masaya ne çıkacağını görür.")}>Masa paketi</span>
+              <button
+                onClick={() => listeEkle("masa_paketleri", { ad: "", sira: masaPaketleri.length })}
+                style={ekleBtn} aria-label="Masa paketi ekle" title="Masa paketi ekle"
+              >
+                <Plus size={13} />Ekle
+              </button>
+            </div>
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+                {masaPaketleri.map((p) => (
+                  // Tek satır, alta sarmıyor (Gökhan, 2026-08-16) — kutular sığmadığında
+                  // daralıyor, en küçük genişlikleri buna göre kısıldı.
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      defaultValue={p.ad} placeholder="Paket adı"
+                      onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { ad: e.target.value.trim() || p.ad })}
+                      style={{ ...inp, flex: 1, minWidth: 0 }}
+                    />
+                    <ParaGirisi
+                      deger={p.fiyat} yerTutucu="Fiyat" genislik={100}
+                      onKaydet={(v) => listeGuncelle("masa_paketleri", p.id, { fiyat: v })}
+                    />
+                    <input
+                      defaultValue={p.kisi_tavani ?? ""} placeholder="Kişi" inputMode="numeric" className="tnum"
+                      onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { kisi_tavani: parseInt(e.target.value, 10) || null })}
+                      style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }}
+                    />
+                    <input
+                      defaultValue={p.icindekiler ?? ""} placeholder="İçindekiler"
+                      onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { icindekiler: e.target.value.trim() || null })}
+                      style={{ ...inp, flex: 1.4, minWidth: 0 }}
+                    />
+                    <button onClick={() => listeSil("masa_paketleri", p.id)} style={silBtn} aria-label="Paketi sil"><X size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            </>
+            </div>
+
+            {/* SAĞ SÜTUN — masa ölçüleri (Gökhan: "masa ölçülerini de girsinler ayarlardan,
+                hangi masaları varsa onları seçip ölçü girsin"). Hücreye tıkla, düzenle, kaydet.
+                Değiştirmezsen standart ölçü (VARSAYILAN_OLCU) kullanılmaya devam eder. */}
+            <div style={sagSutun(isMobile)}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }} {...sagTik("Salon ekranındaki masaların gerçek santim (en × boy) ölçüsü. Değiştirmezsen standart ölçüler kullanılır.")}>Masa ölçüleri</div>
             <div style={{ display: "grid", gridTemplateColumns: "62px repeat(4, 1fr)", gap: 4, marginBottom: 10, fontSize: 11 }}>
               <div />
               {MASA_KOLTUK_TIERLERI.map((tier) => (
@@ -755,9 +1512,17 @@ export default function RezervasyonAyarlarPage() {
                 </div>
               </div>
             )}
+            </div>
+            </div>
 
+            </>)}
+            {bolum === "saatler" && (<>
+            {/* AYRI "İŞLETME GÜNÜ SAATİ" AYARI YOK (Gökhan, 2026-08-16: "zaten günlük çalışma
+                saatlerinin yazdığı bir ayar var, neden ekstra bunu tekrar belirtmek gerekiyor").
+                İşletme günü o günün KAPANIŞ saatinden okunuyor: kapanış açılıştan önceyse
+                (23:00 → 04:00) gece yarısı aşılıyor demektir, o gecenin 01:30'u hâlâ dünün
+                gecesidir. Kapanış gece yarısını aşmıyorsa gün normal takvim günüdür. */}
             {/* Çalışma saatleri — misafir sayfası bu saatlerin dışına rezervasyon aldırmayacak. */}
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Çalışma saatleri</div>
             {DAYS.map((d) => {
               const v = hours[d.k];
               return (
@@ -784,24 +1549,34 @@ export default function RezervasyonAyarlarPage() {
               );
             })}
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginTop: 18, marginBottom: 8 }}>Rezervasyon</div>
+            </>)}
+            {bolum === "rezervasyon" && (<>
+            {/* İKİ SÜTUN: solda rezervasyon, sağda online rezervasyon (Gökhan, 2026-08-16 —
+                "aynı sayfaya al, yine iki taraflı kullan"). */}
+            <div style={{ ...ikiSutun, gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))" }}>
+            <div>
+            {/* Sayfa başlığı "Rezervasyonlar", sol sütunun kendi başlığı "Rezervasyon"
+                (Gökhan, 2026-08-16) — sağdaki "Online rezervasyon"la eşleşsin diye. */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Rezervasyon</div>
 
+            {/* GÜN UFKU (Gökhan, 2026-08-15). Saate kala sınırı yok — "yer olduğu sürece
+                bununla ilgili problem yok". */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13.5 }}>Varsayılan oturma süresi:</span>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Misafirin kendi sayfasından bu kadar ileriye rezervasyon alınabilir. 0 yazılırsa sınır yoktur. Saate kala bir sınır konmadı: yer olduğu sürece son dakika kaydı da alınır.")}>En fazla kaç gün öncesinden rezervasyon:</span>
               <input
-                value={oturmaSuresi}
-                onChange={(e) => setOturmaSuresi(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+                value={gunUfku}
+                onChange={(e) => setGunUfku(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
               />
-              <span style={{ fontSize: 13.5 }}>dakika</span>
-            </div>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 12, lineHeight: 1.6 }}>
-              Bir masanın ortalama ne kadar dolu kaldığı. Aynı masaya ikinci rezervasyon
-              alınabilir mi hesabı buna dayanacak.
+              <span style={{ fontSize: 13.5 }}>gün</span>
             </div>
 
+            {/* "Varsayılan oturma süresi" kutusu KALDIRILDI (Gökhan, 2026-08-16). Süre zaten
+                işletme türünün varsayılanından geliyor ve sadece istatistikte kullanılıyor —
+                masayı boşaltmadığı için işletmenin elle girmesine gerek yok. */}
+
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13.5 }}>Varsayılan rezervasyon saati:</span>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Yeni rezervasyon penceresi bu saatle açılır. Bugün için bu saat geçmişse pencere bir sonraki tam saatle açılır.")}>Varsayılan rezervasyon saati:</span>
               <input
                 type="time"
                 value={varsayilanSaat}
@@ -809,56 +1584,151 @@ export default function RezervasyonAyarlarPage() {
                 className="tnum" style={{ ...inp, width: 110 }}
               />
             </div>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
-              Yeni rezervasyon penceresi bu saatle açılır. Bugün için bu saat geçmişse pencere
-              bir sonraki tam saatle açılır.
-            </div>
 
+            {/* "SAATE GÖRE MASA HESABI" AYARI KALDIRILDI (Gökhan, 2026-08-16): masayı oturma
+                süresi dolunca yeni rezervasyona açıyordu — yani oturan misafirin masası
+                önceden başkasına söz veriliyordu. Gökhan: "masa kalkmadıkça masaya kimse
+                alınamasın, kalktı ya da tamamlandı demedikçe sistem masaya kimseyi almasın."
+                Günün tamamı artık her zaman tek havuz. Boşalacak masa beklemek isteyen için
+                yol bekleme listesi ya da kapı girişidir, rezervasyon değil. */}
+
+
+            {/* REZERVASYONU TEK ELDEN ALMA (Gökhan, 2026-08-18). Kapalıyken telefondan giren
+                personel de rezervasyon açabilir; açılırsa kayıt sadece ana panelden girilir. */}
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
-              <input type="checkbox" checked={saateGore} onChange={(e) => setSaateGore(e.target.checked)} />
-              <span style={{ fontSize: 13.5 }}>Saate göre masa hesabı</span>
+              <input type="checkbox" checked={sadeceAnaPanel} onChange={(e) => setSadeceAnaPanel(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Açıkken rezervasyon sadece ana panelden alınır; telefondan giren personel (garson, PR, salon şefi, mutfak) yeni rezervasyon açamaz. Kapı girişi ve bekleme sırası bundan etkilenmez.")}>Sadece ana panel rezervasyon alsın</span>
             </label>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 10, lineHeight: 1.6 }}>
-              Kapalıyken günün tamamı tek havuz sayılır: o günkü bütün rezervasyonlar aynı masa
-              havuzunu paylaşır. Açıkken masa sadece oturma süresi boyunca dolu sayılır —
-              {"19:00'a verilen masa süresi dolunca 21:00'e gelene açık olur."}
-            </div>
-            {saateGore && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                <span style={{ fontSize: 13.5 }}>Masa arası pay:</span>
-                <input
-                  value={masaArasiPay}
-                  onChange={(e) => setMasaArasiPay(e.target.value.replace(/\D/g, ""))}
-                  inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
-                />
-                <span style={{ fontSize: 13.5 }}>dakika</span>
-              </div>
-            )}
-            {saateGore && (
-              <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
-                Masa boşaldıktan sonra yeni misafir alınana kadar bırakılacak süre — temizlik ve
-                hazırlık payı. 0 yazılırsa masa boşalır boşalmaz yeni rezervasyona açılır.
-              </div>
-            )}
 
+            {/* GÜN KAPANIŞI (Gökhan, 2026-08-13). Programda zamanla kendiliğinden çalışan bir iş
+                yoktu; akşam kapatılmayan gün sabaha açık giriyor, dünkü misafirler oturuyor
+                görünüyor ve masaları bugün kullanılamıyordu. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Sabah programı açtığınızda dünden kalan açık kayıtlar varsa: bekleyenler gelmedi, oturanlar tamamlandı olur ve masaları boşalır. Sorsun seçiliyse önce size sorar, kendisi kapatsın seçiliyse sessizce yapar.")}>Geçmiş gün açık kalırsa:</span>
+              <select value={gunKapanis} onChange={(e) => setGunKapanis(e.target.value)} style={{ ...inp, minWidth: 150 }}>
+                <option value="sor">Sorsun</option>
+                <option value="otomatik">Kendisi kapatsın</option>
+              </select>
+            </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
               <input type="checkbox" checked={otoYerlesme} onChange={(e) => setOtoYerlesme(e.target.checked)} />
-              <span style={{ fontSize: 13.5 }}>Otomatik yerleşme</span>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Bir rezervasyonun kişi sayısı büyüyüp masası yetmez hale gelince program beklemeden masayı tamamlar: önce o masanın kendi sırasındaki yan masayı dener, doluysa oradaki rezervasyonu başka uygun masaya taşıyıp yeri açar. Kilitli masalara hiç dokunmaz. Kapalıyken program kimsenin masasını kendiliğinden oynatmaz.")}>Otomatik yerleşme</span>
             </label>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
-              Bir rezervasyonun kişi sayısı büyüyüp masası yetmez hale gelince program beklemeden
-              masayı tamamlar: önce o masanın kendi sırasındaki yan masayı dener, doluysa oradaki
-              rezervasyonu başka uygun masaya taşıyıp yeri açar. Kilitli masalara hiç dokunmaz.
-              Kapalıyken program kimsenin masasını kendiliğinden oynatmaz.
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Müşteri etiketleri</div>
+            {/* SAĞ SÜTUN — ONLINE REZERVASYON (Gökhan, 2026-08-15). Misafirin kendi sayfası
+                /rezervasyon-yap/[slug] — Instagram bio'suna konan link. Buradaki kurallar hem
+                formu şekillendirir hem sunucuda denetlenir; formu atlayıp doğrudan çağıran
+                olursa ayarlar yine geçerlidir. */}
+            <div style={sagSutun(isMobile)}>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Online rezervasyon</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlineAcik} onChange={(e) => setOnlineAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Kapatılırsa misafir sayfası kayıt almaz, arayabilmesi için işletme telefonunu gösterir. Personelin girdiği rezervasyonlar etkilenmez.")}>Online rezervasyon açık</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlineOnayGerekli} onChange={(e) => setOnlineOnayGerekli(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Açıkken misafirin gönderdiği rezervasyon doğrudan açılmaz, onay bekliyor olarak listeye düşer; siz masayı verip vermeyeceğinize karar verdikten sonra kesinleşir. Masa satılan gecelerde tanımadığınız birinin locayı kapatmasını engeller.")}>Gelen istekler onay beklesin</span>
+            </label>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Bu aralığın dışındaki gruplar online kayıt açamaz.")}>Online alınacak grup:</span>
+              <input
+                value={onlineMin}
+                onChange={(e) => setOnlineMin(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
+              />
+              <span style={{ fontSize: 13.5, color: "var(--muted-2)" }}>–</span>
+              <input
+                value={onlineMax}
+                onChange={(e) => setOnlineMax(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
+              />
+              <span style={{ fontSize: 13.5 }}>kişi</span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Bu sayıdan kalabalık gruplara online kayıt açtırılmaz; misafire işletme telefonu gösterilir ve araması istenir. Kalabalık masa konuşularak kurulur. 0 yazılırsa böyle bir eşik yoktur.")}>Telefonla alınacak grup büyüklüğü:</span>
+              <input
+                value={onlineTelEsigi}
+                onChange={(e) => setOnlineTelEsigi(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
+              />
+              <span style={{ fontSize: 13.5 }}>kişiden sonra</span>
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlineGelmeyenEngeli} onChange={(e) => setOnlineGelmeyenEngeli(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Online rezervasyon açtırıp gelmemiş bir numara ikinci kez online kayıt açamaz — işletmeyi arayıp konuşması istenir. Telefondan siz açarsanız engel yok.")}>Gelmeyen misafir bir daha online yapamasın</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={onlineSalonSecimi} onChange={(e) => setOnlineSalonSecimi(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Seçim söz değildir: program o salonu dener, yer yoksa kendi kararıyla başka salona atmaz — size sorar. Açıkken hangi salonların online görüneceği aşağıda işaretlenir.")}>Misafir salon seçebilsin</span>
+            </label>
+            {onlineSalonSecimi && (
+              salonlar.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16 }}>Henüz salon yok — Salon ekranından ekleyebilirsiniz.</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16, paddingLeft: 22 }}>
+                  {salonlar.map((s) => (
+                    <label key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox" checked={s.online_acik}
+                        onChange={(e) => setSalonlar((liste) => liste.map((x) => (x.id === s.id ? { ...x, online_acik: e.target.checked } : x)))}
+                      />
+                      <span style={{ fontSize: 13 }}>{s.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )
+            )}
+
+            </div>
+            </div>
+
+            </>)}
+            {bolum === "notlar" && (<>
+            {/* REZERVASYON ETİKETLERİ (Gökhan, 2026-08-16). "Not algılama" sorusunun cevabı:
+                serbest metinden tahmin etmek yerine kutucukla işaretlenir. Alerji işaretlisi
+                mutfak ekranına düşer, uyarı işaretlisi listede kırmızı çıkar. */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }} {...sagTik("Alerji, çocuk sandalyesi, doğum günü gibi bilgiler nota yazılmak yerine işaretlenir. Mutfağa işaretliyse mutfak ekranında görünür, Uyarı işaretliyse listede kırmızı çıkar.")}>Rezervasyon etiketleri</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={yapNotAcik} onChange={(e) => setYapNotAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Kapalıyken rezervasyon formunda etiket kutucukları çıkmaz, sadece serbest not alanı kalır.")}>Rezervasyonda etiket kutucukları görünsün</span>
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {rezEtiketleri.map((t) => (
+                <div key={t.id} style={satirKutu}>
+                  <input
+                    defaultValue={t.ad} placeholder="Etiket adı"
+                    onBlur={(e) => listeGuncelle("rezervasyon_etiketleri", t.id, { ad: e.target.value.trim() || t.ad })}
+                    style={{ ...inp, flex: 1, minWidth: 90 }}
+                  />
+                  <label style={kucukOnay}>
+                    <input type="checkbox" defaultChecked={t.mutfaga_gitsin} onChange={(e) => listeGuncelle("rezervasyon_etiketleri", t.id, { mutfaga_gitsin: e.target.checked })} />
+                    Mutfağa
+                  </label>
+                  <label style={kucukOnay}>
+                    <input type="checkbox" defaultChecked={t.uyari} onChange={(e) => listeGuncelle("rezervasyon_etiketleri", t.id, { uyari: e.target.checked })} />
+                    Uyarı
+                  </label>
+                  <button onClick={() => listeSil("rezervasyon_etiketleri", t.id)} style={silBtn} aria-label="Etiketi sil"><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => listeEkle("rezervasyon_etiketleri", { ad: "Yeni etiket", sira: rezEtiketleri.length })} style={{ ...btnGhostRow, marginBottom: 20 }}>
+              <Plus size={12} style={{ marginRight: 4 }} />Etiket ekle
+            </button>
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6 }} {...sagTik("Kişi kartındaki etiketler bu eşiklere göre kendiliğinden hesaplanır — kayıt tutmaya gerek yok. VIP ayrı: işletmenin kendi kararıdır, kartın kendisinden işaretlenir.")}>Müşteri etiketleri</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <span style={{ fontSize: 13.5 }}>Müdavim sayılması için ziyaret sayısı:</span>
               <input
                 value={esikMudavim}
                 onChange={(e) => setEsikMudavim(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
               />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -866,16 +1736,391 @@ export default function RezervasyonAyarlarPage() {
               <input
                 value={esikNoShow}
                 onChange={(e) => setEsikNoShow(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "right" }}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
               />
               <span style={{ fontSize: 13.5 }}>%</span>
             </div>
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 16, lineHeight: 1.6 }}>
-              Kişi kartındaki etiketler bu eşiklere göre kendiliğinden hesaplanır — kayıt tutmaya
-              gerek yok. VIP ayrı: işletmenin kendi kararıdır, kartın kendisinden işaretlenir.
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 6, marginTop: 8 }} {...sagTik("Rezervasyon notuna bir salonun adı yazılırsa program masayı o salondan seçer — hiçbir yere kelime yazmanıza gerek yok, salonlarınızın adını kendisi tanır. Büyük/küçük harf ve Türkçe karakter farkı önemsizdir. Masa elle seçilmişse kurala bakılmaz. O salonda yer yoksa program başka salona atmaz, size sorar. Nota her zamanki masası yazmak da yeter.")}>Notta geçen kelimeler</div>
+            {/* Notta geçen salon adı ve "her zamanki masası" için AYRI BİR LİSTE YOK
+                (Gökhan, 2026-08-13: "bir yerlere bir şeyler yazmaya gerek kalmasın") — program
+                salon adlarını kendi tanır, kalıpları da kendi bilir. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("İki kez gelmiş misafir üçüncü gelişinde sadık sayılır. Bakılan gelişlerin en az ikisinde aynı masada oturmuşsa o masa onundur; Yerleşim yap'a basıldığında notunda bir şey yazmasa bile oraya oturtulur. Masa kilitli değilse ötekinden alınır, masası alınan rezervasyon başka masaya geçer. 0 yazılırsa bütün gelişlerine bakılır.")}>Her zamanki masası aranırken bakılacak geliş sayısı:</span>
+              <input
+                value={sadikGecmis}
+                onChange={(e) => setSadikGecmis(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
+              />
             </div>
 
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>KVKK aydınlatma metni</div>
+            </>)}
+            {bolum === "geceler" && (<>
+            {/* ETKİNLİK — gecenin kimliği (ARASTIRMA-2-GECE-KULUBU.md 1.4): gece "Cuma" değil,
+                "Cuma · falanca sanatçı". Fiyat da doluluk da buna bağlı. Başlık "Özel geceler"
+                iken "Etkinlik" oldu (Gökhan, 2026-08-16). */}
+            <div style={bolumBasligi}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Yılbaşı, konser, sanatçı gecesi gibi günler. O güne ad verilir, sahneye çıkan yazılır.")}>Etkinlikler</span>
+              <button
+                onClick={() => listeEkle("ozel_geceler", { gun: new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date()), ad: "" })}
+                style={ekleBtn} aria-label="Etkinlik ekle" title="Etkinlik ekle"
+              >
+                <Plus size={13} />Ekle
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {ozelGeceler.map((g) => (
+                <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    type="date" defaultValue={g.gun}
+                    onBlur={(e) => listeGuncelle("ozel_geceler", g.id, { gun: e.target.value || g.gun })}
+                    className="tnum" style={{ ...inp, width: 140, flexShrink: 0 }}
+                  />
+                  <input
+                    defaultValue={g.ad} placeholder="Etkinlik adı"
+                    onBlur={(e) => listeGuncelle("ozel_geceler", g.id, { ad: e.target.value.trim() || g.ad })}
+                    style={{ ...inp, flex: 1, minWidth: 0 }}
+                  />
+                  <input
+                    defaultValue={g.sanatci ?? ""} placeholder="Sahne / sanatçı"
+                    onBlur={(e) => listeGuncelle("ozel_geceler", g.id, { sanatci: e.target.value.trim() || null })}
+                    style={{ ...inp, flex: 1, minWidth: 0 }}
+                  />
+                  <button onClick={() => listeSil("ozel_geceler", g.id)} style={silBtn} aria-label="Etkinliği sil"><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+            </>)}
+            {bolum === "pr" && (<>
+            {/* ÖZELLİKLER — isteğe bağlı, açıp kapatılan işler bir arada (Gökhan, 2026-08-16):
+                PR sistemi, kapı listesi, fix menü. */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>PR</div>
+            {/* PR (promoter) — gece kulüplerinde misafir getiren, getirdiği kadar kazanan kişi.
+                Türkiye'de bunu takip eden yazılım çıkmadı (araştırma 1 ve 2). */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={prAcik} onChange={(e) => setPrAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("PR'ların kendi paneli ve kendine ait rezervasyon linki olur. O linkten gelen rezervasyonda hangi PR'dan geldiği kendiliğinden yazılır.")}>PR sistemi kullanılsın</span>
+            </label>
+            {prAcik && (<>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13.5 }} {...sagTik("İşletmeden işletmeye değişir; kişi başına, masa başına ya da hesabın yüzdesi olarak ödenebilir.")}>Komisyon:</span>
+                <select value={prKomisyonTipi} onChange={(e) => setPrKomisyonTipi(e.target.value)} style={{ ...inp, width: 150 }}>
+                  <option value="kisi">Kişi başına</option>
+                  <option value="masa">Masa başına</option>
+                  <option value="yuzde">Hesabın yüzdesi</option>
+                </select>
+                {/* Yüzde seçiliyse birim TL değil — işaret ona göre değişiyor. */}
+                <div style={{ ...inp, width: 110, flexShrink: 0, display: "flex", alignItems: "center", gap: 6, padding: "0 10px" }}>
+                  <span style={{ fontSize: 12, color: "var(--muted-2)", flexShrink: 0 }}>{prKomisyonTipi === "yuzde" ? "%" : "TL"}</span>
+                  <input
+                    value={prKomisyonTutar}
+                    onChange={(e) => setPrKomisyonTutar(e.target.value.replace(/[^0-9.,]/g, ""))}
+                    inputMode="decimal" className="tnum"
+                    style={{ border: "none", outline: "none", background: "transparent", color: "var(--ink)", fontSize: 13, width: "100%", minWidth: 0, textAlign: "center", padding: "1mm 0", lineHeight: 1.2 }}
+                  />
+                </div>
+              </div>
+
+              {/* "Komisyon sadece gelene ödensin" kutusu KALDIRILDI (Gökhan, 2026-08-16):
+                  ayar değil, kural — program komisyonu her zaman gerçekten gelen misafir
+                  üzerinden hesaplayacak. Sütun (pr_sadece_gelene) veritabanında duruyor,
+                  değeri hep açık yazılıyor. */}
+
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={prKendiGorsun} onChange={(e) => setPrKendiGorsun(e.target.checked)} />
+                <span style={{ fontSize: 13.5 }} {...sagTik("Kapalıyken PR sadece kendi listesini görür, sonucu göremez.")}>PR kendi getirdiğinin geldiğini ve harcamasını görsün</span>
+              </label>
+            </>)}
+
+            {/* KAPI — ayrı başlıktan buraya alındı (Gökhan, 2026-08-16). */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginTop: 22, marginBottom: 8 }}>Kapı</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={guestListAcik} onChange={(e) => setGuestListAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Rezervasyonu olmayan ama listede olan misafirler — indirimli ya da ücretsiz giriş. Kapıda isimden aranır, giren işaretlenir. Kişi kartındaki 'içeri alınmasın' işareti rezervasyon girilirken kırmızı uyarı olarak çıkar; ayrı bir liste tutulmaz. Kadın/erkek sayısı hiçbir otomatik ret kuralına bağlanmaz — girişte cinsiyete göre ayrım idari para cezasına konu oluyor, program bu bilgiyi sadece istatistik için tutar.")}>Kapıda isim listesi (guest list) kullanılsın</span>
+            </label>
+
+            {/* FİX MENÜ — Salon ve masa'dan buraya alındı (Gökhan, 2026-08-16). */}
+            <div style={{ ...bolumBasligi, marginTop: 22 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Açıkken rezervasyon alınırken alakart / fix seçimi çıkar. Fix seçilirse hesap kişi sayısı çarpı menü fiyatı olarak kendiliğinden hesaplanır; mutfak şefi kaç fix menü hazırlayacağını görür.")}>Fix menü</span>
+              <button
+                onClick={() => listeEkle("fix_menuler", { ad: "", sira: fixMenuler.length })}
+                style={ekleBtn} aria-label="Fix menü ekle" title="Fix menü ekle"
+              >
+                <Plus size={13} />Ekle
+              </button>
+            </div>
+            {/* Anahtar unutulmuştu: menü ekleniyor ama açma kutusu yoktu, rezervasyonda
+                seçim çıkmıyordu (Gökhan, 2026-08-17). */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={fixMenuAcik} onChange={(e) => setFixMenuAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Açıkken rezervasyon alınırken alakart / fix seçimi çıkar ve rezervasyona yazılır. Kapalıyken hiç sorulmaz.")}>Fix menü kullanılsın</span>
+            </label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+              {fixMenuler.map((m) => (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    defaultValue={m.ad} placeholder="Menü adı"
+                    onBlur={(e) => listeGuncelle("fix_menuler", m.id, { ad: e.target.value.trim() || m.ad })}
+                    style={{ ...inp, flex: 1, minWidth: 0 }}
+                  />
+                  <ParaGirisi
+                    deger={m.kisi_basi_fiyat} yerTutucu="Kişi başı" genislik={125}
+                    onKaydet={(v) => listeGuncelle("fix_menuler", m.id, { kisi_basi_fiyat: v })}
+                  />
+                  <input
+                    defaultValue={m.aciklama ?? ""} placeholder="İçindekiler"
+                    onBlur={(e) => listeGuncelle("fix_menuler", m.id, { aciklama: e.target.value.trim() || null })}
+                    style={{ ...inp, flex: 1.4, minWidth: 0 }}
+                  />
+                  <button onClick={() => listeSil("fix_menuler", m.id)} style={silBtn} aria-label="Menüyü sil"><X size={13} /></button>
+                </div>
+              ))}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={karmaFixAlakart} onChange={(e) => setKarmaFixAlakart(e.target.checked)} />
+              <span style={{ fontSize: 13 }} {...sagTik("Kapalıyken masa ya fix ya alakarttır — genelde böyle olur. Açıkken rezervasyonda kaç kişi fix ayrıca sorulur, hesap ikisinin toplamı olur.")}>Aynı masada hem fix hem alakart olabilsin</span>
+            </label>
+
+            {/* KAPORA — ayrı başlıktan buraya alındı (Gökhan, 2026-08-16). Henüz kurulmadı. */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginTop: 22, marginBottom: 8 }}>Kapora</div>
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7 }}>
+              Bu bölüm henüz kurulmadı. Planlanan: kaporanın hangi durumlarda isteneceği, havale
+              ve dekont akışı, ödenen tutarın rezervasyonda görünmesi, kalan borç, gelmediğinde
+              ne olacağı. Etkinlik gecelerinde masa önden satıldığı için gece kulübü tarafında
+              kullanılacak.
+            </div>
+            </>)}
+            {bolum === "paneller" && (<>
+            {/* PERSONEL KATILIM KODU (Gökhan, 2026-08-16: "işletme bunlara kod verecek, o kodla
+                işletmeye bağlanacaklar"). Personel kendi hesabını açıyor, bu kodu giriyor,
+                istek aşağıdaki listeye düşüyor. Onaylanmadan hiçbir veri göremez. */}
+            {/* HER ROLÜN KENDİ KODU (Gökhan, 2026-08-16). Garsona garson kodunu verirsin, o
+                kodla girenin rolü kendiliğinden garson gelir — tek tek rol seçmezsin. */}
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Personel katılım kodları</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+              {PERSONEL_ROLLERI.map((r) => {
+                const k = katilimKodlari.find((x) => x.rol === r.anahtar);
+                const acik = acikYetki === r.anahtar;
+                // Yönetici her sayfayı görür, kutuları kapatılamaz — işletme kendini kilitlemesin.
+                const yonetici = r.anahtar === "yonetici";
+                return (
+                  <div key={r.anahtar}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, width: 96, flexShrink: 0 }}>{r.ad}</span>
+                    <div className="tnum" style={{
+                      fontSize: 17, fontWeight: 700, letterSpacing: 4, color: "var(--brand-strong)",
+                      border: "1px solid var(--line-2)", borderRadius: 10, padding: "4px 13px",
+                      background: "var(--recede)", flexShrink: 0,
+                    }}>
+                      {k?.kod ?? "——————"}
+                    </div>
+                    <button onClick={() => koduYenile(r.anahtar)} style={{ ...ekleBtn, color: "var(--muted)" }}>Yenile</button>
+                    <button
+                      onClick={() => setAcikYetki((v) => (v === r.anahtar ? null : r.anahtar))}
+                      style={{ ...ekleBtn, color: acik ? "var(--brand-strong)" : "var(--muted)" }}
+                    >
+                      Yetki <ChevronDown size={12} style={{ transform: acik ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+                    </button>
+                  </div>
+                  {acik && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "2px 0 8px 104px" }}>
+                      {SAYFALAR.map((sf) => {
+                        const secili = yonetici || (rolSayfalari[r.anahtar] ?? []).includes(sf.anahtar);
+                        return (
+                          <label key={sf.anahtar} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, cursor: yonetici ? "default" : "pointer", opacity: yonetici ? 0.6 : 1 }}>
+                            <input
+                              type="checkbox" checked={secili} disabled={yonetici}
+                              onChange={(e) => setRolSayfalari((h) => {
+                                const mevcut = h[r.anahtar] ?? [];
+                                return { ...h, [r.anahtar]: e.target.checked ? [...mevcut, sf.anahtar] : mevcut.filter((x) => x !== sf.anahtar) };
+                              })}
+                            />
+                            {sf.ad}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginBottom: 18, lineHeight: 1.6 }}>
+              Personel telefonundan <b>/ekip</b> adresine girip kendi hesabını
+              açar, kendisine verdiğiniz kodu yazar. Rolü koddan gelir; siz sadece onaylarsınız.
+              Kodu yenilerseniz eski kod çalışmaz, bağlı personel etkilenmez.
+            </div>
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Bağlanan personel</div>
+            {personelIstekleri.length === 0 ? (
+              <div style={{ fontSize: 12.5, color: "var(--muted-2)", marginBottom: 18 }}>Henüz kimse bağlanmadı.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
+                {personelIstekleri.map((h) => (
+                  <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.ad_soyad}</div>
+                      <div className="tnum" style={{ fontSize: 11.5, color: "var(--muted-2)" }}>{h.telefon ?? "—"}</div>
+                    </div>
+                    <select
+                      value={h.rol}
+                      onChange={(e) => personelGuncelle(h.id, { rol: e.target.value })}
+                      style={{ ...inp, width: 130, flexShrink: 0 }}
+                    >
+                      {PERSONEL_ROLLERI.map((r) => <option key={r.anahtar} value={r.anahtar}>{r.ad}</option>)}
+                    </select>
+                    <select
+                      value={h.durum}
+                      onChange={(e) => personelGuncelle(h.id, { durum: e.target.value, onay_at: e.target.value === "onayli" ? new Date().toISOString() : null })}
+                      style={{
+                        ...inp, width: 112, flexShrink: 0,
+                        color: h.durum === "onayli" ? "var(--brand-strong)" : h.durum === "bekliyor" ? "var(--gold-text)" : "var(--danger)",
+                      }}
+                    >
+                      <option value="bekliyor">Bekliyor</option>
+                      <option value="onayli">Onaylı</option>
+                      <option value="kapali">Kapalı</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* PANELLER VE YETKİLER (Gökhan, 2026-08-16). */}
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={rezAlanGorunsun} onChange={(e) => setRezAlanGorunsun(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Kapalıyken de kaydedilir, sadece listede sütun olarak görünmez. Paneller: yönetici, salon şefi, karşılama, garson, mutfak şefi ve PR — herkes kendi telefonundan kısa PIN ile girer.")}>Rezervasyonu kimin aldığı listede görünsün</span>
+            </label>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13.5, width: 190 }}>Rezervasyonu kim silebilir:</span>
+              <select value={silmeYetkisi} onChange={(e) => setSilmeYetkisi(e.target.value)} style={{ ...inp, minWidth: 210 }}>
+                {YETKI_SECENEKLERI.map((y) => <option key={y.anahtar} value={y.anahtar}>{y.ad}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <span style={{ fontSize: 13.5, width: 190 }}>Hesap tutarını kim girebilir:</span>
+              <select value={hesapYetkisi} onChange={(e) => setHesapYetkisi(e.target.value)} style={{ ...inp, minWidth: 210 }}>
+                {YETKI_SECENEKLERI.map((y) => <option key={y.anahtar} value={y.anahtar}>{y.ad}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <span style={{ fontSize: 13.5, width: 190 }}>Ayarları kim değiştirebilir:</span>
+              <select value={ayarYetkisi} onChange={(e) => setAyarYetkisi(e.target.value)} style={{ ...inp, minWidth: 210 }}>
+                {YETKI_SECENEKLERI.map((y) => <option key={y.anahtar} value={y.anahtar}>{y.ad}</option>)}
+              </select>
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={garsonSadeceKendiSalonu} onChange={(e) => setGarsonSadeceKendiSalonu(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Açıkken garson posta ekranında yalnızca kendi masalarının bulunduğu salonları görür. Kapalıyken bütün salonları gezebilir; telefonda sağa sola kaydırarak geçer. Masa dağıtan (şef, yönetici) her zaman hepsini görür.")}>Garson sadece kendi salonunu görsün</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={varsayilanaGetirAcik} onChange={(e) => setVarsayilanaGetirAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Masaları asıl yerlerine toplar. Operasyon öncesi kullanılan bir düğmedir; istemiyorsanız kapatabilirsiniz.")}>Salon ekranında &quot;Varsayılana getir&quot; düğmesi görünsün</span>
+            </label>
+            </>)}
+            {bolum === "mesajlar" && (<>
+            {/* MESAJLAR (Gökhan, 2026-08-18). Metinler ve saatler şimdiden ayarlanıyor;
+                WhatsApp hesabı işletme programı kullanmaya başlarken bağlanıyor, o güne
+                kadar hazırlanan mesajlar kuyrukta bekliyor. */}
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.6, marginBottom: 14 }}>
+              Mesajlar WhatsApp&apos;tan gider. İşletmenin WhatsApp iş hesabı bağlanana kadar
+              hazırlanan mesajlar kuyrukta bekler, kaybolmaz.
+            </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }}>
+              <input type="checkbox" checked={mesajAcik} onChange={(e) => setMesajAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Kapalıyken hiç mesaj hazırlanmaz. Açıkken aşağıdaki mesajlar sırasıyla çalışır.")}>Misafire mesaj gönderilsin</span>
+            </label>
+
+            <div style={{ ...ikiSutun, gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))" }}>
+            <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Rezervasyon onayı</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer", opacity: mesajAcik ? 1 : 0.5 }}>
+              <input type="checkbox" disabled={!mesajAcik} checked={mesajOnayAcik} onChange={(e) => setMesajOnayAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Rezervasyon alınır alınmaz gider — gece geç saatte alınsa bile bekletilmez, çünkü misafir o an cevap bekler.")}>Rezervasyon alınınca hemen gitsin</span>
+            </label>
+            <textarea
+              value={mesajOnayMetni} disabled={!mesajAcik}
+              onChange={(e) => setMesajOnayMetni(e.target.value)}
+              rows={4}
+              placeholder="Sayın {isim}, {tarih} {saat} için {kisi} kişilik rezervasyonunuzu aldık. {isletme}"
+              style={{ ...inp, width: "100%", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", opacity: mesajAcik ? 1 : 0.5 }}
+            />
+            <div style={{ fontSize: 11.5, color: inkSoft, marginTop: 6, lineHeight: 1.6 }}>
+              Kullanılabilir alanlar: {"{isim} {tarih} {saat} {kisi} {isletme}"}. Boş bırakılırsa
+              program kendi hazır metnini kullanır.
+            </div>
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", margin: "18px 0 10px" }}>Sessiz saatler</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, opacity: mesajAcik ? 1 : 0.5 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Bu aralığa denk gelen mesaj gönderilmez, aralık bitince gönderilir. Rezervasyon onayı bundan etkilenmez — o her zaman anında gider.")}>Şu saatler arasında mesaj gitmesin:</span>
+              <input type="time" disabled={!mesajAcik} value={mesajSessizBas} onChange={(e) => setMesajSessizBas(e.target.value)} className="tnum" style={{ ...inp, width: 104 }} />
+              <span style={{ fontSize: 12, color: inkSoft }}>–</span>
+              <input type="time" disabled={!mesajAcik} value={mesajSessizBitis} onChange={(e) => setMesajSessizBitis(e.target.value)} className="tnum" style={{ ...inp, width: 104 }} />
+            </div>
+            </div>
+
+            <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Teyit mesajı</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer", opacity: mesajAcik ? 1 : 0.5 }}>
+              <input type="checkbox" disabled={!mesajAcik} checked={mesajTeyitAcik} onChange={(e) => setMesajTeyitAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Günde bir kez gider ve o an listede olan bütün rezervasyonları kapsar. Bu saatten sonra alınan rezervasyonlar teyitli sayılır, onlara mesaj gitmez.")}>Günlük teyit mesajı gitsin</span>
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, opacity: mesajAcik && mesajTeyitAcik ? 1 : 0.5 }}>
+              <span style={{ fontSize: 13.5 }} {...sagTik("Misafirin dönüş yapma ihtimalinin en yüksek olduğu saat aralığı seçilir — sabahın erken saati ve gece geç saat işe yaramıyor.")}>Gönderim saati:</span>
+              <input type="time" disabled={!mesajAcik || !mesajTeyitAcik} value={mesajTeyitSaat} onChange={(e) => setMesajTeyitSaat(e.target.value)} className="tnum" style={{ ...inp, width: 104 }} />
+              <span style={{ fontSize: 12, color: inkSoft }}>–</span>
+              <input type="time" disabled={!mesajAcik || !mesajTeyitAcik} value={mesajTeyitBitis} onChange={(e) => setMesajTeyitBitis(e.target.value)} className="tnum" style={{ ...inp, width: 104 }} />
+            </div>
+            <textarea
+              value={mesajTeyitMetni} disabled={!mesajAcik || !mesajTeyitAcik}
+              onChange={(e) => setMesajTeyitMetni(e.target.value)}
+              rows={4}
+              placeholder="Sayın {isim}, bu akşam {saat} için {kisi} kişilik rezervasyonunuz var. Geliyor musunuz? {isletme}"
+              style={{ ...inp, width: "100%", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", opacity: mesajAcik && mesajTeyitAcik ? 1 : 0.5 }}
+            />
+            <div style={{ fontSize: 11.5, color: inkSoft, marginTop: 6, lineHeight: 1.6 }}>
+              Mesajın altında &quot;Geliyorum&quot; ve &quot;İptal&quot; düğmeleri çıkar. Geliyorum
+              denirse listede teyit işareti belirir; iptal denirse rezervasyon iptale düşer ve
+              masası boşalır — misafire ayrıca mesaj gitmez.
+            </div>
+
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", margin: "18px 0 10px" }}>Anket</div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer", opacity: mesajAcik ? 1 : 0.5 }}>
+              <input type="checkbox" disabled={!mesajAcik} checked={mesajAnketAcik} onChange={(e) => setMesajAnketAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Yeri hazır dursun diye kondu (Gökhan). Ziyaret tamamlandıktan sonra gönderilir; şimdilik kapalı kalması önerilir.")}>Ziyaret sonrası anket mesajı</span>
+            </label>
+            <textarea
+              value={mesajAnketMetni} disabled={!mesajAcik || !mesajAnketAcik}
+              onChange={(e) => setMesajAnketMetni(e.target.value)}
+              rows={3}
+              placeholder="Bizi tercih ettiğiniz için teşekkürler. Akşamınız nasıldı?"
+              style={{ ...inp, width: "100%", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit", opacity: mesajAcik && mesajAnketAcik ? 1 : 0.5 }}
+            />
+            </div>
+            </div>
+
+            <div style={{ fontSize: 12.5, color: "var(--muted)", lineHeight: 1.7, marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              İşletme rezervasyonu iptal ederse misafire mesaj gitmez, aranır — program bunu
+              listede iş olarak gösterir. Misafir kendi iptal ederse hiçbir mesaj gönderilmez.
+              Kapıda sıra bekleyen misafire de mesaj gitmez, zaten içeridedir.
+            </div>
+            </>)}
+            {bolum === "ai" && (<>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={aiOzetAcik} onChange={(e) => setAiOzetAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Kartın notunu, geçmiş rezervasyon notlarını ve rakamları okuyup kısa bir değerlendirme yazar. Yorum bir kez üretilir, misafir yeni rezervasyon yaptırınca tazelenir — her kart açılışında yeniden yazılmaz.")}>Kişi kartında yapay zekâ yorumu görünsün</span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={aiIsimMaskele} onChange={(e) => setAiIsimMaskele(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }} {...sagTik("Yorum yurt dışındaki bir sunucuda üretiliyor. Açıkken isim soyisim yerine takma bir ad gider; yorum aynı çıkar çünkü değerlendirme rakamlardan ve notlardan yapılıyor. Telefon numarası zaten hiç gönderilmiyor.")}>Misafirin adı gönderilmesin</span>
+            </label>
+            </>)}
+            {bolum === "kvkk" && (<>
             <textarea
               value={kvkkNotice}
               onChange={(e) => setKvkkNotice(e.target.value)}
@@ -883,30 +2128,70 @@ export default function RezervasyonAyarlarPage() {
               placeholder="Misafirin telefonunu alırken gösterilecek aydınlatma metni…"
               style={{ ...inp, width: "100%", resize: "vertical", lineHeight: 1.5, fontFamily: "inherit" }}
             />
-            <div style={{ fontSize: 11.5, color: "var(--muted-2)", marginTop: 6, marginBottom: 8, lineHeight: 1.6 }}>
-              Boş bırakılırsa misafir sayfasında ve rezervasyon formunda uyarı çıkar.
-            </div>
+            </>)}
           </div>
 
           {/* Tek Kaydet — sağ paneldeki her şey birlikte kaydedilir (PAGE_STANDARDS #2). */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, paddingTop: 12, flexShrink: 0 }}>
             <button onClick={kaydet} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>{busy ? "Kaydediliyor…" : "Kaydet"}</button>
             {kaydedildi && <span style={{ fontSize: 12.5, color: "var(--brand)" }}>Kaydedildi.</span>}
-            <Spacer />
-            <span style={{ fontSize: 11.5, color: "var(--muted-2)" }}>Masalar anında kaydedilir, butona gerek yok.</span>
           </div>
         </div>
       </div>
+      {/* Sağ tıkla açılan açıklama kutusu. Boş bir yere tıklayınca kapanıyor. */}
+      {aciklama && (
+        <>
+          <div
+            style={{ position: "fixed", inset: 0, zIndex: 70 }}
+            onClick={() => setAciklama(null)}
+            onContextMenu={(e) => { e.preventDefault(); setAciklama(null); }}
+          />
+          <div style={{
+            position: "fixed", left: aciklama.x, top: aciklama.y, zIndex: 71, maxWidth: 300,
+            background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12,
+            boxShadow: "0 8px 24px rgba(30,25,15,0.18)", padding: "11px 13px",
+            fontSize: 12, color: "var(--muted)", lineHeight: 1.6,
+          }}>
+            {aciklama.metin}
+          </div>
+        </>
+      )}
+
       <RezervasyonAltNav />
     </div>
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, boxSizing: "border-box" };
+// Kutu yüksekliği: yazının üstünde ve altında 2 mm boşluk (Gökhan, 2026-08-16 — "normal bir
+// yazı satırının karşısında kutu varsa yazı puntasında aşağıdan yukarıdan 2 mm boşluklu
+// olsun"). Satır yüksekliği 1.2'ye sabitlendi ki yükseklik yazı boyu + 2×2 mm olsun.
+const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "1mm 10px", fontSize: 13, lineHeight: 1.2, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, boxSizing: "border-box" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 4 };
 const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, border: "none", borderRadius: 980, padding: "9px 14px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0, cursor: "pointer" };
 const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, cursor: "pointer" };
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--ink)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
 const btnGhostRow: React.CSSProperties = { ...btnGhost, padding: "4px 12px" };
+// İKİ SÜTUNLU BÖLÜM (Gökhan, 2026-08-16). Aradaki çizgi SAĞ sütunun kenarlığı:
+// yan yanayken sol kenar (dikey çizgi), alt alta inince üst kenar (yatay çizgi).
+const ikiSutun: React.CSSProperties = { display: "grid", alignItems: "start", gap: 24 };
+const sagSutun = (mobil: boolean): React.CSSProperties => (mobil
+  ? { borderTop: "1px solid var(--line)", paddingTop: 16 }
+  : { borderLeft: "1px solid var(--line)", paddingLeft: 24 });
+// Bölüm başlığı — solda ad, sağında küçük "Ekle" düğmesi (Gökhan, 2026-08-16: ekleme
+// düğmeleri listenin altında değil başlığın yanında).
+// Düğme başlığın SOLUNDA (Gökhan, 2026-08-16) — sıra ters çevrilerek, metinlerin yeri
+// karışmasın diye yazım sırası bozulmuyor.
+const bolumBasligi: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexDirection: "row-reverse",
+  justifyContent: "flex-end",
+};
+const ekleBtn: React.CSSProperties = {
+  all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4,
+  border: "1px solid var(--line-2)", borderRadius: 8, padding: "4px 10px",
+  fontSize: 12.5, color: "var(--ink-green)", flexShrink: 0,
+};
+// Liste satırı — grup, menü, paket, gece, etiket hepsi aynı kutuda.
+const satirKutu: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 10, padding: 6 };
+const silBtn: React.CSSProperties = { all: "unset", cursor: "pointer", color: "var(--muted-2)", display: "flex", alignItems: "center", padding: "0 4px", flexShrink: 0 };
+const kucukOnay: React.CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 11.5, color: "var(--muted)", cursor: "pointer", flexShrink: 0 };
 const inkSoft = "#5c5c58";
-const navBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "flex", alignItems: "center", padding: 6, borderRadius: 8, color: "var(--muted)" };

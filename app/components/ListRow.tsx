@@ -11,20 +11,25 @@
 
 type Align = "left" | "right" | "center";
 
-export function ListHeader({ children }: { children: React.ReactNode }) {
+// gap: kolonlar arası boşluk. Sütun aralarını ayraçların kendi genişliğiyle veren ekranlar
+// (rezervasyon listesi) 0 verir — böylece kolonun yeri sadece genişliğiyle belirlenir.
+export function ListHeader({ gap = 10, children }: { gap?: number; children: React.ReactNode }) {
   // Gökhan: "başlıklar ve liste arasında bir çizgi var onu kaldır" — satırlar artık kendi
   // renkli kartları olduğu için ayırıcı çizgiye gerek kalmadı.
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 0 8px", flexShrink: 0 }}>
+    <div style={{ display: "flex", alignItems: "center", gap, padding: "0 0 8px", flexShrink: 0 }}>
       {children}
     </div>
   );
 }
 
-export function HeaderCell({ width, flex, align = "left", marginLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number | string; children: React.ReactNode }) {
+// paddingRight: sağa yaslı başlıklarda kenar boşluğu — altındaki düğmelerle aynı hizada
+// dursun diye (Gökhan, 2026-08-18).
+export function HeaderCell({ width, flex, align = "left", marginLeft, paddingRight, paddingLeft, children }: { width?: number; flex?: boolean; align?: Align; marginLeft?: number | string; paddingRight?: number | string; paddingLeft?: number | string; children: React.ReactNode }) {
   return (
     <span style={{
       width: flex ? undefined : width, flex: flex ? 1 : undefined, flexShrink: 0, minWidth: 0, marginLeft,
+      boxSizing: "border-box", paddingRight, paddingLeft,
       textAlign: align, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "var(--ink)",
     }}>
       {children}
@@ -32,14 +37,19 @@ export function HeaderCell({ width, flex, align = "left", marginLeft, children }
   );
 }
 
-// Kolon başlıkları arasına konan ince ayraç ("Zaman - Misafir - Telefon...").
-export function HeaderSep() {
-  return <span aria-hidden style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, color: "var(--line-2)" }}>–</span>;
+// Kolon başlıkları arasına konan ince ayraç ("Zaman – Misafir – Telefon...").
+// genislik verilirse ayraç o genişlikte bir yuva olur ve çizgi yuvanın tam ortasına oturur —
+// yani iki kolonun tam arasına (Gökhan, 2026-08-18: "başlık arası çizgileri doğru yerlerine
+// koy"). Kolonların yeri kaydıkça çizgi de onlarla birlikte gider, ayrıca ayar gerekmez.
+export function HeaderSep({ genislik }: { genislik?: number }) {
+  return (
+    <span aria-hidden style={{ flexShrink: 0, width: genislik, textAlign: "center", fontSize: 12.5, fontWeight: 700, color: "var(--line-2)" }}>–</span>
+  );
 }
 // HeaderSep ile AYNI genişlikte ama görünmez — satırlarda kolonlar başlıklarla hizalı
 // kalsın diye (ayraç sadece başlıkta görünür, hizalamayı bozmadan).
-export function RowSep() {
-  return <span aria-hidden style={{ visibility: "hidden", flexShrink: 0, fontSize: 12.5, fontWeight: 700 }}>–</span>;
+export function RowSep({ genislik }: { genislik?: number }) {
+  return <span aria-hidden style={{ visibility: "hidden", flexShrink: 0, width: genislik, fontSize: 12.5, fontWeight: 700 }}>–</span>;
 }
 
 // Gökhan (2026-08-01): "satırların köşeleri oval olsun, her duruma bir renk verelim" —
@@ -48,14 +58,16 @@ export function RowSep() {
 // FAZLA yer kaplamasın diye sağ/sol padding yok (tam genişlik, diğer başlıklarla aynı hizada
 // kalıyor) — sadece arka plan rengi + köşe + satırlar arası 1mm boşluk (eskiden ayıran
 // çizginin yerini şimdi bu boşluk alıyor, çizgiye gerek kalmadı).
-export function ListRow({ bg, muted, children }: { bg?: string; muted?: boolean; children: React.ReactNode }) {
+// yukseklik: varsayılan 44. Çok satırlı çizelgelerde (İstatistikler) satırlar inceltilip
+// ekrana sığdırılabilsin diye dışarıdan verilebiliyor (Gökhan, 2026-08-12).
+export function ListRow({ bg, muted, yukseklik = 44, gap = 10, children }: { bg?: string; muted?: boolean; yukseklik?: number; gap?: number; children: React.ReactNode }) {
   // Yükseklik içerikten (buton mu düz yazı mı) bağımsız, SABİT — kenarlık/satır yüksekliği
   // farkı yüzünden padding'i ne kadar inceltirsem inceltim buton içeren satırlar hep birkaç
   // piksel kalın kalıyordu (Gökhan: "hâlâ düzelmedi, aynı yükseklikte değil"). Sabit yükseklik
   // + ortalanmış içerik bunu kesin çözer — hepsi tam aynı boyda.
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: 10, height: 44, marginBottom: "1mm", boxSizing: "border-box", overflow: "hidden",
+      display: "flex", alignItems: "center", gap, height: yukseklik, marginBottom: "1mm", boxSizing: "border-box", overflow: "hidden",
       opacity: muted ? 0.5 : 1,
       background: bg ?? "var(--recede)",
       borderRadius: 10,
@@ -79,9 +91,13 @@ export function Spacer() {
   return <div style={{ flex: 1 }} />;
 }
 
-export function ActionsCell({ width, align = "right", children }: { width?: number; align?: "right" | "center"; children: React.ReactNode }) {
+// gap: düğmeler arası boşluk. Rezervasyon listesinde durum düğmeleri bitişik isteniyor
+// (Gökhan, 2026-08-18: "birbirine değsin, aralarında boşluk kalmasın") — orada 0 veriliyor.
+// paddingRight: sağa yaslı düğmelerin satır kenarına bırakacağı boşluk (Gökhan, 2026-08-18:
+// "en sağa yanaştır ama kutunun sonu ile aralarında 7 mm olsun").
+export function ActionsCell({ width, align = "right", gap = 6, paddingRight, children }: { width?: number; align?: "right" | "center"; gap?: number; paddingRight?: number | string; children: React.ReactNode }) {
   return (
-    <div style={{ width, flexShrink: 0, display: "flex", gap: 6, justifyContent: align === "center" ? "center" : "flex-end", alignItems: "center" }}>
+    <div style={{ width, flexShrink: 0, boxSizing: "border-box", paddingRight, display: "flex", gap, justifyContent: align === "center" ? "center" : "flex-end", alignItems: "center" }}>
       {children}
     </div>
   );

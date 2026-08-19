@@ -44,9 +44,10 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü, mutfak/bar, vale
   // (kulübe tableti/telefon — link+PIN modeli, Gökhan 2026-07-31), REZERVASYON (2026-08-04'te
-  // ayrı program oldu — /rezervasyon ve /rezervasyon-yap) ve giriş ekranının kendisi
-  // yönetim kabuğunu/oturum kontrolünü kullanmaz.
-  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/rezervasyon") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
+  // ayrı program oldu — /rezervasyon ve /rezervasyon-yap), EKİP (2026-08-16'da personel
+  // uygulamasının kabuğu olarak ayrıldı — /ekip) ve giriş ekranının kendisi yönetim
+  // kabuğunu/oturum kontrolünü kullanmaz.
+  const isPublic = pathname.startsWith("/m/") || pathname.startsWith("/rezervasyon") || pathname.startsWith("/ekip") || pathname.startsWith("/garson") || pathname.startsWith("/mutfak") || pathname.startsWith("/vale") || pathname === "/giris";
 
   useEffect(() => {
     // isPublic ise render zaten aşağıda erken dönüyor (authChecked/hasSession hiç okunmuyor).

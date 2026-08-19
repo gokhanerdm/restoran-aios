@@ -7,6 +7,9 @@ import { supabase } from "./client";
 // kodunu alıyor) hangisini gösterileceği belirsiz kalır, bu yüzden açıkça hata verilir
 // — rastgele bir işletmenin verisini göstermek yerine.
 export async function resolveRestaurantIdBySlug(slug: string | null): Promise<{ id: string } | { error: string }> {
+  // Veri kilidi (2026-08-10) sonrası bu sorgu kilidin arkasından geçiyor: oturum açıkken
+  // sadece kullanıcının kendi işletmeleri döner, oturum yoksa hiçbir şey dönmez. Yani bu
+  // ekranlar (garson, mutfak, vale) artık giriş ister — eskiden linki bilen herkese açıktı.
   let q = supabase.from("restaurants").select("id").is("deleted_at", null);
   q = slug ? q.eq("slug", slug) : q.order("created_at").limit(2);
   const { data, error } = await q;

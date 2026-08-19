@@ -13,6 +13,8 @@
 // Program masayı KENDİ SEÇMEZ — sadece yer var mı diye bakar, gerekiyorsa sorar. Hangi
 // masaya oturacağını kullanıcı masa seç kutusundan kendi seçer.
 
+import { BOX_W } from "./masaOlcu";
+
 export type MasaBilgi = { seat_count: number };
 
 // Salon planındaki konum — birleştirmede "kendi sırasındaki masa" önceliği bundan çıkıyor
@@ -28,7 +30,7 @@ export type KonumluMasa = MasaBilgi & { position_x: number | null; position_y: n
 const SIRA_TOLERANS = 60; // px — aynı sırada sayılmak için izin verilen yükseklik farkı
 // Ayrı rezervasyonların masaları arasında bırakılacak en az boşluk (px). Aynı rezervasyonun
 // masaları dip dibe durur; farklı rezervasyonlarınki hep ayrık görünsün diye.
-const AYRI_MESAFE = 26;
+export const AYRI_MESAFE = 26;
 
 const asilKX = (m: KonumluMasa) => m.normalX ?? m.position_x;
 const asilKY = (m: KonumluMasa) => m.normalY ?? m.position_y;
@@ -189,7 +191,13 @@ export const havuzDokumu = (havuz: Havuz): string =>
 // üstüne inşa eder, kaymalar birikir ve masalar üst üste biner (Gökhan: "yerleştirmeyi yap
 // dediğimde halen masalar birbirinin üzerine çıkıyor"). Sadece normalX vardı, normalY hiç
 // taşınmıyordu — önceden taşınmış bir masanın gerçek satırı bir daha bulunamıyordu.
-export type PlanMasa = KonumluMasa & { id: string; genislik?: number; normalX?: number | null; normalY?: number | null };
+// alanId/alanEni: masanın hangi salonda (dining_areas) olduğu ve o salonun GERÇEK eni (px).
+// Yerleşim her salonu ayrı hesaplar (ayrı salonların tuvalleri ayrı, koordinatları karışmaz) ve
+// alanEni salonun sağ duvarıdır — masa bu duvarın dışına çıkarılmaz.
+export type PlanMasa = KonumluMasa & {
+  id: string; genislik?: number; yukseklik?: number; normalX?: number | null; normalY?: number | null;
+  alanId?: string | null; alanEni?: number | null;
+};
 export type PlanRez = { id: string; kisi: number };
 export type PlanSonuc = { atamalar: Record<string, string[]>; yerlesemeyen: string[] };
 
@@ -197,12 +205,17 @@ export type PlanSonuc = { atamalar: Record<string, string[]>; yerlesemeyen: stri
 // ASIL konumdan (kaymış olabilecek canlı konumdan değil) — yoksa bir kez taşınmış bir masa
 // bir daha doğru sırasına ait sayılmıyordu (yukarıdaki KonumluMasa notuna bakın).
 // Konumu olmayanlar tek bir "konumsuz" grupta toplanır (orada yan yanalık aranmaz).
+// HER SALON KENDİ İÇİNDE. Ayrı salonların tuvalleri ayrı olduğu için koordinatları çakışıyor;
+// salon ayrımı olmadan bahçedeki masayla terastaki masa "yan yana" sayılıyor ve bir rezervasyona
+// iki ayrı salondan masa veriliyordu (Gökhan, 2026-08-14: "2 kişilik masalar yanlış yerden masa
+// çekmiş"). Aynı rezervasyonun masaları tek salondan gelir.
 const siralaraBol = (masalar: PlanMasa[]): PlanMasa[][] => {
   const konumlu = masalar.filter((m) => asilKX(m) !== null && asilKY(m) !== null);
   const konumsuz = masalar.filter((m) => asilKX(m) === null || asilKY(m) === null);
   const siralar: PlanMasa[][] = [];
   [...konumlu].sort((a, b) => asilKY(a)! - asilKY(b)!).forEach((m) => {
-    const sira = siralar.find((s) => Math.abs(asilKY(s[0])! - asilKY(m)!) <= SIRA_TOLERANS);
+    const sira = siralar.find((s) => (s[0].alanId ?? null) === (m.alanId ?? null)
+      && Math.abs(asilKY(s[0])! - asilKY(m)!) <= SIRA_TOLERANS);
     if (sira) sira.push(m); else siralar.push([m]);
   });
   siralar.forEach((s) => s.sort((a, b) => asilKX(a)! - asilKX(b)!));
@@ -224,6 +237,12 @@ const siralaraBol = (masalar: PlanMasa[]): PlanMasa[][] => {
 // "bütün restoranı ayırtıyorum" gibi 8'den fazla masa gereken büyük gruplar hiç oturamıyordu
 // (Gökhan: "salon tamamen boş, 54 kişilik rezervasyon alamıyor" — salon tam 54 kişilikti,
 // sadece 8 masaya sabitlenmiş olması yüzünden en fazla 38 kişiye izin veriyordu).
+// Ek sandalye kuralı buradan KALDIRILDI (Gökhan, 2026-08-12: "ek sandalye olayını çıkaralım,
+// onun yerine manuel bir şeyler koyalım"). Bir gün denendi: yoğunken 5 kişiyi 4 kişilik masaya
+// oturtsun diye kabul koşulu gevşetilmişti, ama seçim kalitesi bozuldu — 2 kişilik gruplar
+// 6 kişilik masalara düştü, küçük gruplar açıkta kaldı. Program artık masayı hep tam ölçüye
+// göre seçer; küçük masaya sandalye ekleyip oturtmak İNSANIN kararı, masa seçme penceresinden
+// elle yapılır.
 const boyAdaylari = (bosMasalar: PlanMasa[], kisi: number, maxMasa = bosMasalar.length, limit = 20): number[][] => {
   const sayim = new Map<number, number>();
   bosMasalar.forEach((m) => sayim.set(m.seat_count, (sayim.get(m.seat_count) ?? 0) + 1));
@@ -249,8 +268,25 @@ const boyAdaylari = (bosMasalar: PlanMasa[], kisi: number, maxMasa = bosMasalar.
 // Seçilen boyları gerçek masalara dağıtır. Her sıradaki yan yana boş parçalar "hazır" kabul
 // edilir; en çok boyu karşılayan parça temel alınır, eksikler oraya en yakın masalardan
 // çekilir (o masalar fiilen taşınacak). Dönen taşimaSayisi = kaç masa yerinden oynayacak.
+// MİSAFİR MASASI TERCİHİ (Gökhan, 2026-08-15). Ev sahibinin ikinci masası ya olabildiğince
+// yakına ya olabildiğince uzağa konur. Birleştirme YOK — iki ayrı rezervasyon, aralarında
+// hep AYRI_MESAFE kalır; burada belirlenen sadece hangi masaların seçileceği.
+//   yakin: ev sahibinin salonunda, ona en yakın masalar
+//   uzak : önce başka salon; başka salon yoksa aynı salonun öbür ucu
+export type YakinlikTercihi = { merkezX: number; merkezY: number; alanId: string | null; yakin: boolean };
+
+const uzaklik = (m: PlanMasa, t: YakinlikTercihi) => {
+  const x = asilKX(m), y = asilKY(m);
+  if (x === null || y === null) return Number.POSITIVE_INFINITY;
+  return Math.hypot(x - t.merkezX, y - t.merkezY);
+};
+// Bir seçimin ev sahibine olan uzaklığı: yakınlıkta en yakın masa, uzaklıkta en yakın masa
+// belirleyicidir — "en uzak masa uzakta ama biri dibinde" durumu uzak sayılmasın.
+const secimUzakligi = (secim: PlanMasa[], t: YakinlikTercihi) =>
+  Math.min(...secim.map((m) => uzaklik(m, t)));
+
 const masalariSec = (
-  siralar: PlanMasa[][], bosIds: Set<string>, boylar: number[],
+  siralar: PlanMasa[][], bosIds: Set<string>, boylar: number[], tercih?: YakinlikTercihi,
 ): { masalar: PlanMasa[]; taşımaSayisi: number } | null => {
   const bosParcalar: PlanMasa[][] = [];
   siralar.forEach((sira) => {
@@ -264,6 +300,7 @@ const masalariSec = (
 
   const gereken = [...boylar].sort((a, b) => b - a);
   let enIyi: { masalar: PlanMasa[]; taşımaSayisi: number } | null = null;
+  let enIyiUzaklik = tercih?.yakin ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
 
   // Her parçayı sırayla temel alıp dene — en çok boyu hazır karşılayan kazanır.
   bosParcalar.forEach((temel) => {
@@ -276,13 +313,24 @@ const masalariSec = (
     if (secilen.length === 0) return;
     // Eksikleri temele en yakın masalardan çek — bunlar taşınacak masalar.
     const merkez = secilen[0];
-    const disarisi = siralar.flat().filter((m) => bosIds.has(m.id) && !secilen.includes(m));
+    // Eksik masa AYNI SALONDAN çekilir; başka salondan masa katılmaz.
+    const disarisi = siralar.flat().filter((m) => bosIds.has(m.id) && !secilen.includes(m)
+      && (m.alanId ?? null) === (merkez.alanId ?? null));
     komsulukSirasi(disarisi, merkez).forEach((m) => {
       const i = kalanGereken.indexOf(m.seat_count);
       if (i >= 0) { kalanGereken.splice(i, 1); secilen.push(m); }
     });
     if (kalanGereken.length > 0) return;
     const taşımaSayisi = secilen.filter((m) => !temel.includes(m)).length;
+    // Misafir masasında sıralama ölçütü değişir: önce ev sahibine yakınlık/uzaklık, sonra
+    // taşıma ve masa sayısı. Tercih yoksa eski davranış aynen sürer.
+    if (tercih) {
+      const u = secimUzakligi(secilen, tercih);
+      const daha = !enIyi || (tercih.yakin ? u < enIyiUzaklik : u > enIyiUzaklik)
+        || (u === enIyiUzaklik && taşımaSayisi < enIyi.taşımaSayisi);
+      if (daha) { enIyi = { masalar: secilen, taşımaSayisi }; enIyiUzaklik = u; }
+      return;
+    }
     if (!enIyi || taşımaSayisi < enIyi.taşımaSayisi
       || (taşımaSayisi === enIyi.taşımaSayisi && secilen.length < enIyi.masalar.length)) {
       enIyi = { masalar: secilen, taşımaSayisi };
@@ -294,11 +342,17 @@ const masalariSec = (
 
 // Tek geçişte plan kurar. koru: mevcut ataması korunacak rezervasyonlar (masaları hâlâ
 // uygunsa oldukları yerde bırakılır).
+// Misafir masaları: hangi rezervasyon kimin ikinci masası ve yakın mı uzak mı istiyor.
+// Rezervasyonlar veritabanında birbirine bağlı DEĞİL; bu eşleşme her hesapta numara + isim +
+// günden bulunup buraya veriliyor (Gökhan, 2026-08-15: "rezervasyonları birbirine bağlama").
+export type MisafirBagi = Record<string, { evSahibiId: string; yakin: boolean }>;
+
 const planKur = (
   masalar: PlanMasa[],
   serbest: PlanRez[],
   sabitler: { rez: PlanRez; masaIds: string[] }[],
   mevcut: Record<string, string[]>,
+  misafirler: MisafirBagi = {},
 ): PlanSonuc => {
   const siralar = siralaraBol(masalar);
   const bosIds = new Set(masalar.map((m) => m.id));
@@ -313,7 +367,10 @@ const planKur = (
   // Mevcut yerleşimi olan ve hâlâ yeten rezervasyonlar yerinde kalır — küçük bir değişiklik
   // yüzünden bütün salonun oynamasını engelliyor (Gökhan: "2 masanın yerini değiştirip
   // halledecekken 7 rezervasyonun masasını değiştiriyor").
+  // Misafir masaları bu korumanın DIŞINDA: yakın/uzak tercihi ancak yeniden seçilirse
+  // uygulanabilir, eski yer o tercihi tutmuyor olabilir.
   serbest.forEach((rez) => {
+    if (misafirler[rez.id]) return;
     const ids = mevcut[rez.id] ?? [];
     if (ids.length === 0 || !ids.every((id) => bosIds.has(id)) || koltuk(ids) < rez.kisi) return;
     ids.forEach((id) => bosIds.delete(id));
@@ -321,9 +378,30 @@ const planKur = (
   });
 
   const yerlesemeyen: string[] = [];
-  // Büyükten küçüğe: kalabalık grupların seçeneği az, önce onlar yerleşmeli.
-  [...serbest].filter((r) => !atamalar[r.id]).sort((a, b) => b.kisi - a.kisi).forEach((rez) => {
+  // Büyükten küçüğe: kalabalık grupların seçeneği az, önce onlar yerleşmeli. Misafir masaları
+  // EN SONA bırakılır — ev sahibinin masası belli olmadan yakın/uzak hesaplanamaz.
+  const sirali = [...serbest].filter((r) => !atamalar[r.id]).sort((a, b) => {
+    const am = misafirler[a.id] ? 1 : 0, bm = misafirler[b.id] ? 1 : 0;
+    return am - bm || b.kisi - a.kisi;
+  });
+  sirali.forEach((rez) => {
     const bosMasalar = masalar.filter((m) => bosIds.has(m.id));
+    // Misafir masasıysa ev sahibinin masalarının ortası hedef alınır.
+    let tercih: YakinlikTercihi | undefined;
+    const bag = misafirler[rez.id];
+    if (bag) {
+      const evMasalari = (atamalar[bag.evSahibiId] ?? [])
+        .map((id) => masalar.find((m) => m.id === id))
+        .filter((m): m is PlanMasa => !!m && asilKX(m) !== null && asilKY(m) !== null);
+      if (evMasalari.length > 0) {
+        tercih = {
+          merkezX: evMasalari.reduce((s, m) => s + asilKX(m)!, 0) / evMasalari.length,
+          merkezY: evMasalari.reduce((s, m) => s + asilKY(m)!, 0) / evMasalari.length,
+          alanId: evMasalari[0].alanId ?? null,
+          yakin: bag.yakin,
+        };
+      }
+    }
     // Aday boy kümeleri (en az israf, sonra en az masa) sırayla denenir — AMA ilk başarılıda
     // durulmaz: "en az masa" ile "hiç taşımadan sığmak" ayrı şeyler. 18 kişilik bir grupta
     // 6+6+6 (3 masa) ile 6+4+4+2+2 (5 masa, TAM BİR SIRA) ikisi de sığar; ilki üç ayrı sıradan
@@ -332,14 +410,25 @@ const planKur = (
     // "aynı sıradaki masaları birleştirmesi gerekiyordu, ama ne yaptığına sen bak"). Bu yüzden
     // hep en az TAŞIMA olan kazanır; taşıma sıfırsa aramaya devam etmeye gerek yok.
     let enIyi: { masalar: PlanMasa[]; taşımaSayisi: number } | null = null;
-    for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
-      const secim = masalariSec(siralar, bosIds, boylar);
-      if (!secim) continue;
-      if (!enIyi || secim.taşımaSayisi < enIyi.taşımaSayisi
-        || (secim.taşımaSayisi === enIyi.taşımaSayisi && secim.masalar.length < enIyi.masalar.length)) {
-        enIyi = secim;
+    // "Uzak" istenmişse önce BAŞKA SALONLAR denenir; oralarda yer yoksa bütün salonlara
+    // düşülür ve aynı salonun en uzak ucu seçilir (Gökhan: "önce başka salon, o olmazsa
+    // salonun öbür ucu"). "Yakın"da tersi: sadece ev sahibinin salonu.
+    const aramaListeleri: PlanMasa[][][] = !tercih ? [siralar]
+      : tercih.yakin
+        ? [siralar.filter((s) => (s[0].alanId ?? null) === tercih!.alanId), siralar]
+        : [siralar.filter((s) => (s[0].alanId ?? null) !== tercih!.alanId), siralar];
+    for (const liste of aramaListeleri) {
+      if (liste.length === 0) continue;
+      for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
+        const secim = masalariSec(liste, bosIds, boylar, tercih);
+        if (!secim) continue;
+        if (!enIyi || secim.taşımaSayisi < enIyi.taşımaSayisi
+          || (secim.taşımaSayisi === enIyi.taşımaSayisi && secim.masalar.length < enIyi.masalar.length)) {
+          enIyi = secim;
+        }
+        if (!tercih && enIyi.taşımaSayisi === 0) break; // hiç taşımadan sığmaktan daha iyisi yok
       }
-      if (enIyi.taşımaSayisi === 0) break; // hiç taşımadan sığmaktan daha iyisi yok
+      if (enIyi) break; // tercih edilen listede yer bulundu, alt listeye düşmeye gerek yok
     }
     if (!enIyi) { yerlesemeyen.push(rez.id); return; }
     enIyi.masalar.forEach((m) => bosIds.delete(m.id));
@@ -360,212 +449,502 @@ export const salonuPlanla = (
   serbest: PlanRez[],
   sabitler: { rez: PlanRez; masaIds: string[] }[],
   mevcut: Record<string, string[]> = {},
+  misafirler: MisafirBagi = {},
 ): PlanSonuc => {
-  const azOynayan = planKur(masalar, serbest, sabitler, mevcut);
+  const azOynayan = planKur(masalar, serbest, sabitler, mevcut, misafirler);
   if (azOynayan.yerlesemeyen.length === 0) return azOynayan;
-  const sifirdan = planKur(masalar, serbest, sabitler, {});
+  const sifirdan = planKur(masalar, serbest, sabitler, {}, misafirler);
   return sifirdan.yerlesemeyen.length < azOynayan.yerlesemeyen.length ? sifirdan : azOynayan;
 };
 
 // Birleşen masaların salon planındaki YERLERİ (Gökhan: "6-1 ile 4-1 birleşti, masa planında
 // da yan yana gelecek ki garsonlar planı görüp yapacaklar"). Programın kendisi masayı çekemez;
 // çekilecek hâli plana yazar, garson görüp uygular.
-//
-// Kural: kümenin en soldaki masası çıpa olur, yerinden oynamaz. Diğerleri onun sağına,
-// gövde genişlikleri kadar kaydırılarak bitişik dizilir. Tek masalı atamalar hiç oynamaz.
-//
-// Gelen masa boş bir yere gitmiyorsa oradaki masayla YER DEĞİŞTİRİR — yoksa iki masa üst
-// üste biniyor ve alttaki kayboluyordu (Gökhan: "yerine gittiği masanın da yerini değiştirmesi
-// gerekli, yoksa altta kalıyor onu arıyorsun"). Yerinden edilen masa, gelenin boşalttığı
-// yere geçer.
 export type MasaYeri = { id: string; x: number; y: number };
 
-// Yerleşim SOLDAN SAĞA TEK GEÇİŞLİ bir dizilim (sweep) — önceki "eldeki masayı çekip
-// hedeftekini eski yerine gönder" (takas) yöntemi tek bir takasın başka bir masayla
-// çakışmasını kontrol etmiyordu; zincirleme takaslar kümeyle hiç ilgisi olmayan masaları da
-// (Gökhan: "kilit koyduk" örneğindeki gibi ilgisiz rezervasyonları) başka satırlara
-// sürükleyip üst üste bindirebiliyordu. Sweep yöntemi bunu YAPI GEREĞİ imkânsız kılar: her
-// masa, kendisinden önce yerleştirilenin sağ kenarından sonra başlar, asla geriye gitmez.
+// ————————————————————————————————————————————————————————————————————————
+// YERLEŞİM — baştan yazıldı (Gökhan, 2026-08-12).
 //
-// Kurallar:
-//  1) Her masa ASIL (normal) satırında kalır — kümenin ÇIPASI hariç kimse satır değiştirmez.
-//     Çıpa: kümenin asıl konumu EN SOLDAKİ üye (Gökhan: "en soldaki masa çıpa olur, yerinden
-//     oynamaz"). Diğer üyeler, çıpanın satırına çekilip ona bitişik dizilir.
-//  2) Aynı kümenin masaları dip dibe; FARKLI rezervasyonların masaları arasında en az
-//     AYRI_MESAFE boşluk kalır (Gökhan: "ayrı rezervasyonların masaları dip dibe olmasın").
-//  3) Salon sınırını (işletmenin en sağdaki masasının asıl yeri) hiçbir masa aşmaz — gerekirse
-//     araya konan AYRI_MESAFE boşlukları daraltılır, ama çıpalar yine de yerinden oynamaz.
-export const birlesikYerlesim = (kumeler: PlanMasa[][], tumMasalar: PlanMasa[]): MasaYeri[] => {
-  const asilX = (m: PlanMasa) => m.normalX ?? m.position_x;
-  const asilY = (m: PlanMasa) => m.normalY ?? m.position_y;
-  const genislik = (m: PlanMasa) => m.genislik ?? 0;
+// Kurallar, Gökhan'ın cümleleriyle:
+//  1) Kilitli masa SABİT ENGELDİR: yeri hiç değişmez, kapladığı alan dolu sayılır.
+//  2) Salon sınırı ASLA aşılmaz — ne sağdan ne soldan taşma olur.
+//  3) Bir sıraya sığmayan masa uygun başka sıraya geçer.
+//  4) Aynı rezervasyonun masaları hiçbir koşulda bölünmez, dip dibe durur.
+//  5) Ayrı rezervasyonların masaları arasında sabit mesafe hep kalır.
+//  6) İşi olmayan masa yerinden oynamaz.
+//
+// İşleyiş:
+//  • Her salon (dining_area) AYRI hesaplanır — ayrı salonların tuvalleri ayrı, koordinatları
+//    birbirine karışmaz. Satırlar masaların ASIL (ev) yerlerinden çıkar, o an nerede
+//    durduklarından değil; yoksa her çalıştırmada kaymalar birikir ve masalar üst üste biner.
+//  • Salonun sağ sınırı salonun gerçek eni (Ayarlar'daki en × PX_PER_CM); girilmemişse en
+//    sağdaki masanın ev kenarı. Sol sınır 0.
+//  • Yerleşecek her şey bir BLOK: ya tek bir masa, ya bir rezervasyonun bütün masaları.
+//    Blok bölünmez ve içinde boşluk yoktur (kural 4). Kilitli masa blok değil, ENGELdir.
+//  • Satır iki yönden dizilir: sağdan sola "bu blok en geç nereye konabilir" (tavan), soldan
+//    sağa "ev yerinde dursun, soldaki üstüne geliyorsa sağa itilsin". Blok tavanı aşarsa
+//    tavana çekilir — yani sola kayma sadece sınıra dayanınca olur, kendiliğinden olmaz
+//    (kural 6). Bloklar arasında hep AYRI_MESAFE kalır (kural 5), kimse sınırı aşmaz (kural 2).
+//  • Satır hiçbir şekilde sığmıyorsa bir blok komşu satıra taşınır (kural 3): önce işi olmayan
+//    tek masalar, en sağdakinden başlayarak; olmazsa küme. Taşınan masa, o satırdan kümeye
+//    katılıp boşalmış bir yer varsa oraya gider.
+//  • Hiçbir çare kalmazsa satır sınırı taşar ama masalar ASLA üst üste binmez — üst üste binen
+//    masa alttakini kaybettiriyor, taşan masa hiç değilse görünüyor.
+// ————————————————————————————————————————————————————————————————————————
 
-  const konumlu = tumMasalar.filter((m) => asilX(m) !== null && asilY(m) !== null);
+type Aralik = { sol: number; sag: number; id?: string };
+type Blok = { uyeler: PlanMasa[]; gen: number; dogal: number; satir: number; kume: boolean };
+
+export const birlesikYerlesim = (
+  kumeler: PlanMasa[][],
+  tumMasalar: PlanMasa[],
+  kilitliIds: ReadonlySet<string> = new Set(),
+): MasaYeri[] => {
+  const evX = (m: PlanMasa) => m.normalX ?? m.position_x; // masanın ASIL (ev) yeri
+  const evY = (m: PlanMasa) => m.normalY ?? m.position_y;
+  const gen = (m: PlanMasa) => m.genislik ?? 0;
+  const yuk = (m: PlanMasa) => m.yukseklik ?? 0;
+  // position_x sürükleme KUTUSUNUN sol kenarı, gövde kutunun ortasında çizilir (masaOlcu.ts).
+  // Hesap gövde kenarlarıyla yapılır, sonuç position_x'e geri çevrilir.
+  const govdeSol = (m: PlanMasa, x: number) => x + (BOX_W - gen(m)) / 2;
+  const govdeSag = (m: PlanMasa, x: number) => x + (BOX_W + gen(m)) / 2;
+  const xIcin = (m: PlanMasa, sol: number) => Math.round(sol - (BOX_W - gen(m)) / 2);
+
+  const konumlu = tumMasalar.filter((m) => evX(m) !== null && evY(m) !== null);
+  if (konumlu.length === 0) return [];
   const byId = new Map(konumlu.map((m) => [m.id, m]));
 
-  // Çıpa: kümenin EN ÜST satırındaki en soldaki üyesi — sadece konumu bilinen, 2+ üyeli
-  // kümeler sayılır. Önce satır (en küçük asılY), sonra o satır içinde en sol (asılX). Satır
-  // sarma hep AŞAĞI doğru işlediği için çıpa alt satırlardan birine düşerse aşağı sarılacak
-  // satır kalmıyordu (Gökhan: "14 kişilik rezervasyon, sınırın çok dışına taştı" — çıpa en alt
-  // satırdaymış, üstteki satırlarda yer olsa bile oraya hiç sarılamıyordu). En üstte başlamak
-  // en fazla aşağı satırı garantiler.
-  const kumeCipaId = new Map<number, string>();
-  kumeler.forEach((kume, i) => {
-    const gecerli = kume.filter((m) => byId.has(m.id));
-    if (gecerli.length < 2) return;
-    kumeCipaId.set(i, [...gecerli].sort((a, b) => (asilY(a)! - asilY(b)!) || (asilX(a)! - asilX(b)!))[0].id);
-  });
-
-  // Sınır: en sağdaki masanın MERKEZİ değil, GÖVDESİNİN SAĞ KENARI — sadece merkezi almak
-  // salonun kendi son sütunundaki masayı bile "sınırı aşıyor" saydırıyordu (bir masanın
-  // kendi yarı genişliği kadar hep taşar), bu da içerideki masaları gereksiz sıkıştırıp
-  // asıl aşımları da doğru yakalayamıyordu.
-  const maxX = konumlu.reduce<number | null>((en, m) => {
-    const kenar = asilX(m)! + genislik(m) / 2;
-    return en === null ? kenar : Math.max(en, kenar);
-  }, null);
-
-  // Satırlar — ASIL konuma göre (kaymış konuma göre değil).
-  const siralar: PlanMasa[][] = [];
-  [...konumlu].sort((a, b) => asilY(a)! - asilY(b)!).forEach((m) => {
-    const sira = siralar.find((s) => Math.abs(asilY(s[0])! - asilY(m)!) <= SIRA_TOLERANS);
-    if (sira) sira.push(m); else siralar.push([m]);
-  });
-  // Satırın SOL KENARI — en soldaki masanın merkezi değil, kendi sol kenarı olmalı; merkezi
-  // kullanmak alt satıra sarılan masaları yarım gövde payı kadar sağa kaydırıyordu.
-  const rowStartX = siralar.map((s) => Math.min(...s.map((m) => asilX(m)! - genislik(m) / 2)));
-
-  const sonuc = new Map<string, { x: number; y: number }>();
-
-  // Kümenin üyeleri: ÇIPA her zaman en başta (yerinden oynamaz), geri kalanı OKUMA
-  // sırasıyla (yukarıdan aşağı, soldan sağa) — saf asılX sıralaması aynı sıradaki kümeler
-  // için doğruydu ama satır sarmasında sütuna göre gruplayıp (bütün 6'lıklar, bütün 4'lükler)
-  // satırları karıştırıyordu; okuma sırası "alt satıra in" mantığıyla tutarlı diziyor.
-  const kumeUyeSirasi = new Map<number, PlanMasa[]>();
-  const cipaKumeNo = new Map<string, number>(); // çıpa masa id -> küme no
-  const kumeliMasaIds = new Set<string>();       // 2+ üyeli her kümenin BÜTÜN üyeleri
-  kumeCipaId.forEach((cipaId, kNo) => {
-    const gecerli = kumeler[kNo].filter((u) => byId.has(u.id));
-    const cipa = gecerli.find((u) => u.id === cipaId)!;
-    const digerler = gecerli.filter((u) => u.id !== cipaId).sort((a, b) => (asilY(a)! - asilY(b)!) || (asilX(a)! - asilX(b)!));
-    const uyeler = [cipa, ...digerler];
-    kumeUyeSirasi.set(kNo, uyeler);
-    cipaKumeNo.set(cipaId, kNo);
-    uyeler.forEach((u) => kumeliMasaIds.add(u.id));
-  });
-
-  // SATIR SARMA (Gökhan: "dışarı çıkmayacak, alt sıraya inecek — düz bir sıra hâlinde
-  // oturtması mümkün değil ki, 3 tane yan yana sıra mümkün"). Satırlar TEK GEÇİŞTE, yukarıdan
-  // aşağı işlenir; bir kümenin masaları o satıra sığmazsa kalanı bir SONRAKİ satırın BAŞINA
-  // taşar — metin gibi satır sarar. Standalone (kümesiz) masalar ASLA satır değiştirmez,
-  // sadece kendi satırında sağa itilebilir. Tek geçiş olduğu için aynı satıra düşen FARKLI
-  // kümeler de birbirinden habersiz kalmaz — hepsi aynı soldan-sağa taramadan geçer.
-  //
-  // KUYRUK (tek değişken değil): aynı satırda BİRDEN FAZLA blok aşarsa hepsi taşımalı —
-  // tek bir "tasan" değişkeni sonuncu hariç hepsini sessizce kaybediyordu, kaybolan masa
-  // eski (bir önceki plandan kalma) konumunda asılı kalıp başka bir masayla çakışıyordu.
-  let tasanKuyruk: PlanMasa[][] = [];
-
-  siralar.forEach((satirMasalari, satirIdx) => {
-    const yerli = [...satirMasalari].filter((m) => !kumeliMasaIds.has(m.id) || cipaKumeNo.has(m.id)).sort((a, b) => asilX(a)! - asilX(b)!);
-    // Blok listesi: [bu satıra taşan bloklar (varsa, sırasıyla)] + bu satırdaki standalone/çıpa
-    // masalar (asılX sırasıyla).
-    const bloklar: { uyeler: PlanMasa[]; tasanMi: boolean }[] = tasanKuyruk.map((uyeler) => ({ uyeler, tasanMi: true }));
-    yerli.forEach((m) => {
-      const kNo = cipaKumeNo.get(m.id);
-      bloklar.push({ uyeler: kNo !== undefined ? kumeUyeSirasi.get(kNo)! : [m], tasanMi: false });
+  // KÜMELER = aynı rezervasyonun masaları. Bir masa yalnız bir kümeye girebilir.
+  const kumeUye: PlanMasa[][] = [];
+  const kumeNo = new Map<string, number>();
+  kumeler.forEach((k) => {
+    const uyeler: PlanMasa[] = [];
+    k.forEach((m) => {
+      const t = byId.get(m.id);
+      if (t && !kumeNo.has(t.id)) { kumeNo.set(t.id, kumeUye.length); uyeler.push(t); }
     });
-    if (bloklar.length === 0) { tasanKuyruk = []; return; }
+    if (uyeler.length < 2) { uyeler.forEach((m) => kumeNo.delete(m.id)); return; }
+    kumeUye.push(uyeler);
+  });
 
-    const satirY = asilY(satirMasalari[0])!;
+  const yerlesmis = new Map<string, { x: number; y: number }>();
+  // Kilitli masa kural olarak hiç yazılmaz. TEK istisna: tamamı kilitli bir rezervasyonun
+  // masaları birbirine bitişirken çıpanın yanına çekilenler — aynı rezervasyonun masaları
+  // bölünmez kuralı burada kilidin önüne geçer (Gökhan, 2026-08-14).
+  const kilitliTasinan = new Set<string>();
 
-    // Bir satırı tek geçişte dizer. siki=false: normal mod (asıl konum tabanı + AYRI_MESAFE,
-    // gerekirse tek bloğun payı daraltılır). siki=true: SIKIŞTIRMA modu — bütün boşluklar
-    // sıfırlanır ve hiçbir blok kendi asıl konumuna "atlamaz", hep bir öncekinin hemen sağına
-    // biter. Bir kümenin çıpası (kendi satırında hiç taşmayan) bir ÖNCEKİ kümenin taşan
-    // (satıra çekilmiş) üyeleri yüzünden sağa itilebiliyor, bu da geriden gelen ÜÇÜNCÜ bir
-    // çıpayı sınırın dışına atabiliyordu (Gökhan: "3 tane 18 kişilik rezervasyon" gibi çok
-    // kümeli satırlarda). Tek blok bazında boşluk daraltmak yetmeyince satırın TAMAMI en sıkı
-    // haliyle yeniden denenir.
-    // Bir satırı tek geçişte dizer, ama SIRAYI SABİT saymaz: baştaki blok sığmıyorsa (ve çıpa
-    // gibi zorunlu değilse) sırada ondan sonra gelip ŞU AN sığacak bir blok var mı diye bakar,
-    // varsa onu öne alır — sığmayan geriye, bir sonraki satıra ertelenir (Gökhan: "sıra doldu,
-    // 4 kişilik sığmıyorsa onu aşağı sıraya alacak, yerine sığan 2 kişiliği getirecek... en
-    // kısa zahmetsiz yoldan"). Masalar arası mesafe HER ZAMAN zorunlu — boş olsun dolu olsun
-    // fark etmez (Gökhan: "boş masalar arasında da hep o sabit mesafe olacak" — sığmıyorsa
-    // masa DEĞİŞTİRİLİR, mesafeden asla ödün verilmez).
-    const dene = (siki: boolean) => {
-      const yerel = new Map<string, { x: number; y: number }>();
-      const kuyruk: PlanMasa[][] = [];
-      let sagKenar: number | null = null;
-      let tasti = false;
+  const alanlar = new Map<string, PlanMasa[]>();
+  konumlu.forEach((m) => {
+    const a = m.alanId ?? "";
+    const liste = alanlar.get(a);
+    if (liste) liste.push(m); else alanlar.set(a, [m]);
+  });
 
-      // Verilen blok, güncel sagKenar'dan başlarsa alacağı sol kenar.
-      const xHesapla = (blok: { uyeler: PlanMasa[]; tasanMi: boolean }): number => {
-        const cipaKorumali = !blok.tasanMi && blok.uyeler.length > 1;
-        const dogalSolKenar = blok.tasanMi ? rowStartX[satirIdx] : asilX(blok.uyeler[0])! - genislik(blok.uyeler[0]) / 2;
-        if (sagKenar === null) return dogalSolKenar;
-        if (siki) return sagKenar; // sıkışık modda boşluk yok, asıl konuma atlama yok
-        let x = Math.max(dogalSolKenar, sagKenar + AYRI_MESAFE);
-        // Tam mesafeyle sığmıyorsa boşluğu daraltıp tekrar dener — ya ÇIPA olduğu için (hiçbir
-        // satırda atlanamaz) ya da son satırda olduğu için (artık sarılacak alt satır yok).
-        if (maxX !== null && (cipaKorumali || satirIdx === siralar.length - 1)) {
-          const daha = Math.max(dogalSolKenar, sagKenar);
-          if (x + genislik(blok.uyeler[0]) > maxX && daha + genislik(blok.uyeler[0]) <= maxX) x = daha;
-        }
-        return x;
-      };
-      const blokGenisligi = (blok: { uyeler: PlanMasa[] }) => blok.uyeler.reduce((s, m) => s + genislik(m), 0);
+  alanlar.forEach((masalar) => {
+    const bizim = new Set(masalar.map((m) => m.id));
 
-      const kalanlar = [...bloklar];
-      while (kalanlar.length > 0) {
-        // Masa değişimi SADECE tek masalık (kümesiz) bloklar arasında olur — bir rezervasyon
-        // kümesi (2+ masa, dip dibe durması gereken) hiç "değiştirilmez"; kümenin kendi
-        // üye-bazlı sarma mantığı (bir kısmı sığar, kalanı alt satıra taşar) zaten var ve daha
-        // az yer kaplar. Bütün kümeyi küçük bir masayla değiştirmeye çalışmak kümeyi bütünüyle
-        // bir alt satıra iter, orada daha büyük bir taşmaya yol açar.
-        const ilkTekMi = kalanlar[0].uyeler.length === 1;
-        const ilkX = xHesapla(kalanlar[0]);
-        let idx = 0;
-        if (ilkTekMi && maxX !== null && ilkX + blokGenisligi(kalanlar[0]) > maxX) {
-          // Baştaki tek masa sığmıyor — sırada, ŞU AN sığacak daha ileri bir TEK masa var mı
-          // diye bak (Gökhan: "4 kişilik sığmıyorsa yerine sığan 2 kişiliği getirecek"). Varsa
-          // masa değiştir: onu öne al, sığmayanı bir sonraki satıra bırak.
-          const j = kalanlar.findIndex((aday, k) => k > 0 && aday.uyeler.length === 1 && xHesapla(aday) + blokGenisligi(aday) <= maxX!);
-          if (j > 0) idx = j;
-        }
-        const blok = kalanlar[idx];
-        kalanlar.splice(idx, 1);
-        const x0 = xHesapla(blok);
-        const cipaKorumali = !blok.tasanMi && blok.uyeler.length > 1;
-
-        let x = x0;
-        let birseyYerlesti = false;
-        for (let i = 0; i < blok.uyeler.length; i++) {
-          const m = blok.uyeler[i];
-          const w = genislik(m);
-          const korumali = cipaKorumali && i === 0;
-          const sarilabilir = !korumali && satirIdx < siralar.length - 1;
-          if (sarilabilir && maxX !== null && x + w > maxX) { kuyruk.push(blok.uyeler.slice(i)); break; }
-          if (maxX !== null && x + w > maxX) tasti = true; // sarılamıyor ama yine de taşıyor
-          yerel.set(m.id, { x: x + w / 2, y: satirY });
-          x += w;
-          birseyYerlesti = true;
-        }
-        if (birseyYerlesti) sagKenar = x; // yerleşmediyse bozma, satırda hâlâ boş yer var
-      }
-      return { yerel, kuyruk, tasti };
+    // SATIRLAR — asıl yerlere göre, her satır soldan sağa dizili.
+    const satirlar: { y: number; uyeler: PlanMasa[] }[] = [];
+    [...masalar].sort((a, b) => evY(a)! - evY(b)!).forEach((m) => {
+      const s = satirlar.find((s) => Math.abs(s.y - evY(m)!) <= SIRA_TOLERANS);
+      if (s) s.uyeler.push(m); else satirlar.push({ y: evY(m)!, uyeler: [m] });
+    });
+    satirlar.forEach((s) => s.uyeler.sort((a, b) => evX(a)! - evX(b)!));
+    const satirNo = new Map<string, number>();
+    satirlar.forEach((s, i) => s.uyeler.forEach((m) => satirNo.set(m.id, i)));
+    const satirBul = (y: number, varsayilan: number) => {
+      const i = satirlar.findIndex((s) => Math.abs(s.y - y) <= SIRA_TOLERANS);
+      return i < 0 ? varsayilan : i;
     };
 
-    const gevsek = dene(false);
-    const secilen = gevsek.tasti ? dene(true) : gevsek;
-    secilen.yerel.forEach((v, id) => sonuc.set(id, v));
-    tasanKuyruk = secilen.kuyruk;
+    // SALON SINIRI
+    const SOL_SINIR = 0;
+    const olculu = masalar.find((m) => (m.alanEni ?? 0) > 0);
+    const SAG_SINIR = olculu?.alanEni ?? Math.max(...masalar.map((m) => govdeSag(m, evX(m)!)));
+
+    // ENGELLER — kilitli masalar ŞU ANKİ yerlerinde (kilit "burada kalacak" demek).
+    const engeller: Aralik[][] = satirlar.map(() => []);
+    masalar.forEach((m) => {
+      if (!kilitliIds.has(m.id)) return;
+      const x = m.position_x ?? evX(m)!;
+      const y = m.position_y ?? evY(m)!;
+      engeller[satirBul(y, satirNo.get(m.id)!)].push({ sol: govdeSol(m, x), sag: govdeSag(m, x), id: m.id });
+    });
+
+    // BLOKLAR
+    const satirBlok: Blok[][] = satirlar.map(() => []);
+    const blokKur = (uyeler: PlanMasa[], satir: number, dogal: number, kume: boolean): Blok =>
+      ({ uyeler, gen: uyeler.reduce((t, m) => t + gen(m), 0), dogal, satir, kume });
+
+    // Kilitli bir kümeyi yerleştirirken kendi üyeleri dışındaki engellere çarpmamak gerekiyor;
+    // yoksa iki ayrı kilitli rezervasyonun masaları üst üste biniyordu (2026-08-14 taraması).
+    // Çıpanın yanından başlanır, çarparsa sağa kayar, sağ duvara dayanırsa sola denenir.
+    // Hiçbir yere sığmıyorsa null döner ve o masalar hiç oynatılmaz — üst üste binmektense
+    // oldukları yerde kalırlar.
+    const bosAralikBul = (satir: number, baslangic: number, uzunluk: number, hariç: Set<string>): number | null => {
+      const eng = engeller[satir].filter((e) => !e.id || !hariç.has(e.id)).sort((a, b) => a.sol - b.sol);
+      const carpan = (x: number) => eng.find((o) => x < o.sag && o.sol < x + uzunluk);
+      let x = baslangic;
+      for (let d = 0; d <= eng.length; d++) {
+        const c = carpan(x);
+        if (!c) break;
+        x = c.sag;
+      }
+      if (!carpan(x) && x >= SOL_SINIR && x + uzunluk <= SAG_SINIR) return x;
+      x = baslangic;
+      for (let d = 0; d <= eng.length; d++) {
+        const c = carpan(x);
+        if (!c) break;
+        x = c.sol - uzunluk;
+      }
+      if (!carpan(x) && x >= SOL_SINIR && x + uzunluk <= SAG_SINIR) return x;
+      return null;
+    };
+
+    const islenmis = new Set<string>();
+    kumeUye.forEach((tumUyeler) => {
+      const uyeler = tumUyeler.filter((m) => bizim.has(m.id));
+      const kilitli = uyeler.filter((m) => kilitliIds.has(m.id));
+      const acik = uyeler.filter((m) => !kilitliIds.has(m.id));
+      // TAMAMI KİLİTLİ KÜME. Kilit "masa başkasına gitmesin, yerinden oynatılmasın" demek; ama
+      // aynı rezervasyonun masaları da hiçbir koşulda bölünmez. Kilitli bir rezervasyonun iki
+      // masası salonun iki ucunda kalıyordu (Gökhan, 2026-08-14: bahçede 6 kişilik kilitli
+      // rezervasyonun 4 kişilik masası en üstte, 2 kişilik masası en altta). Artık ÇIPA olan
+      // masa (en soldaki, en üstteki) yerinde kalır, kümenin diğer masaları ona bitişir.
+      if (acik.length === 0) {
+        if (kilitli.length < 2) return; // tek masa — zaten yerinde, dokunulmaz
+        const nerede = (m: PlanMasa) => m.position_x ?? evX(m)!;
+        const nerdeY = (m: PlanMasa) => m.position_y ?? evY(m)!;
+        const sirali = [...kilitli].sort((a, b) => (nerdeY(a) - nerdeY(b)) || (nerede(a) - nerede(b)));
+        const cipa = sirali[0];
+        const s = satirBul(nerdeY(cipa), satirNo.get(cipa.id)!);
+        const toplamGen = sirali.reduce((t, m) => t + gen(m), 0);
+        const kendi = new Set(sirali.map((m) => m.id));
+        const bas = bosAralikBul(s, govdeSol(cipa, nerede(cipa)), toplamGen, kendi);
+        if (bas === null) { sirali.forEach((m) => islenmis.add(m.id)); return; } // sığmıyor, kimse oynamaz
+        let x = bas;
+        sirali.forEach((m) => {
+          yerlesmis.set(m.id, { x: xIcin(m, x), y: satirlar[s].y });
+          kilitliTasinan.add(m.id);
+          x += gen(m);
+        });
+        engeller[s] = engeller[s].filter((e) => !e.id || !kendi.has(e.id));
+        engeller[s].push({ sol: bas, sag: x });
+        sirali.forEach((m) => islenmis.add(m.id));
+        return;
+      }
+
+      if (kilitli.length > 0) {
+        // Kilitli masa oynamaz (kural 1) ama aynı rezervasyonun masaları da bölünmez (kural 4):
+        // kalan masalar kilitlinin kenarına bitişik dizilir ve orası da engel sayılır.
+        const nerede = (m: PlanMasa) => m.position_x ?? evX(m)!;
+        const s = satirBul(kilitli[0].position_y ?? evY(kilitli[0])!, satirNo.get(kilitli[0].id)!);
+        const sirali = [...acik].sort((a, b) => evX(a)! - evX(b)!);
+        const toplam = sirali.reduce((t, m) => t + gen(m), 0);
+        const kSag = Math.max(...kilitli.map((m) => govdeSag(m, nerede(m))));
+        // Kilitli üyeler YERİNDE kalıyor; onlar da engeldir, üstlerinden geçilmez — açık masalar
+        // yanlarına dizilir. (Tamamı kilitli kümede durum başka: orada bütün küme birlikte gider.)
+        const bas = bosAralikBul(s, kSag, toplam, new Set<string>());
+        // Kilitlinin yanında yer yoksa bu masalar KÜME OLARAK yerleştirilemez; işaretlenmeden
+        // bırakılır ki sıradaki normal dizilime katılsınlar. Eskiden oldukları yerde donuyor,
+        // dizilime de girmedikleri için üzerlerine başka masa konabiliyordu (2026-08-14 taraması).
+        if (bas === null) return;
+        let x = bas;
+        sirali.forEach((m) => { yerlesmis.set(m.id, { x: xIcin(m, x), y: satirlar[s].y }); x += gen(m); });
+        engeller[s].push({ sol: bas, sag: bas + toplam });
+        acik.forEach((m) => islenmis.add(m.id));
+        return;
+      }
+
+      if (acik.length < 2) return; // kümenin bu salonda tek masası kalmış — serbest masa gibi
+
+      // Kümenin satırı: üyelerin evinin EN ÇOK bulunduğu satır. Çıpa o satırdaki en soldaki üye.
+      const sayim = new Map<number, number>();
+      acik.forEach((m) => { const s = satirNo.get(m.id)!; sayim.set(s, (sayim.get(s) ?? 0) + 1); });
+      const satir = [...sayim.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+      const sirali = [...acik].sort((a, b) => (satirNo.get(a.id)! - satirNo.get(b.id)!) || (evX(a)! - evX(b)!));
+      const kendi = sirali.filter((m) => satirNo.get(m.id) === satir);
+      const dogal = Math.min(...(kendi.length ? kendi : sirali).map((m) => govdeSol(m, evX(m)!)));
+
+      // MASALAR KISA KENARDAN BİRLEŞİR (Gökhan, 2026-08-14: "kısa kenarlar birbirine değecek").
+      // Dikdörtgen masa çevrilmişse — teras gibi salonlarda masalar dik durur — uzun ekseni
+      // AŞAĞI bakar; o zaman birleşme de aşağı doğru olur, masalar alt alta eklenip uzun bir
+      // masa olur. Yan yana eklemek uzun kenarları yapıştırırdı, düğün masası değil geniş bir
+      // kare çıkardı. Yatay masalarda eskisi gibi soldan sağa.
+      const cipa = kendi.length ? kendi[0] : sirali[0];
+      // KARE MASADA uzun kenar yok, ikisi de eşit. O zaman masaya değil EŞİNE bakılır: kümenin
+      // öteki masaları çıpayla aynı sıradaysa yan yana, aynı sütunda (alt alta) duruyorsa
+      // yukarıdan aşağı birleşir. İkisi de varsa sıra kazanır — salon soldan sağa okunuyor
+      // (Gökhan, 2026-08-14: "kare masada buna nasıl karar vereceksin").
+      const ayniSiradakiler = sirali.filter((m) => m.id !== cipa.id && satirNo.get(m.id) === satirNo.get(cipa.id)).length;
+      const ayniSutundakiler = sirali.filter((m) => m.id !== cipa.id
+        && satirNo.get(m.id) !== satirNo.get(cipa.id)
+        && Math.abs(evX(m)! - evX(cipa)!) < Math.max(gen(cipa), 1)).length;
+      const dikeyMi = gen(cipa) === yuk(cipa)
+        ? ayniSutundakiler > ayniSiradakiler
+        : yuk(cipa) > gen(cipa);
+      if (dikeyMi) {
+        const x = govdeSol(cipa, evX(cipa)!);
+        const enGenis = Math.max(...sirali.map((m) => gen(m)));
+        let y = evY(cipa)!;
+        sirali.forEach((m) => {
+          // Her masa çıpanın orta ekseninde kalsın; ölçüleri farklıysa ortalanır.
+          yerlesmis.set(m.id, { x: Math.round(x + (enGenis - gen(m)) / 2 - (BOX_W - gen(m)) / 2), y: Math.round(y) });
+          y += yuk(m);
+        });
+        // Dikey kümenin kapladığı yer, dokunduğu BÜTÜN satırlarda doludur.
+        const ustY = evY(cipa)!;
+        satirlar.forEach((st, i) => {
+          if (st.y + yuk(cipa) / 2 >= ustY && st.y <= y) engeller[i].push({ sol: x, sag: x + enGenis });
+        });
+        acik.forEach((m) => islenmis.add(m.id));
+        return;
+      }
+
+      satirBlok[satir].push(blokKur(sirali, satir, dogal, true));
+      acik.forEach((m) => islenmis.add(m.id));
+    });
+
+    // İşi olmayan masa: kendi ev yerinde tek başına bir blok — kimse itmezse hiç oynamaz.
+    masalar.forEach((m) => {
+      if (kilitliIds.has(m.id) || islenmis.has(m.id)) return;
+      const s = satirNo.get(m.id)!;
+      satirBlok[s].push(blokKur([m], s, govdeSol(m, evX(m)!), false));
+    });
+
+    // Kümeye katılmak için satırından ayrılan masanın ev yeri boşta kalır — satırdan bir masa
+    // çıkarmak gerekirse önce oraya konur (Gökhan: "artan masayı, o masayı aldığı yere koyacak").
+    // gidenSatir: masanın katıldığı küme hangi satırda — yani hangi satır bu masayla GENİŞLEDİ.
+    // Öksüz masa aramasında önce o satıra bakılır (bkz. aşağıdaki boşluk doldurma).
+    const bosalan: { satir: number; sol: number; gidenSatir: number; kume: Blok }[] = [];
+    satirBlok.flat().forEach((b) => b.uyeler.forEach((m) => {
+      const ev = satirNo.get(m.id)!;
+      if (ev !== b.satir) bosalan.push({ satir: ev, sol: govdeSol(m, evX(m)!), gidenSatir: b.satir, kume: b });
+    }));
+
+    // Bir satırı dizer. Sığmıyorsa null döner (zorla=true ise en iyi çabayla dizer, üst üste
+    // bindirmeden — o zaman sınır taşabilir).
+    // İki blok arasında bırakılacak boşluk. "Ayrı rezervasyonların masaları arasında sabit
+    // mesafe" bir REZERVASYON masasıyla komşusu arasında geçerlidir. İki boş masa işletmenin
+    // kendi dizdiği yerde 15 px arayla duruyorsa bu bizi ilgilendirmez — mesafe uğruna itmek
+    // "işi olmayan masa yerinden oynamaz"ı çiğner. Boş masalar itilseler bile aralarındaki
+    // kendi düzenlerini korurlar; ev yerleri çakışıyorsa normal mesafeye düşülür.
+    const bosluk = (a: Blok | null, b: Blok | null) => {
+      if (!a || !b) return 0;
+      if (a.kume || b.kume) return AYRI_MESAFE;
+      const dogalAra = b.dogal - (a.dogal + a.gen);
+      return dogalAra < 0 ? AYRI_MESAFE : Math.min(AYRI_MESAFE, dogalAra);
+    };
+
+    const diz = (i: number, zorla = false): { blok: Blok; sol: number }[] | null => {
+      const eng = [...engeller[i]].sort((a, b) => a.sol - b.sol);
+      const sirali = [...satirBlok[i]].sort((a, b) => a.dogal - b.dogal || a.gen - b.gen);
+      const carpanSag = (sol: number, w: number) => eng.find((o) => sol < o.sag && o.sol < sol + w);
+      const carpanSol = (sol: number, w: number) => [...eng].reverse().find((o) => sol < o.sag && o.sol < sol + w);
+
+      // Sağdan sola: her bloğun EN GEÇ konabileceği yer — arkasındakilere yer kalsın diye.
+      const tavan: number[] = [];
+      let sonrakiSol: number | null = null;
+      let sonraki: Blok | null = null;
+      for (let k = sirali.length - 1; k >= 0; k--) {
+        const b = sirali[k];
+        let sol: number = (sonrakiSol === null ? SAG_SINIR : sonrakiSol - bosluk(b, sonraki)) - b.gen;
+        for (let d = 0; d <= eng.length; d++) {
+          const c = carpanSol(sol, b.gen);
+          if (!c) break;
+          sol = c.sol - b.gen - AYRI_MESAFE;
+        }
+        tavan[k] = sol;
+        sonrakiSol = sol;
+        sonraki = b;
+      }
+
+      // Soldan sağa: blok ev yerinde durur; soldaki üstüne geliyorsa sağa iter, tavanı aşarsa
+      // tavana çekilir — yani sola kayma sadece duvara dayanınca olur, kendiliğinden olmaz.
+      const cikti: { blok: Blok; sol: number }[] = [];
+      let oncekiSag: number | null = null;
+      let onceki: Blok | null = null;
+      for (let k = 0; k < sirali.length; k++) {
+        const b = sirali[k];
+        const alt = oncekiSag === null ? SOL_SINIR : Math.max(SOL_SINIR, oncekiSag + bosluk(onceki, b));
+        let sol = Math.max(b.dogal, alt);
+        for (let d = 0; d <= eng.length; d++) {
+          const c = carpanSag(sol, b.gen);
+          if (!c) break;
+          sol = c.sag + AYRI_MESAFE;
+        }
+        if (sol > tavan[k]) {
+          if (tavan[k] >= alt) sol = tavan[k];
+          else if (!zorla) return null; // bu satıra sığmıyor
+        }
+        cikti.push({ blok: b, sol });
+        oncekiSag = sol + b.gen;
+        onceki = b;
+      }
+      return cikti;
+    };
+
+    // Sığmayan bloğa uygun başka satır ara (kural 3) — önce en yakın satır.
+    // ÖNCE BOŞALAN YERE. Bir küme başka sıradan masa çektiyse o masanın yeri boşta kalır;
+    // sırayı şişiren masa yüzünden taşan masa ORAYA gider (Gökhan, 2026-08-15: "sırada şişen
+    // masayı, sırayı şişiren masanın geldiği yere götürecek"). O nokta tanımı gereği boş
+    // olduğu için masa oraya SABİT konur; satırın geri kalanı onun etrafından dizilir. Böyle
+    // bir yer yoksa eskisi gibi en yakın uygun satır aranır.
+    const uygunSatir = (kaynak: number, b: Blok): { satir: number; dogal: number; sabit?: boolean } | null => {
+      // 1) Boşalan yerler — önce bu satıra masa VEREN satırınki.
+      const sirali = bosalan.map((x, i) => ({ ...x, i }))
+        .sort((x, y) => Math.abs(x.satir - kaynak) - Math.abs(y.satir - kaynak));
+      for (const spot of sirali) {
+        if (spot.satir === kaynak) continue;
+        const carpan = engeller[spot.satir].some((o) => spot.sol < o.sag && o.sol < spot.sol + b.gen);
+        if (carpan) continue;
+        engeller[spot.satir].push({ sol: spot.sol, sag: spot.sol + b.gen });
+        const olur = diz(spot.satir) !== null;
+        if (olur) {
+          bosalan.splice(bosalan.findIndex((x) => x === bosalan[spot.i] || (x.satir === spot.satir && x.sol === spot.sol)), 1);
+          return { satir: spot.satir, dogal: spot.sol, sabit: true };
+        }
+        engeller[spot.satir].pop();
+      }
+      // 2) Boşalan yer yoksa en yakın uygun satır.
+      const adaylar = satirlar.map((_, i) => i).filter((i) => i !== kaynak)
+        .sort((x, y) => Math.abs(x - kaynak) - Math.abs(y - kaynak) || x - y);
+      for (const hedef of adaylar) {
+        // Yeni satırda masa ESKİ x'inde ısrar etmez: orası doluysa satırın soldan ilk boş
+        // yerine oturur. Eski x korunduğunda masa gittiği satırda da sıkışıp taşıyordu.
+        for (const dogal of [b.dogal, SOL_SINIR]) {
+          const eskiSatir = b.satir, eskiDogal = b.dogal;
+          b.satir = hedef; b.dogal = dogal;
+          satirBlok[hedef].push(b);
+          const olur = diz(hedef) !== null;
+          satirBlok[hedef] = satirBlok[hedef].filter((x) => x !== b);
+          b.satir = eskiSatir; b.dogal = eskiDogal;
+          if (olur) return { satir: hedef, dogal };
+        }
+      }
+      return null;
+    };
+
+    for (let i = 0; i < satirlar.length; i++) {
+      const denenmis = new Set<Blok>();
+      let guvenlik = 0;
+      while (diz(i) === null && guvenlik++ < 30) {
+        // Önce işi olmayan tek masalar (en sağdakinden), en son küme — küme bölünemediği için
+        // taşınması en pahalı olan odur.
+        const adaylar = satirBlok[i].filter((b) => !denenmis.has(b))
+          .sort((a, b) => (a.kume === b.kume ? b.dogal - a.dogal : a.kume ? 1 : -1));
+        let tasindi = false;
+        for (const b of adaylar) {
+          denenmis.add(b);
+          const hedef = uygunSatir(i, b);
+          if (!hedef) continue;
+          satirBlok[i] = satirBlok[i].filter((x) => x !== b);
+          if (hedef.sabit) {
+            // Boşalan yere SABİT kondu: engel zaten kaydedildi, yerini burada yazıyoruz.
+            let x = hedef.dogal;
+            b.uyeler.forEach((m) => { yerlesmis.set(m.id, { x: xIcin(m, x), y: satirlar[hedef.satir].y }); x += gen(m); });
+          } else {
+            b.satir = hedef.satir; b.dogal = hedef.dogal;
+            satirBlok[hedef.satir].push(b);
+          }
+          tasindi = true;
+          break;
+        }
+        // SON ÇARE: KÜMEYİ İKİYE BÖL, YAN YANA İKİ SIRAYA KOY (Gökhan, 2026-08-15).
+        // Hiçbir masa taşınamıyorsa sıra gerçekten sığmıyor demektir. Eskiden bu noktada masa
+        // salonun duvarını aşıyordu. Artık kümenin yarısı kendi sırasında kalır, öteki yarısı
+        // hemen ALTTAKİ (yoksa üstteki) sıraya, aynı hizaya iner — grup yine bir arada,
+        // sadece iki sıra hâlinde oturur.
+        if (!tasindi) {
+          const bolunecek = satirBlok[i].filter((b) => b.kume && b.uyeler.length > 1)
+            .sort((a, b) => b.gen - a.gen)[0];
+          if (!bolunecek) break;
+          const komsu = [i + 1, i - 1].find((k) => k >= 0 && k < satirlar.length);
+          if (komsu === undefined) break;
+          const orta = Math.ceil(bolunecek.uyeler.length / 2);
+          const ustYari = bolunecek.uyeler.slice(0, orta);
+          const altYari = bolunecek.uyeler.slice(orta);
+          const yariKur = (uyeler: PlanMasa[], satir: number, dogal: number): Blok =>
+            ({ uyeler, gen: uyeler.reduce((t, m) => t + gen(m), 0), dogal, satir, kume: true });
+          const a = yariKur(ustYari, i, bolunecek.dogal);
+          const b2 = yariKur(altYari, komsu, bolunecek.dogal);
+          satirBlok[i] = satirBlok[i].filter((x) => x !== bolunecek);
+          satirBlok[i].push(a);
+          satirBlok[komsu].push(b2);
+          if (diz(i) === null || diz(komsu) === null) {
+            // Bölmek de kurtarmadı — eski hâline dönülür, aşağıdaki son dizilim elinden geleni yapar.
+            satirBlok[i] = satirBlok[i].filter((x) => x !== a);
+            satirBlok[komsu] = satirBlok[komsu].filter((x) => x !== b2);
+            satirBlok[i].push(bolunecek);
+            break;
+          }
+          continue;
+        }
+      }
+    }
+
+    // ÖKSÜZ KALAN MASAYI BOŞ ALANA GÖNDER (Gökhan, 2026-08-15: "masa hizası 18 kişiyse ve
+    // 20 kişilik rezervasyon varsa 20 yaparsın ama fazla masayı boş yere gönderirsin").
+    // Bir sıra büyük grup için genişletilince o sıranın kalanındaki masa, grubun bittiği
+    // yerden kopuk, ortada asılı kalıyordu — üstelik grubun masasını verdiği satırda kocaman
+    // bir delik dururken. Artık öyle bir masa o deliğe taşınır.
+    for (const spot of [...bosalan]) {
+      let enIyi: { blok: Blok; satir: number } | null = null;
+      // 1) ÖNCE GENİŞLEYEN SIRA. O sırada kümenin dışında kalan masa "fazla" masadır; sıranın
+      //    ucunda tutulmaz, boşalan yere gönderilir. En sağdaki (en dışarıda kalan) seçilir.
+      if (spot.gidenSatir !== spot.satir) {
+        const artiklar = [...(diz(spot.gidenSatir, true) ?? [])]
+          .filter((y) => y.blok !== spot.kume)
+          .sort((a, b) => b.sol - a.sol);
+        if (artiklar.length > 0) enIyi = { blok: artiklar[0].blok, satir: spot.gidenSatir };
+      }
+      // 2) Olmadıysa: nerede olursa olsun, önünde kocaman boşluk kalmış blok.
+      if (!enIyi) {
+        let enGenis = AYRI_MESAFE * 2;
+        for (let i = 0; i < satirlar.length; i++) {
+          if (i === spot.satir) continue;
+          const sirali = [...(diz(i, true) ?? [])].sort((a, b) => a.sol - b.sol);
+          for (let k = 1; k < sirali.length; k++) {
+            const onceki = sirali[k - 1];
+            const aralik = sirali[k].sol - (onceki.sol + onceki.blok.gen);
+            if (aralik <= enGenis) continue;
+            enGenis = aralik;
+            enIyi = { blok: sirali[k].blok, satir: i };
+          }
+        }
+      }
+      if (!enIyi) continue;
+      const { blok, satir: kaynak } = enIyi;
+      if (engeller[spot.satir].some((o) => spot.sol < o.sag && o.sol < spot.sol + blok.gen)) continue;
+      satirBlok[kaynak] = satirBlok[kaynak].filter((x) => x !== blok);
+      engeller[spot.satir].push({ sol: spot.sol, sag: spot.sol + blok.gen });
+      if (diz(spot.satir) === null || diz(kaynak) === null) {
+        // Taşımak işleri bozuyorsa vazgeç, eski hâline dön.
+        engeller[spot.satir].pop();
+        satirBlok[kaynak].push(blok);
+        continue;
+      }
+      let bx = spot.sol;
+      blok.uyeler.forEach((m) => { yerlesmis.set(m.id, { x: xIcin(m, bx), y: satirlar[spot.satir].y }); bx += gen(m); });
+      bosalan.splice(bosalan.indexOf(spot), 1);
+    }
+
+    satirlar.forEach((s, i) => {
+      (diz(i, true) ?? []).forEach(({ blok, sol }) => {
+        let x = sol;
+        blok.uyeler.forEach((m) => {
+          yerlesmis.set(m.id, { x: xIcin(m, x), y: s.y });
+          x += gen(m); // küme içi dip dibe — aradaki boşluk kapanır
+        });
+      });
+    });
   });
 
+  // Sadece gerçekten değişenler yazılır — kilitli masaya ve hiç oynamayana dokunulmaz.
   const yerler: MasaYeri[] = [];
   tumMasalar.forEach((m) => {
-    const yeni = sonuc.get(m.id);
+    if (kilitliIds.has(m.id) && !kilitliTasinan.has(m.id)) return;
+    const yeni = yerlesmis.get(m.id);
     if (yeni && (m.position_x !== yeni.x || m.position_y !== yeni.y)) yerler.push({ id: m.id, x: yeni.x, y: yeni.y });
   });
   return yerler;

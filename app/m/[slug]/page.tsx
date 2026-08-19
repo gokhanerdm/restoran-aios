@@ -60,10 +60,29 @@ export default async function PublicMenu({
   const { embed: embedParam, masa: masaParam } = await searchParams;
   const embed = embedParam === "1";
 
-  const { data: rest } = await db
-    .from("restaurants").select("id, name").eq("slug", slug).is("deleted_at", null).maybeSingle();
+  // Veri kilidi (2026-08-10) sonrası bu sayfa tablolara doğrudan bakmıyor: menünün tamamı tek
+  // bir denetimli çağrıdan geliyor. Girişsiz bir sayfanın işletmenin maliyet, tedarikçi, stok
+  // miktarı gibi iç bilgisine erişimi yok — dışarıya açık olan ne varsa (kategori, ürün,
+  // alerjen/kalori için tarif satırları, "bitti" bilgisi) o kadarı dönüyor.
+  //
+  // QR sipariş — SADECE /m/<slug>?masa=<table_id> ile açıldığında. Masa parametresi yoksa,
+  // geçersizse ya da başka bir restorana aitse çağrı masayı boş döndürür; sipariş özelliği HİÇ
+  // gösterilmez, sayfa eskisi gibi salt görüntülenen bir menü olarak kalır.
+  const { data: menuData } = await db.rpc("qr_menu", {
+    p_slug: slug,
+    p_masa: masaParam && UUID_RE.test(masaParam) ? masaParam : null,
+  });
 
-  if (!rest) {
+  const menu = menuData as {
+    restaurant: { id: string; name: string };
+    settings: { default_menu_design: string | null; kvkk_notice: string | null } | null;
+    categories: Category[];
+    products: Product[];
+    stock: { menu_item_id: string; is_86d: boolean; low_stock: boolean; servings_left: number | null }[];
+    table: { id: string; name: string } | null;
+  } | null;
+
+  if (!menu) {
     return (
       <div style={{ background: "var(--canvas)", minHeight: "100vh", padding: 40, textAlign: "center", color: "var(--muted)" }}>
         Menü bulunamadı.
@@ -71,34 +90,14 @@ export default async function PublicMenu({
     );
   }
 
-  const [{ data: c }, { data: p }, { data: settingsRow }, { data: stockRows }] = await Promise.all([
-    db.from("menu_categories").select("id, name, parent_id").eq("restaurant_id", rest.id).is("deleted_at", null).order("sort_order"),
-    db.from("menu_items")
-      .select("id, name, sale_price, vat_rate, category_id, calorie_override, description, image_url, ingredients_text, allergens_override, recipe_items(quantity, ingredients(name, kcal_per_unit, diet_class, allergens))")
-      .eq("restaurant_id", rest.id).eq("is_active", true).eq("available_dine_in", true).is("deleted_at", null).order("sort_order"),
-    db.from("restaurant_settings").select("default_menu_design, kvkk_notice").eq("restaurant_id", rest.id).maybeSingle(),
-    // Ürün bitti (86) — canlı stok hesabı (ROADMAP §O7). Müşteri elle "bitti" işaretlemeyi
-    // beklemeden, mutfağın stoktan düştüğü an ekranda görür.
-    db.rpc("menu_items_stock_status", { p_restaurant: rest.id }),
-  ]);
-
-  const categories = (c as Category[]) ?? [];
-  const products = (p as unknown as Product[]) ?? [];
-  const photoStyle = settingsRow?.default_menu_design === "fotografli";
-  const kvkkNotice = (settingsRow?.kvkk_notice as string | null) ?? "";
+  const rest = menu.restaurant;
+  const categories = menu.categories ?? [];
+  const products = menu.products ?? [];
+  const photoStyle = menu.settings?.default_menu_design === "fotografli";
+  const kvkkNotice = menu.settings?.kvkk_notice ?? "";
   const stockMap = new Map<string, { is_86d: boolean; low_stock: boolean; servings_left: number | null }>();
-  ((stockRows as { menu_item_id: string; is_86d: boolean; low_stock: boolean; servings_left: number | null }[]) ?? [])
-    .forEach((s) => stockMap.set(s.menu_item_id, s));
-
-  // QR sipariş — SADECE /m/<slug>?masa=<table_id> ile açıldığında. Masa parametresi yoksa,
-  // geçersizse ya da başka bir restorana aitse sipariş özelliği HİÇ gösterilmez; sayfa
-  // eskisi gibi salt görüntülenen bir menü olarak kalır.
-  const { data: tableRow } =
-    masaParam && UUID_RE.test(masaParam)
-      ? await db.from("restaurant_tables").select("id, name")
-          .eq("id", masaParam).eq("restaurant_id", rest.id).is("deleted_at", null).maybeSingle()
-      : { data: null };
-  const orderTable = (tableRow as { id: string; name: string } | null) ?? null;
+  (menu.stock ?? []).forEach((s) => stockMap.set(s.menu_item_id, s));
+  const orderTable = menu.table ?? null;
 
   const renderCategory = (cat: Category, depth: number): React.ReactNode => {
     const subs = categories.filter((x) => x.parent_id === cat.id);

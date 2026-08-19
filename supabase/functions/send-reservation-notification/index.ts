@@ -10,8 +10,18 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 type Body = { reservation_id?: string; type?: "onay" | "hatirlatma" };
 
+// CORS (Gokhan, 2026-08-18): tarayicidan cagrilinca preflight istegi bos donuyordu ve
+// konsola kirmizi hata dusuyordu ("sayfa altta kirmizi hata verdi"). Fonksiyon hicbir sey
+// gondermese bile cagri temiz sonlanmali.
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 Deno.serve(async (req: Request) => {
-  const headers = { "Content-Type": "application/json" };
+  const headers = { "Content-Type": "application/json", ...cors };
+  if (req.method === "OPTIONS") return new Response("ok", { headers });
   try {
     const { reservation_id, type } = (await req.json()) as Body;
     if (!reservation_id || !type) {
@@ -56,12 +66,20 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ sent: false, reason: "saglayici henuz baglanmadi" }), { headers });
     }
 
-    // const mesaj = type === "onay"
-    //   ? `${rez.guest_name}, rezervasyonunuz alindi.`
-    //   : `${rez.guest_name}, rezervasyon saatiniz yaklasiyor.`;
-    // TODO: saglayicinin gercek API cagrisi buraya (fetch ile).
+    const zaman = new Intl.DateTimeFormat("tr-TR", {
+      timeZone: "Europe/Istanbul", day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit",
+    }).format(new Date(rez.reserved_at));
 
-    return new Response(JSON.stringify({ sent: false, reason: "saglayici entegrasyonu henuz tamamlanmadi" }), { headers });
+    // Dogum tarihi HICBIR EKRANDA SORULMUYOR (Gokhan, 2026-08-15: "biz hicbir sekilde dogum
+    // tarihi sormayalim, onay mesaji gittiginde orada sorsun"). Sadece onay mesajinda teklif
+    // ediliyor; isteyen yazar, yazanin kartina islenir.
+    const dogumDaveti = "Isterseniz ozel gunlerinizde yaninizda olabilmemiz icin dogum tarihinizi yazabilirsiniz.";
+    const mesaj = type === "onay"
+      ? `${rez.guest_name}, ${zaman} icin ${rez.party_size} kisilik rezervasyonunuz alindi. ${dogumDaveti}`
+      : `${rez.guest_name}, ${zaman} rezervasyonunuz yaklasiyor. Sizi agirlamayi bekliyoruz.`;
+    // TODO: saglayicinin gercek API cagrisi buraya (fetch ile) - yukaridaki `mesaj` gonderilecek.
+
+    return new Response(JSON.stringify({ sent: false, reason: "saglayici entegrasyonu henuz tamamlanmadi", mesaj }), { headers });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers });
   }

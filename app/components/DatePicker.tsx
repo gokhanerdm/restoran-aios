@@ -38,12 +38,20 @@ const ayinGunSayisi = (y: number, m: number) => new Date(y, m, 0).getDate();
 export default function DatePicker({ value, onChange, style }: Props) {
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  // yukari: kutu aşağı sığmıyorsa düğmenin ÜSTÜNE açılır (Gökhan, 2026-08-15: "doğum günü
+  // tarih girmeye basınca kutu aşağı açılıyor, ekranın dışında kalıyor"). Yükseklik önceden
+  // bilinmiyor; yön tahminle seçiliyor ama hizalama translateY(-100%) ile tam oturuyor.
+  const [pos, setPos] = useState({ top: 0, left: 0, yukari: false });
   const sel = parse(value);
   const [viewY, setViewY] = useState(sel.y);
   const [viewM, setViewM] = useState(sel.m);
+  // Yıl listesi — doğum günü girerken ay oklarıyla 40 yıl geri gitmek imkânsızdı
+  // (Gökhan, 2026-08-15: "elle girilen doğum günü takviminde yıl seçimi yok").
+  // Başlıktaki "Ağustos 2026" yazısına basınca yıllar açılıyor.
+  const [yilAcik, setYilAcik] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const seciliYilRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -58,11 +66,22 @@ export default function DatePicker({ value, onChange, style }: Props) {
     return () => { document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onEsc); };
   }, [open]);
 
+  // Yıl listesi açılınca seçili yıl görünür olsun — 1950'yi bulmak için elle kaydırmasın.
+  useEffect(() => {
+    if (yilAcik) seciliYilRef.current?.scrollIntoView({ block: "center" });
+  }, [yilAcik]);
+
   const openPicker = () => {
     const r = btnRef.current!.getBoundingClientRect();
-    setPos({ top: r.bottom + 6, left: r.left });
+    const KUTU = 330; // takvimin yaklaşık boyu
+    const altBosluk = window.innerHeight - r.bottom;
+    const yukari = altBosluk < KUTU && r.top > altBosluk;
+    // Sağ kenardan da taşmasın — dar ekranda kutu yarısı dışarıda kalıyordu.
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 248));
+    setPos({ top: yukari ? r.top - 6 : r.bottom + 6, left, yukari });
     const p = parse(value);
     setViewY(p.y); setViewM(p.m);
+    setYilAcik(false);
     setOpen(true);
   };
 
@@ -77,6 +96,9 @@ export default function DatePicker({ value, onChange, style }: Props) {
   const ilkGun = ayinIlkGunu(viewY, viewM);
   const gunSayisi = ayinGunSayisi(viewY, viewM);
   const bugun = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul" }).format(new Date());
+  // Rezervasyon için birkaç yıl ileri, doğum günü için yüz yıl geri — tek liste ikisine yeter.
+  const buYil = Number(bugun.slice(0, 4));
+  const yillar = Array.from({ length: 103 }, (_, i) => buYil + 2 - i);
 
   return (
     <>
@@ -101,15 +123,54 @@ export default function DatePicker({ value, onChange, style }: Props) {
           ref={popRef}
           style={{
             position: "fixed", top: pos.top, left: pos.left, zIndex: 1000,
+            transform: pos.yukari ? "translateY(-100%)" : undefined,
             background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14,
             boxShadow: "0 8px 24px rgba(30,57,50,.15)", padding: 12, width: 240,
+            boxSizing: "border-box",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <button type="button" onClick={() => gecAy(-1)} aria-label="Önceki ay" style={navBtn}><ChevronLeft size={15} /></button>
-            <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }}>{AY_ADI[viewM - 1]} {viewY}</span>
-            <button type="button" onClick={() => gecAy(1)} aria-label="Sonraki ay" style={navBtn}><ChevronRight size={15} /></button>
+            <button type="button" onClick={() => gecAy(-1)} aria-label="Önceki ay" disabled={yilAcik}
+              style={{ ...navBtn, opacity: yilAcik ? 0.25 : 1 }}><ChevronLeft size={15} /></button>
+            {/* Başlık düğme: basınca yıl listesi açılır, yıl seçilince aya geri döner. */}
+            <button
+              type="button"
+              onClick={() => setYilAcik((v) => !v)}
+              title={yilAcik ? "Aya dön" : "Yıl seç"}
+              style={{ all: "unset", cursor: "pointer", fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", padding: "2px 8px", borderRadius: 8 }}
+            >
+              {yilAcik ? `${viewY} · yıl seç` : `${AY_ADI[viewM - 1]} ${viewY}`}
+            </button>
+            <button type="button" onClick={() => gecAy(1)} aria-label="Sonraki ay" disabled={yilAcik}
+              style={{ ...navBtn, opacity: yilAcik ? 0.25 : 1 }}><ChevronRight size={15} /></button>
           </div>
+
+          {yilAcik && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2, maxHeight: 208, overflowY: "auto" }}>
+              {yillar.map((y) => {
+                const secili = y === viewY;
+                return (
+                  <button
+                    key={y}
+                    ref={secili ? seciliYilRef : undefined}
+                    type="button"
+                    onClick={() => { setViewY(y); setYilAcik(false); }}
+                    style={{
+                      all: "unset", cursor: "pointer", textAlign: "center", padding: "7px 0", borderRadius: 8,
+                      fontSize: 12.5, fontWeight: secili ? 700 : 400,
+                      background: secili ? "var(--brand-strong)" : "transparent",
+                      color: secili ? "#fff" : "var(--ink)",
+                    }}
+                  >
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!yilAcik && (
+          <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
             {GUN_KISA.map((g) => (
               <div key={g} style={{ textAlign: "center", fontSize: 10.5, color: "var(--muted-2)", padding: "2px 0" }}>{g}</div>
@@ -139,6 +200,8 @@ export default function DatePicker({ value, onChange, style }: Props) {
               );
             })}
           </div>
+          </>
+          )}
         </div>,
         document.body
       )}

@@ -8,6 +8,12 @@ Bu dosya, Gökhan'ın tekrar söylemesine gerek kalmadan her sayfada uygulanacak
 - **Sık yapılan hata:** `flex: column` içindeki kayan kutuya sadece `overflowY: auto` yazıp `flex: 1` unutmak. `flex: 1` olmadan kutu içeriğe göre büyür, hiç kırpılmaz/kaymaz, panel de büyüyüp sayfayı iter. Her kayan iç kutuda `{ flex: 1, overflowY: "auto", minHeight: 0 }` üçlüsü birlikte olmalı.
 - İkinci panel/bölge çok uzunsa (ör. ürün detayında birden fazla bölüm), az kullanılan bölümler `collapsible` (varsayılan kapalı) yapılır ki panel varsayılan halde scroll'suz sığsın (bkz. Menü'deki `Section` bileşeni).
 
+- **İstatistikler ekranı bu kuralı denedi ve geri döndü** (Gökhan, 2026-08-11): bir gün
+  "bölümler alt alta, kaydırarak gez" düzenine geçildi, ertesi gün kaldırıldı — "o kadar
+  kaydırmaya sekmeye ihtiyaç yok, tek ekranda göreceğim bir tablo istiyorum". Ekran şimdi
+  tek çizelge: solda ölçüler, sütunlarda Gün/Hafta/Ay + seçilen günlerin tarihleri. Kural
+  burada da geçerli — bu ekranı tekrar kaydırmalı yapmayın.
+
 ## 1b. Her "ekle" formunda Enter ile kaydetme zorunlu
 - Yeni kayıt ekleme mini-formlarında (ürün, malzeme, masa, başlık vb.) tüm metin/sayı input'ları **Enter'a basınca da kaydetmeli**, sadece fare ile butona tıklayınca değil.
 - **Üç ayrı ekranda (Menü, Stok, Salonlar) bu unutulup aynı hata tekrarlandı** — kullanıcı yazıp Enter'a basıyor, hiçbir şey olmuyor, "kaydetmiyor" sanılıyor. Artık mimari kural: her yeni "ekle" formu yazılırken `submit` fonksiyonu tek yerde tanımlanır, tüm input'lara `onKeyDown={(e) => e.key === "Enter" && submit()}` eklenir, buton da aynı `submit`i çağırır.

@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase/client";
 import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
 import { SIFRE_KURALLARI, sifreGecerliMi, gucluSifreOner } from "@/lib/passwordPolicy";
+import { gecicSifre } from "@/lib/gecicSifre";
 
 // REZERVASYON — kendi giriş/kayıt ekranı (Gökhan, 2026-08-04). AIOS'un /giris ekranıyla
 // AYNI görsel dili (kart, pill toggle, input stilleri) kullanılıyor ama mekanizma tamamen
@@ -33,7 +34,14 @@ const DAYS: { k: DayKey; l: string }[] = [
 ];
 const TUM_GUNLER = new Set<DayKey>(DAYS.map((d) => d.k));
 
-const ISLETME_TURLERI = ["Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Bar / Pub", "Gece kulübü", "Fast food", "Otel restoranı", "Diğer"];
+// Seçilen tür artık sadece kayda yazılmıyor — ayarların varsayılanını da o basıyor
+// (Gökhan, 2026-08-16: "kayıtta zaten işletme türü seçimi var, biz sadece ayarları ve
+// özellikleri bağlayacağız"). Eşleşme veritabanında: isletme_turu_slug + isletme_tipi_varsayilani.
+// BURAYA YENİ TÜR EKLENİRSE o iki fonksiyona da eklenmeli, yoksa "Diğer" varsayılanına düşer.
+const ISLETME_TURLERI = [
+  "Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Fast food",
+  "Meyhane", "Yeni nesil meyhane", "Canlı müzik", "Gazino", "Bar / Pub", "Gece kulübü", "Diğer",
+];
 
 // Güçlü parola standardı — kabul gören en yaygın kural: en az 8 karakter, bir büyük harf,
 // bir küçük harf, bir rakam, bir sembol. Kayıt formunda canlı gösteriliyor (kutu yazarken
@@ -172,12 +180,22 @@ export default function RezervasyonGirisPage() {
 
   const submitGiris = async () => {
     if (busy) return;
-    if (!email.trim() || !password) { setErr("E-posta ve şifre gerekli."); return; }
+    // GEÇİCİ KOLAYLIK (Gökhan, 2026-08-18: "şifresiz direkt giriş yapabilmem gerekiyordu"):
+    // şifre boş bırakılırsa program e-postadan türettiği geçici şifreyle giriyor — Ekip
+    // üyeliğindeki davranışın aynısı, aynı şifreyi üretiyor. Demo bitince sökülecek.
+    if (!email.trim()) { setErr("E-posta gerekli."); return; }
     setBusy(true); setErr(null);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: password || gecicSifre(email),
+    });
+    if (error) { setBusy(false); setErr(friendlyErr(error.code, error.message)); return; }
+    // PERSONEL EKİP PANELİNE (Gökhan, 2026-08-18) — girenin personel kaydı varsa Ekip
+    // paneline düşüyor; orada rolü, işletmesi ve kendi ekranına geçiş duruyor. İşletme
+    // sahibinin personel kaydı yoktur, o doğrudan rezervasyon listesine gidiyor.
+    const { data: personel } = await supabase.from("personel_hesaplari").select("id").limit(1);
     setBusy(false);
-    if (error) { setErr(friendlyErr(error.code, error.message)); return; }
-    router.push("/rezervasyon");
+    router.push((personel?.length ?? 0) > 0 ? "/ekip" : "/rezervasyon");
   };
 
   // Şifremi unuttum — kendi katmanı (Gökhan, 2026-08-04: "önce mailini yaz sonra tıkla

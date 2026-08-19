@@ -21,7 +21,26 @@ export async function getMyReservationRestaurants(): Promise<ReservationBranch[]
     .eq("owner_user_id", session.user.id)
     .is("deleted_at", null)
     .order("created_at");
-  return (data as ReservationBranch[]) ?? [];
+  const sahibi = (data as ReservationBranch[]) ?? [];
+  if (sahibi.length > 0) return sahibi;
+
+  // İŞLETME SAHİBİ DEĞİLSE PERSONEL OLABİLİR (Gökhan, 2026-08-17: onaylanan personel
+  // "Panele git" deyince giriş ekranına düşüyordu). Ekip uygulamasından kodla bağlanıp
+  // ONAYLANMIŞ personelin de paneli açılmalı; bağı personel_hesaplari tutuyor.
+  const { data: pd } = await supabase
+    .from("personel_hesaplari")
+    .select("restaurant_id, restaurants(id, name, il, ilce)")
+    .eq("user_id", session.user.id)
+    .eq("durum", "onayli");
+  type Satir = { restaurants: ReservationBranch | ReservationBranch[] | null };
+  const bulunan = ((pd as Satir[]) ?? [])
+    .map((x) => (Array.isArray(x.restaurants) ? x.restaurants[0] : x.restaurants))
+    .filter((x): x is ReservationBranch => Boolean(x));
+  // Aynı işletmede birden fazla personel kaydı olabiliyor (test kişileri) — aynı işletme
+  // iki kez listelenince ekranda şube değiştirici çıkıyordu (Gökhan, 2026-08-17: "işletme
+  // isminin yanında bir ok var, onu kaldır"). Tekilleştiriliyor.
+  const gorulen = new Set<string>();
+  return bulunan.filter((s) => (gorulen.has(s.id) ? false : (gorulen.add(s.id), true)));
 }
 
 export async function getMyReservationRestaurantId(): Promise<string | null> {

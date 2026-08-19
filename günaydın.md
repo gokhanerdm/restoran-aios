@@ -47,6 +47,10 @@ Rapor yok. Tablo yok. Başlık yok. "Ne yaptım" dökümü yok. Özet yok.
 
 Sadece **"bitti"** ve **Gökhan'ın test etmesi gereken şey.** Başka bir şey yazılmaz.
 
+Link verilmez, ne yapıldığının açıklaması da yazılmaz — **sadece "bitti"** (Gökhan,
+2026-08-12: "bitti demen yeterli"). Merak ederse sorar. Yalnızca üst düzey bir durum varsa
+(bir şey bozulduysa, bir karar gerekiyorsa) kısaca yazılır.
+
 Üst düzey bir şey olduysa kısa ve sade birkaç cümleyle anlatılır — yine terimsiz.
 
 ## 6. Testi Gökhan yapar
