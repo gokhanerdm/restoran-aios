@@ -469,7 +469,7 @@ function MusteriAdaylariListesi({ adaylar, onSec }: { adaylar: MusteriAday[]; on
 // tek sorguyla getiriliyor — her satır için ayrı ayrı sorgu atmıyor.
 function MobilRezervasyonListesi({
   rows, toplamMasa, toplamKapasite, doluluk, yedekMasa, yedekPax, masaAdi, gun, bugunMu, onGunDegistir, onYeniRezervasyon, onKartAc, onKilit,
-  arama, onArama, yatay, acilir,
+  arama, onArama, yatay, acilir, postamVar, benimMi, sadeceBenim, onSadeceBenim,
 }: {
   rows: Rez[]; toplamMasa: number; toplamKapasite: number; doluluk: number;
   yedekMasa: number; yedekPax: number;
@@ -479,6 +479,12 @@ function MobilRezervasyonListesi({
   arama: string; onArama: (v: string) => void; yatay: boolean;
   /** Bu satır tıklanıp kartı açılabilir mi — kısıtlı rollerde sadece kendi girdikleri. */
   acilir: (r: Rez) => boolean;
+  /** Bakanın postası var mı — yoksa "benim masalarım" düğmesi hiç çıkmaz. */
+  postamVar: boolean;
+  /** Bu rezervasyonun masası bakanın postasında mı. */
+  benimMi: (r: Rez) => boolean;
+  sadeceBenim: boolean;
+  onSadeceBenim: (v: boolean) => void;
 }) {
   const [vipSet, setVipSet] = useState<Set<string>>(new Set());
 
@@ -579,6 +585,25 @@ function MobilRezervasyonListesi({
           </button>
         )}
       </div>
+      {/* BENİM MASALARIM (Gökhan, 2026-08-18: "garson hem listeyi görebilsin hem de sadece
+          kendi masalarını"). Liste tam kalıyor; garsonun kendi postasındaki satırlar zaten
+          işaretli, bu düğme de tek dokunuşla sadece onları bırakıyor. Postası olmayan
+          garsonda düğme hiç çıkmıyor — basınca boş liste kalırdı. */}
+      {postamVar && (
+        <div style={{ display: "flex", flexShrink: 0 }}>
+          <button
+            onClick={() => onSadeceBenim(!sadeceBenim)}
+            style={{
+              all: "unset", cursor: "pointer", flexShrink: 0, padding: "6px 12px", borderRadius: 980,
+              border: `1px solid ${sadeceBenim ? "var(--brand)" : "var(--line-2)"}`,
+              background: sadeceBenim ? "var(--recede)" : "var(--card)",
+              color: sadeceBenim ? "var(--brand)" : "var(--muted)", fontSize: 12.5, fontWeight: 600,
+            }}
+          >
+            Benim masalarım
+          </button>
+        </div>
+      )}
       <div style={{ flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 6 }}>
         {rows.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13, padding: "10px 0" }}>Bu gün için kayıt yok.</div>}
         {rows.map((r, i) => {
@@ -594,6 +619,10 @@ function MobilRezervasyonListesi({
               style={{
                 all: "unset", cursor: acilir(r) ? "pointer" : "default", display: "flex", alignItems: "center", gap: 8,
                 background: info.bg, borderRadius: 10, padding: "12px 14px", boxSizing: "border-box", flexShrink: 0,
+                // Garsonun kendi postasındaki masa, tam listenin içinde bir bakışta ayrılsın
+                // diye kenarı işaretli (Gökhan, 2026-08-18).
+                borderLeft: postamVar && benimMi(r) ? "4px solid var(--brand)" : undefined,
+                paddingLeft: postamVar && benimMi(r) ? 10 : undefined,
               }}
             >
               {/* Sıra numarası — masaüstü tablodaki SNO ile aynı (Gökhan, 2026-08-08). */}
@@ -1288,6 +1317,21 @@ export default function RezervasyonPage() {
     return () => { acik = false; };
   }, []);
 
+  // GARSONUN KENDİ POSTASI (Gökhan, 2026-08-18: "garson hem listeyi görebilsin hem de sadece
+  // kendi masalarını"). Postasındaki masaların kimlikleri; listede kendi satırlarını
+  // işaretlemek ve süzmek için. Posta akşam dağıtılıyor, dağıtılmadıysa küme boş kalıyor ve
+  // süzme düğmesi hiç çıkmıyor.
+  const [postamMasalar, setPostamMasalar] = useState<Set<string>>(new Set());
+  const [sadeceBenim, setSadeceBenim] = useState(false);
+  useEffect(() => {
+    if (rolum !== "garson") return;
+    let acik = true;
+    supabase.rpc("postam").then(({ data }) => {
+      if (acik) setPostamMasalar(new Set((data as string[] | null) ?? []));
+    });
+    return () => { acik = false; };
+  }, [rolum]);
+
   // İşletme oturumdan çözülür — oturum yoksa ya da hesabın restoranı yoksa girişe düşer.
   // Şube listesi de burada çekiliyor — çok şubeli hesapta değiştirici için (tek şubelide
   // liste 1 elemanlı geleceği için değiştirici zaten hiç görünmeyecek).
@@ -1496,6 +1540,14 @@ export default function RezervasyonPage() {
     isMobile && rolum === "garson"
       ? false
       : !kisitli || (!!r.alan_hesap_id && r.alan_hesap_id === benimPersonelId);
+
+  /** Bu rezervasyonun masası garsonun kendi postasında mı — birleşen masalardan biri yetiyor. */
+  const benimRezMi = (r: Rez) => {
+    const idler = rezMasalar[r.id] ?? (r.table_id ? [r.table_id] : []);
+    return idler.some((id) => postamMasalar.has(id));
+  };
+  /** Kendi masalarını işaretleme ve süzme sadece telefonda, postası dağıtılmış garsonda. */
+  const postamVar = isMobile && rolum === "garson" && postamMasalar.size > 0;
   useEffect(() => {
     setMenuKapali(window.localStorage.getItem("rzv_menu_kapali") === "1");
   }, []);
@@ -2834,6 +2886,8 @@ export default function RezervasyonPage() {
       if (!(r.source === filtre && r.status !== "iptal" && r.status !== "gelmedi")) return false;
     }
     if (paxFiltre !== null && r.party_size !== paxFiltre) return false;
+    // "Benim masalarım" sadece telefondaki garsonda açılabiliyor (bkz. postamVar).
+    if (sadeceBenim && postamVar && !benimRezMi(r)) return false;
     if (!aramaQ) return true;
     const masaAdi = tableName(r.table_id) ?? "";
     return (
@@ -3117,6 +3171,10 @@ export default function RezervasyonPage() {
             arama={arama}
             onArama={setArama}
             yatay={yatayMobil}
+            postamVar={postamVar}
+            benimMi={benimRezMi}
+            sadeceBenim={sadeceBenim}
+            onSadeceBenim={setSadeceBenim}
           />
         )}
         {!isMobile && (
