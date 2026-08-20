@@ -1433,7 +1433,7 @@ export default function RezervasyonAyarlarPage() {
             {masaHesabiAcik && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5 }} {...sagTik("Bir masaya en fazla kaç kişi alınabileceğinin genel karşılığı. Masa grubuna ya da masanın kendisine ayrı sayı yazarsanız onlar geçerli olur.")}>Bir masaya en fazla</span>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("Bir masaya en fazla kaç kişi alınabileceğinin genel karşılığı. Masa grubuna ya da masanın kendisine ayrı sayı yazarsanız onlar geçerli olur.")}>Bir masaya en fazla kaç kişi alınabilir.</span>
                   <input
                     value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))}
                     inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
@@ -1441,15 +1441,15 @@ export default function RezervasyonAyarlarPage() {
                   <span style={{ fontSize: 13.5 }}>kişi</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5 }} {...sagTik("Kişi sayısı masanın sınırını aşınca (6-7-8 kişi gibi) program ikinci masayı ekler. Sorsun seçiliyse önce size sorar; ekleme seçiliyse hiç eklemez, masayı siz seçersiniz.")}>Sınır aşılınca</span>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("Kişi sayısı masanın sınırını aşınca (6-7-8 kişi gibi) program ikinci masayı ekler. Sorsun seçiliyse önce size sorar; ekleme seçiliyse hiç eklemez, masayı siz seçersiniz.")}>Tek masalık rezervasyon sınırı aşılınca.</span>
                   <select value={sinirAsilinca} onChange={(e) => setSinirAsilinca(e.target.value)} style={{ ...inp, minWidth: 190 }}>
-                    <option value="otomatik">İkinci masayı kendisi eklesin</option>
-                    <option value="sor">Önce sorsun</option>
-                    <option value="ekleme">Eklemesin, ben seçeyim</option>
+                    <option value="otomatik">İkinci masayı eklesin</option>
+                    <option value="sor">Eklensin mi diye sorsun</option>
+                    <option value="ekleme">Manuel eklensin</option>
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5 }} {...sagTik("İkinci masa yandaki masadan alınmaz — o masa başka misafirindir. Önce depodaki stok masalardan verilir; kullanılan her masa stoktan düşer.")}>Masa stoğu</span>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("İkinci masa yandaki masadan alınmaz — o masa başka misafirindir. Önce depodaki stok masalardan verilir; kullanılan her masa stoktan düşer.")}>Yedek masa stoğu (ad.)</span>
                   <input
                     value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))}
                     inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}

@@ -112,9 +112,7 @@ export default function KurulumPage() {
   const [masaEnFazlaKisi, setMasaEnFazlaKisi] = useState("5");
   const [sinirAsilinca, setSinirAsilinca] = useState("sor");
   const [masaStoguAdet, setMasaStoguAdet] = useState("0");
-  const [masaStoguKisi, setMasaStoguKisi] = useState("5");
   const [onlineAcik, setOnlineAcik] = useState(true);
-  const [gunUfku, setGunUfku] = useState("60");
 
   // 5 — Para ve satış kuralları
   const [fixMenu, setFixMenu] = useState(false);
@@ -171,9 +169,7 @@ export default function KurulumPage() {
     setMasaEnFazlaKisi(String((sRow?.masa_en_fazla_kisi as number) ?? 5));
     setSinirAsilinca((sRow?.sinir_asilinca as string) ?? "sor");
     setMasaStoguAdet(String((sRow?.masa_stogu_adet as number) ?? 0));
-    setMasaStoguKisi(String((sRow?.masa_stogu_kisi as number) ?? 5));
     setOnlineAcik(sRow?.online_acik !== false);
-    setGunUfku(String((sRow?.rezervasyon_gun_ufku as number) ?? 60));
     setKapasite((sRow?.kapasite_kisi as number) ? String(sRow?.kapasite_kisi) : "");
     setFixMenu(Boolean(sRow?.fix_menu_acik));
     setMinimumHarcama(Boolean(sRow?.minimum_harcama_acik));
@@ -304,9 +300,13 @@ export default function KurulumPage() {
       yama.masa_en_fazla_kisi = parseInt(masaEnFazlaKisi || "5", 10) || 5;
       yama.sinir_asilinca = sinirAsilinca;
       yama.masa_stogu_adet = parseInt(masaStoguAdet || "0", 10) || 0;
-      yama.masa_stogu_kisi = parseInt(masaStoguKisi || "5", 10) || 5;
+      // Stok masası da salondaki masa kadar kişi alır — ayrı soru sorulmuyor (Gökhan, 2026-08-20).
+      yama.masa_stogu_kisi = parseInt(masaEnFazlaKisi || "5", 10) || 5;
       yama.online_acik = onlineAcik;
-      yama.rezervasyon_gun_ufku = parseInt(gunUfku || "60", 10) || 60;
+      // Rezervasyon ne kadar ileriye alınabilir diye SORULMUYOR (Gökhan, 2026-08-20:
+      // "isterse seneye bile rezervasyon alır, saçma"). Ufuk pratikte sınırsız açılıyor;
+      // gerçekten sınırlamak isteyen Ayarlar'dan kısar.
+      yama.rezervasyon_gun_ufku = 3650;
     }
     if (adim === "para") {
       yama.fix_menu_acik = fixMenu;
@@ -554,22 +554,18 @@ export default function KurulumPage() {
                 <Kutucuk isaretli={masaHesabi} degistir={setMasaHesabi} ad="Rezervasyonu masa başı al"/>
                 {masaHesabi && (
                   <div style={{ display: "grid", gap: 10, paddingLeft: 12, borderLeft: "2px solid var(--line-2)" }}>
-                    <Alan ad="Bir masaya en fazla kaç kişi"><input value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
-                    <Alan ad="Sınır aşılınca">
+                    <Alan ad="Bir masaya en fazla kaç kişi alınabilir."><input value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
+                    <Alan ad="Tek masalık rezervasyon sınırı aşılınca.">
                       <select value={sinirAsilinca} onChange={(e) => setSinirAsilinca(e.target.value)} style={{ ...inp, width: 240 }}>
-                        <option value="otomatik">İkinci masayı kendisi eklesin</option>
-                        <option value="sor">Önce sorsun</option>
-                        <option value="ekleme">Eklemesin, ben seçeyim</option>
+                        <option value="otomatik">İkinci masayı eklesin</option>
+                        <option value="sor">Eklensin mi diye sorsun</option>
+                        <option value="ekleme">Manuel eklensin</option>
                       </select>
                     </Alan>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <Alan ad="Masa stoğu (adet)"><input value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
-                      <Alan ad="Stok masası kaç kişilik"><input value={masaStoguKisi} onChange={(e) => setMasaStoguKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
-                    </div>
+                    <Alan ad="Yedek masa stoğu (ad.)"><input value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
                   </div>
                 )}
                 <Kutucuk isaretli={onlineAcik} degistir={setOnlineAcik} ad="Online rezervasyon açık"/>
-                <Alan ad="Kaç gün ilerisi açık olsun"><input value={gunUfku} onChange={(e) => setGunUfku(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 90 }} /></Alan>
               </div>
             )}
 
