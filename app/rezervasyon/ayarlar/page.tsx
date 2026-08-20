@@ -207,7 +207,7 @@ const AYAR_BOLUMLERI: { anahtar: AyarBolumu; ad: string }[] = [
 // Varsayılanlar veritabanındaki isletme_tipi_varsayilani ile aynı değerler; ikisi ayrışırsa
 // kayıtta basılan ayar ile buradaki "varsayılanları uygula" farklı sonuç verir.
 type IsletmeTipi =
-  | "gece_kulubu" | "yn_meyhane" | "canli_muzik" | "gazino" | "meyhane" | "bar_pub"
+  | "gece_kulubu" | "gece_kulubu_canli" | "yn_meyhane" | "canli_muzik" | "gazino" | "meyhane" | "bar_pub"
   | "restoran" | "kafe" | "kafeterya" | "pastane" | "fast_food" | "diger";
 // Her türün KENDİ ÇALIŞMA SAATİ de var (Gökhan, 2026-08-16: "her türün kendi varsayılanı
 // olacak, tür değişti ise varsayılan saat de değişir"). İşletme günü ayrıca sorulmuyor —
@@ -216,41 +216,50 @@ type TipVarsayilan = {
   acilis: string; kapanis: string; oturmaSuresi: string;
   fixMenu: boolean; minimumHarcama: boolean; masaPaketi: boolean; ozelGece: boolean;
   pr: boolean; guestList: boolean;
+  // Kapasite koltukla değil MASAYLA sayılsın mı (Gökhan, 2026-08-20: "gece kulübünde sandalye
+  // yok, masa hesabı; bir masaya 2 kişi de 5 kişi de alınır").
+  masaHesabi: boolean;
 };
 const gunduz = (acilis: string, kapanis: string, sure: string): TipVarsayilan => ({
   acilis, kapanis, oturmaSuresi: sure,
   fixMenu: false, minimumHarcama: false, masaPaketi: false, ozelGece: false, pr: false, guestList: false,
+  masaHesabi: false,
 });
 const ISLETME_TIPLERI: { anahtar: IsletmeTipi; ad: string; aciklama: string; v: TipVarsayilan }[] = [
   {
     anahtar: "gece_kulubu", ad: "Gece kulübü",
     aciklama: "Masa satılır, minimum harcama vardır, PR çalışır. Gece sabaha kadar sürer.",
-    v: { acilis: "23:00", kapanis: "06:00", oturmaSuresi: "180", fixMenu: false, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true },
+    v: { acilis: "23:00", kapanis: "06:00", oturmaSuresi: "180", fixMenu: false, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true, masaHesabi: true },
+  },
+  {
+    anahtar: "gece_kulubu_canli", ad: "Gece kulübü — canlı müzik",
+    aciklama: "Gece yarısı açılır, sahnede canlı müzik vardır. Masa satılır, PR çalışır.",
+    v: { acilis: "00:00", kapanis: "06:00", oturmaSuresi: "180", fixMenu: false, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true, masaHesabi: true },
   },
   {
     anahtar: "yn_meyhane", ad: "Yeni nesil meyhane",
     aciklama: "Eğlence mekânı gibi çalışır ama fix menü de satar. Masa paketi ve PR açık gelir.",
-    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true },
+    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: true, guestList: true, masaHesabi: false },
   },
   {
-    anahtar: "canli_muzik", ad: "Canlı müzik",
-    aciklama: "Sahne programı var; fiyat gecenin sanatçısına göre değişir.",
-    v: { acilis: "20:00", kapanis: "03:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false },
+    anahtar: "canli_muzik", ad: "Canlı müzik (akşam)",
+    aciklama: "Sahne programı var; akşam açılır gece yarısını biraz geçer. Fiyat gecenin sanatçısına göre değişir.",
+    v: { acilis: "18:00", kapanis: "01:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false, masaHesabi: false },
   },
   {
     anahtar: "gazino", ad: "Gazino",
     aciklama: "Fasıl ve sahne ağırlıklı; masa paketle satılır, gece geç biter.",
-    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "240", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false },
+    v: { acilis: "20:00", kapanis: "04:00", oturmaSuresi: "240", fixMenu: true, minimumHarcama: true, masaPaketi: true, ozelGece: true, pr: false, guestList: false, masaHesabi: false },
   },
   {
     anahtar: "meyhane", ad: "Meyhane",
     aciklama: "Genelde fix menüyle çalışır, masa gece boyu aynı misafirindir.",
-    v: { acilis: "18:00", kapanis: "03:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false },
+    v: { acilis: "18:00", kapanis: "03:00", oturmaSuresi: "180", fixMenu: true, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false, masaHesabi: false },
   },
   {
     anahtar: "bar_pub", ad: "Bar / Pub",
     aciklama: "Geç kapanır ama masa satmaz, minimum harcama uygulamaz.",
-    v: { acilis: "18:00", kapanis: "04:00", oturmaSuresi: "120", fixMenu: false, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false },
+    v: { acilis: "18:00", kapanis: "04:00", oturmaSuresi: "120", fixMenu: false, minimumHarcama: false, masaPaketi: false, ozelGece: true, pr: false, guestList: false, masaHesabi: false },
   },
   { anahtar: "restoran", ad: "Restoran", aciklama: "Masa gün içinde birkaç kez döner.", v: gunduz("12:00", "23:59", "90") },
   // "Otel restoranı" kaldırıldı (Gökhan, 2026-08-16) — restorandan farkı yoktu.
@@ -337,12 +346,12 @@ const YETKI_SECENEKLERI: { anahtar: string; ad: string }[] = [
 ];
 
 // Liste hâlindeki ayarların satır tipleri — her biri kendi tablosunda.
-type MasaGrubu = { id: string; ad: string; renk: string; fiyatlama_modu: string; tutar: number; dahil_kisi: number | null; asan_kisi_ucreti: number | null; sira: number };
+type MasaGrubu = { id: string; ad: string; renk: string; fiyatlama_modu: string; tutar: number; dahil_kisi: number | null; asan_kisi_ucreti: number | null; en_fazla_kisi: number | null; sira: number };
 // Grup renkleri — salon planında masa bu renkle çizilir. Boş/dolu/rezerve renkleriyle
 // karışmasın diye orta koyulukta, birbirinden ayırt edilebilir bir dizi.
 const GRUP_RENKLERI = ["#8B93A7", "#B4654A", "#5E8C61", "#8E6BA8", "#C08A2E", "#3F7CAC", "#A34D6B", "#4F7A78"];
 type FixMenu = { id: string; ad: string; kisi_basi_fiyat: number; aciklama: string | null; sira: number };
-type MasaPaketi = { id: string; ad: string; fiyat: number; icindekiler: string | null; kisi_tavani: number | null; sira: number };
+type MasaPaketi = { id: string; ad: string; fiyat: number; icindekiler: string | null; kisi_tavani: number | null; sise_adedi: number | null; masa_hakki: number; loca_paketi: boolean; sira: number };
 type OzelGece = { id: string; gun: string; ad: string; sanatci: string | null };
 type RezEtiketi = { id: string; ad: string; mutfaga_gitsin: boolean; uyari: boolean; sira: number };
 type PersonelHesabi = { id: string; ad_soyad: string; telefon: string | null; rol: string; durum: string };
@@ -537,6 +546,22 @@ export default function RezervasyonAyarlarPage() {
   const [karmaFixAlakart, setKarmaFixAlakart] = useState(false);
   const [minimumHarcamaAcik, setMinimumHarcamaAcik] = useState(false);
   const [masaPaketiAcik, setMasaPaketiAcik] = useState(false);
+  // MASA HESABI (Gökhan, 2026-08-20) — gece kulübü mantığı: kapasite koltukla değil masayla
+  // sayılır, bir masaya 2 kişi de 5 kişi de alınır. Sınır aşılınca ikinci masa devreye girer;
+  // o masa yandaki masadan değil, önce STOKTAN, stok bitince arka sıradan gelir.
+  const [masaHesabiAcik, setMasaHesabiAcik] = useState(false);
+  const [masaEnFazlaKisi, setMasaEnFazlaKisi] = useState("5");
+  const [sinirAsilinca, setSinirAsilinca] = useState("sor");
+  const [masaStoguAdet, setMasaStoguAdet] = useState("0");
+  const [masaStoguKisi, setMasaStoguKisi] = useState("5");
+  const [stokBitinceArka, setStokBitinceArka] = useState(true);
+  // LOCA KURALLARI (Gökhan, 2026-08-20: "her gece kulübünde loca var ve kuralları var").
+  const [locaKaporaAcik, setLocaKaporaAcik] = useState(false);
+  const [locaKaporaTutar, setLocaKaporaTutar] = useState<number | null>(null);
+  const [locaKaporaZorunlu, setLocaKaporaZorunlu] = useState(false);
+  const [locaSatisYetkisi, setLocaSatisYetkisi] = useState("herkes");
+  const [locaWalkinAcik, setLocaWalkinAcik] = useState(true);
+  const [locaPaketZorunlu, setLocaPaketZorunlu] = useState(false);
   const [ozelGeceAcik, setOzelGeceAcik] = useState(false);
   const [prAcik, setPrAcik] = useState(false);
   const [prKomisyonTipi, setPrKomisyonTipi] = useState("kisi");
@@ -691,9 +716,9 @@ export default function RezervasyonAyarlarPage() {
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
       supabase.from("restaurant_photos").select("id, dosya_yolu, sira").eq("restaurant_id", restId).order("sira"),
       supabase.from("dining_areas").select("id, name, online_acik").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("masa_gruplari").select("id, ad, renk, fiyatlama_modu, tutar, dahil_kisi, asan_kisi_ucreti, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("masa_gruplari").select("id, ad, renk, fiyatlama_modu, tutar, dahil_kisi, asan_kisi_ucreti, en_fazla_kisi, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("fix_menuler").select("id, ad, kisi_basi_fiyat, aciklama, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
-      supabase.from("masa_paketleri").select("id, ad, fiyat, icindekiler, kisi_tavani, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("masa_paketleri").select("id, ad, fiyat, icindekiler, kisi_tavani, sise_adedi, masa_hakki, loca_paketi, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("ozel_geceler").select("id, gun, ad, sanatci").eq("restaurant_id", restId).is("deleted_at", null).order("gun"),
       supabase.from("rezervasyon_etiketleri").select("id, ad, mutfaga_gitsin, uyari, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("restaurant_tables").select("grup_id").eq("restaurant_id", restId).is("deleted_at", null),
@@ -731,6 +756,10 @@ export default function RezervasyonAyarlarPage() {
       isletme_tipi: IsletmeTipi; isletme_gunu_saati: string;
       fix_menu_acik: boolean; karma_fix_alakart: boolean;
       minimum_harcama_acik: boolean; masa_paketi_acik: boolean; ozel_gece_acik: boolean;
+      masa_hesabi_acik: boolean; masa_en_fazla_kisi: number; sinir_asilinca: string;
+      masa_stogu_adet: number; masa_stogu_kisi: number; stok_bitince_arka_sira: boolean;
+      loca_kapora_acik: boolean; loca_kapora_tutar: number | null; loca_kapora_zorunlu: boolean;
+      loca_satis_yetkisi: string; loca_walkin_acik: boolean; loca_paket_zorunlu: boolean;
       pr_acik: boolean; pr_komisyon_tipi: string; pr_komisyon_tutar: number;
       pr_kendi_gorsun: boolean; pr_sadece_gelene: boolean; guest_list_acik: boolean;
       rezervasyon_alan_gorunsun: boolean; yapilandirilmis_not_acik: boolean;
@@ -776,6 +805,18 @@ export default function RezervasyonAyarlarPage() {
     setKarmaFixAlakart(sRow?.karma_fix_alakart ?? false);
     setMinimumHarcamaAcik(sRow?.minimum_harcama_acik ?? false);
     setMasaPaketiAcik(sRow?.masa_paketi_acik ?? false);
+    setMasaHesabiAcik(sRow?.masa_hesabi_acik ?? false);
+    setMasaEnFazlaKisi(String(sRow?.masa_en_fazla_kisi ?? 5));
+    setSinirAsilinca(sRow?.sinir_asilinca ?? "sor");
+    setMasaStoguAdet(String(sRow?.masa_stogu_adet ?? 0));
+    setMasaStoguKisi(String(sRow?.masa_stogu_kisi ?? 5));
+    setStokBitinceArka(sRow?.stok_bitince_arka_sira ?? true);
+    setLocaKaporaAcik(sRow?.loca_kapora_acik ?? false);
+    setLocaKaporaTutar(sRow?.loca_kapora_tutar ?? null);
+    setLocaKaporaZorunlu(sRow?.loca_kapora_zorunlu ?? false);
+    setLocaSatisYetkisi(sRow?.loca_satis_yetkisi ?? "herkes");
+    setLocaWalkinAcik(sRow?.loca_walkin_acik ?? true);
+    setLocaPaketZorunlu(sRow?.loca_paket_zorunlu ?? false);
     setOzelGeceAcik(sRow?.ozel_gece_acik ?? false);
     setPrAcik(sRow?.pr_acik ?? false);
     setPrKomisyonTipi(sRow?.pr_komisyon_tipi ?? "kisi");
@@ -966,6 +1007,7 @@ export default function RezervasyonAyarlarPage() {
     setFixMenuAcik(v.fixMenu);
     setMinimumHarcamaAcik(v.minimumHarcama);
     setMasaPaketiAcik(v.masaPaketi);
+    setMasaHesabiAcik(v.masaHesabi);
     setOzelGeceAcik(v.ozelGece);
     setPrAcik(v.pr);
     setGuestListAcik(v.guestList);
@@ -1046,6 +1088,18 @@ export default function RezervasyonAyarlarPage() {
       karma_fix_alakart: karmaFixAlakart,
       minimum_harcama_acik: minimumHarcamaAcik,
       masa_paketi_acik: masaPaketiAcik,
+      masa_hesabi_acik: masaHesabiAcik,
+      masa_en_fazla_kisi: parseInt(masaEnFazlaKisi, 10) || 5,
+      sinir_asilinca: sinirAsilinca,
+      masa_stogu_adet: parseInt(masaStoguAdet, 10) || 0,
+      masa_stogu_kisi: parseInt(masaStoguKisi, 10) || 5,
+      stok_bitince_arka_sira: stokBitinceArka,
+      loca_kapora_acik: locaKaporaAcik,
+      loca_kapora_tutar: locaKaporaTutar,
+      loca_kapora_zorunlu: locaKaporaZorunlu,
+      loca_satis_yetkisi: locaSatisYetkisi,
+      loca_walkin_acik: locaWalkinAcik,
+      loca_paket_zorunlu: locaPaketZorunlu,
       ozel_gece_acik: ozelGeceAcik,
       pr_acik: prAcik,
       pr_komisyon_tipi: prKomisyonTipi,
@@ -1356,6 +1410,55 @@ export default function RezervasyonAyarlarPage() {
             <div style={{ ...ikiSutun, gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))" }}>
             <div>
             {/* Ekleme düğmesi listenin altında değil, başlığın yanında (Gökhan, 2026-08-16). */}
+            {/* MASA HESABI — gece kulübü mantığı (Gökhan, 2026-08-20: "gece kulüplerinde sandalye
+                olmaz, masaya göre rezervasyon alınır; bir masaya 2 kişi de 5 kişi de alınabilir,
+                oturmadıkları için fark etmiyor"). İşletme türü gece kulübü seçilince kendiliğinden
+                açılır; buradan her ayrıntısı değiştirilebilir. */}
+            <div style={bolumBasligi}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Gece kulüplerinde sandalye yoktur, masa satılır: bir masaya 2 kişi de 5 kişi de alınır. Açıkken kapasite koltukla değil masayla sayılır, sayaçlarda koltuk yerine masa görünür.")}>Masa hesabı</span>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={masaHesabiAcik} onChange={(e) => setMasaHesabiAcik(e.target.checked)} />
+              <span style={{ fontSize: 13.5 }}>Kapasite masayla sayılsın (koltuk sayılmasın)</span>
+            </label>
+            {masaHesabiAcik && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("Bir masaya en fazla kaç kişi alınabileceğinin genel karşılığı. Masa grubuna ya da masanın kendisine ayrı sayı yazarsanız onlar geçerli olur.")}>Bir masaya en fazla</span>
+                  <input
+                    value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
+                  />
+                  <span style={{ fontSize: 13.5 }}>kişi</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("Kişi sayısı masanın sınırını aşınca (6-7-8 kişi gibi) program ikinci masayı ekler. Sorsun seçiliyse önce size sorar; ekleme seçiliyse hiç eklemez, masayı siz seçersiniz.")}>Sınır aşılınca</span>
+                  <select value={sinirAsilinca} onChange={(e) => setSinirAsilinca(e.target.value)} style={{ ...inp, minWidth: 190 }}>
+                    <option value="otomatik">İkinci masayı kendisi eklesin</option>
+                    <option value="sor">Önce sorsun</option>
+                    <option value="ekleme">Eklemesin, ben seçeyim</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13.5 }} {...sagTik("İkinci masa yandaki masadan alınmaz — o masa başka misafirindir. Önce depodaki stok masalardan verilir; kullanılan her masa stoktan düşer.")}>Masa stoğu</span>
+                  <input
+                    value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
+                  />
+                  <span style={{ fontSize: 13.5 }}>adet ·</span>
+                  <input
+                    value={masaStoguKisi} onChange={(e) => setMasaStoguKisi(e.target.value.replace(/\D/g, ""))}
+                    inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
+                  />
+                  <span style={{ fontSize: 13.5 }}>kişilik</span>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={stokBitinceArka} onChange={(e) => setStokBitinceArka(e.target.checked)} />
+                  <span style={{ fontSize: 13.5 }} {...sagTik("Stok bittiğinde ikinci masa arka sıradaki boş masalardan alınır. Kapalıysa stok bitince program masa eklemez, size söyler.")}>Stok bitince arka sıradan masa alınsın</span>
+                </label>
+              </div>
+            )}
+
             <div style={bolumBasligi}>
               <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Sahne önü, loca, bahçe gibi. Gruba verdiğin renkle masa salon planında o renkte çizilir, üstünde grubun adı görünür. Masaların hangi gruba ait olduğu Salon ekranında masaya sağ tıklanarak seçilir. Fiyat ve harcama limiti isteğe bağlıdır.")}>Masa grupları</span>
               <button
@@ -1401,6 +1504,17 @@ export default function RezervasyonAyarlarPage() {
                       onKaydet={(v) => listeGuncelle("masa_gruplari", g.id, { tutar: v })}
                     />
                   )}
+                  {/* EN FAZLA KİŞİ — masa hesabında bu gruptaki masaya kaç kişi alınır
+                      (Gökhan, 2026-08-20: loca 12, normal masa 5 gibi). Boş bırakılırsa
+                      işletmenin genel sınırı geçerli. */}
+                  {masaHesabiAcik && (
+                    <input
+                      defaultValue={g.en_fazla_kisi ?? ""} placeholder="Kişi" inputMode="numeric" className="tnum"
+                      title="Bu gruptaki bir masaya en fazla kaç kişi"
+                      onBlur={(e) => listeGuncelle("masa_gruplari", g.id, { en_fazla_kisi: parseInt(e.target.value, 10) || null })}
+                      style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }}
+                    />
+                  )}
                   <button onClick={() => listeSil("masa_gruplari", g.id)} style={silBtn} aria-label="Grubu sil"><X size={13} /></button>
                 </div>
               ))}
@@ -1440,11 +1554,70 @@ export default function RezervasyonAyarlarPage() {
                       onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { icindekiler: e.target.value.trim() || null })}
                       style={{ ...inp, flex: 1.4, minWidth: 0 }}
                     />
+                    {/* ŞİŞE ve MASA HAKKI (Gökhan, 2026-08-20: "5 kişi şişe açarsa 2 masa
+                        birleşir", "paket şişe sayısını da işletme belirler"). */}
+                    <input
+                      defaultValue={p.sise_adedi ?? ""} placeholder="Şişe" inputMode="numeric" className="tnum"
+                      title="Pakette kaç şişe var"
+                      onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { sise_adedi: parseInt(e.target.value, 10) || null })}
+                      style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }}
+                    />
+                    <input
+                      defaultValue={p.masa_hakki ?? 1} placeholder="Masa" inputMode="numeric" className="tnum"
+                      title="Bu paketi alan kaç masa tutar"
+                      onBlur={(e) => listeGuncelle("masa_paketleri", p.id, { masa_hakki: parseInt(e.target.value, 10) || 1 })}
+                      style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }}
+                    />
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, flexShrink: 0, cursor: "pointer" }} title="Bu paket loca paketidir">
+                      <input type="checkbox" defaultChecked={p.loca_paketi} onChange={(e) => listeGuncelle("masa_paketleri", p.id, { loca_paketi: e.target.checked })} />
+                      Loca
+                    </label>
                     <button onClick={() => listeSil("masa_paketleri", p.id)} style={silBtn} aria-label="Paketi sil"><X size={13} /></button>
                   </div>
                 ))}
               </div>
             </>
+
+            {/* LOCA KURALLARI (Gökhan, 2026-08-20: "her gece kulübünde loca var ve kuralları
+                var, ona göre ayarlarda koymalıyız"). Locanın kendisi bir MASA GRUBU olarak
+                tanımlanıyor (yukarıda); buradaki kurallar o gruba ait masaların nasıl
+                satılacağını belirliyor. */}
+            <div style={{ ...bolumBasligi, marginTop: 18 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Loca satışının kuralları: kapora isteniyor mu, zorunlu mu, locayı kim satabilir, kapıdan gelen misafire loca verilebilir mi, paketsiz loca satılabilir mi. Locanın fiyatı ve kişi sayısı yukarıdaki masa grubunda tanımlanır.")}>Loca kuralları</span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={locaKaporaAcik} onChange={(e) => setLocaKaporaAcik(e.target.checked)} />
+                <span style={{ fontSize: 13.5 }}>Loca için kapora alınsın</span>
+              </label>
+              {locaKaporaAcik && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingLeft: 22 }}>
+                  <span style={{ fontSize: 13.5 }}>Kapora</span>
+                  <ParaGirisi deger={locaKaporaTutar} yerTutucu="Tutar" genislik={110} onKaydet={(v) => setLocaKaporaTutar(v)} />
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={locaKaporaZorunlu} onChange={(e) => setLocaKaporaZorunlu(e.target.checked)} />
+                    Zorunlu (kaporasız loca kaydı açılamaz)
+                  </label>
+                </div>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 13.5 }} {...sagTik("Locayı kimin satabileceği. Seçilenden başkası loca kaydı açamaz; açmaya çalışırsa program uyarır.")}>Locayı satabilir</span>
+                <select value={locaSatisYetkisi} onChange={(e) => setLocaSatisYetkisi(e.target.value)} style={{ ...inp, minWidth: 170 }}>
+                  <option value="herkes">Herkes</option>
+                  <option value="karsilama">Karşılama ve üstü</option>
+                  <option value="pr">PR ve yönetici</option>
+                  <option value="yonetici">Sadece yönetici</option>
+                </select>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={locaWalkinAcik} onChange={(e) => setLocaWalkinAcik(e.target.checked)} />
+                <span style={{ fontSize: 13.5 }} {...sagTik("Kapalıyken loca yalnızca rezervasyonla satılır; kapıdan gelen misafire loca verilemez.")}>Kapıdan gelene loca verilebilsin</span>
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={locaPaketZorunlu} onChange={(e) => setLocaPaketZorunlu(e.target.checked)} />
+                <span style={{ fontSize: 13.5 }} {...sagTik("Açıkken loca kaydı paket seçilmeden kaydedilemez. Loca paketleri yukarıdaki listede 'Loca' işaretiyle ayrılıyor.")}>Loca paketsiz satılamasın</span>
+              </label>
+            </div>
             </div>
 
             {/* SAĞ SÜTUN — masa ölçüleri (Gökhan: "masa ölçülerini de girsinler ayarlardan,

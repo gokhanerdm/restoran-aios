@@ -69,6 +69,8 @@ type Rez = {
   // kartını açabiliyor (Gökhan, 2026-08-17) — ölçüt PERSONEL kaydı, oturum değil: aynı
   // hesapta birden fazla personel olabiliyor.
   created_by: string | null;
+  // Bu rezervasyona stoktan verilen masa adedi (masa hesabı — Gökhan, 2026-08-20).
+  stok_masa: number | null;
   alan_hesap_id: string | null;
   // Fix menü mü alakart mı — mutfak şefi listede masa yerine bunu görüyor (Gökhan,
   // 2026-08-17). Sadece ayarlarda fix menü açıkken sorulur.
@@ -97,6 +99,9 @@ type TableRow = {
   normal_rotated: boolean | null;
   // varsayilan_*: işletmenin raptiye ile kaydettiği kalıcı düzen — masanın gerçek evi.
   varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null;
+  // MASA HESABI (Gökhan, 2026-08-20): gece kulübünde kapasite koltukla değil masayla sayılır.
+  // en_fazla_kisi masanın kendi sınırı; boşsa grubunki, o da boşsa işletmenin genel sınırı.
+  en_fazla_kisi: number | null; grup_id: string | null;
   area_id: string | null;
 };
 
@@ -1214,6 +1219,13 @@ export default function RezervasyonPage() {
   const [fFixKisi, setFFixKisi] = useState("");
   const [fixMenuler, setFixMenuler] = useState<{ id: string; ad: string }[]>([]);
   const [fixAcik, setFixAcik] = useState(false);
+  // MASA HESABI ayarları (Gökhan, 2026-08-20). Açıkken kapasite masayla sayılır; masanın kaç
+  // kişi aldığını koltuk değil "en fazla kişi" belirler, sınır aşılınca ikinci masa devreye
+  // girer ve o masa önce STOKTAN gelir.
+  const [masaHesabi, setMasaHesabi] = useState(false);
+  const [sinirAsilinca, setSinirAsilinca] = useState("sor");
+  const [masaStoguAdet, setMasaStoguAdet] = useState(0);
+  const [masaStoguKisi, setMasaStoguKisi] = useState(5);
   // İşletme türü — yeni nesil meyhanede rezervasyon satırında fix/alakart da yazıyor
   // (Gökhan, 2026-08-18).
   const [isletmeTipi, setIsletmeTipi] = useState("");
@@ -1436,7 +1448,7 @@ export default function RezervasyonPage() {
   const load = useCallback(async (restId: string, targetGun: string) => {
     const { start, end } = gunSiniri(targetGun);
     const [{ data: r, error }, { data: t }, { data: s }] = await Promise.all([
-      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, seated_at, created_at, cancel_reason, source, masa_kilit, kisi_karti_id, kadin_sayisi, erkek_sayisi, hesap_tutari, yedek, gelen_kisi, misafir_masasi, misafir_yakin, tercih_alan_id, created_by, alan_hesap_id, servis_tipi, fix_menu_id, fix_kisi, bekleme, bekleme_baslangic, bekleme_dakika, teyit_durumu, teyit_zamani")
+      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, seated_at, created_at, cancel_reason, source, masa_kilit, kisi_karti_id, kadin_sayisi, erkek_sayisi, hesap_tutari, yedek, gelen_kisi, misafir_masasi, misafir_yakin, tercih_alan_id, created_by, alan_hesap_id, servis_tipi, fix_menu_id, fix_kisi, bekleme, bekleme_baslangic, bekleme_dakika, teyit_durumu, teyit_zamani, stok_masa")
         .eq("restaurant_id", restId).is("deleted_at", null)
         .gte("reserved_at", start).lt("reserved_at", end)
         // Sıralama üç kademeli olmalı (Gökhan, 2026-08-15: "bazı rezervasyonlar kafasına
@@ -1445,13 +1457,12 @@ export default function RezervasyonPage() {
         // sırayla döndürüyor, liste 6 saniyede bir tazelendiği için satırlar oynuyordu.
         // reserved_at ve id eşitliği kırıyor — sıra artık her tazelemede aynı.
         .order("created_at").order("reserved_at").order("id"),
-      supabase.from("restaurant_tables").select("id, name, seat_count, status, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("kvkk_notice, default_duration_minutes, auto_seating, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde, masa_ek_sandalye, gun_kapanis, fix_menu_acik, karma_fix_alakart, isletme_tipi, mesaj_acik, mesaj_onay_acik, mesaj_onay_metni, mesaj_teyit_acik, mesaj_teyit_saat, mesaj_teyit_bitis, mesaj_teyit_metni, mesaj_sessiz_baslangic, mesaj_sessiz_bitis").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_tables").select("id, name, seat_count, status, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, en_fazla_kisi, grup_id, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_settings").select("kvkk_notice, default_duration_minutes, auto_seating, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde, masa_ek_sandalye, gun_kapanis, fix_menu_acik, karma_fix_alakart, isletme_tipi, mesaj_acik, mesaj_onay_acik, mesaj_onay_metni, mesaj_teyit_acik, mesaj_teyit_saat, mesaj_teyit_bitis, mesaj_teyit_metni, mesaj_sessiz_baslangic, mesaj_sessiz_bitis, masa_hesabi_acik, masa_en_fazla_kisi, sinir_asilinca, masa_stogu_adet, masa_stogu_kisi, stok_bitince_arka_sira").eq("restaurant_id", restId).maybeSingle(),
     ]);
     if (error) { setErr(error.message); return; }
     const list = (r as Rez[]) ?? [];
     setRows(list);
-    setTables((t as TableRow[]) ?? []);
     supabase.from("dining_areas").select("id, name").eq("restaurant_id", restId).is("deleted_at", null)
       .order("sort_order").then(({ data }) => setSalonlar((data as { id: string; name: string }[]) ?? []));
     const settingsRow = s as {
@@ -1459,6 +1470,8 @@ export default function RezervasyonPage() {
       varsayilan_rezervasyon_saati: string; musteri_sadakat_ziyaret_esigi: number; musteri_no_show_risk_yuzde: number;
       masa_ek_sandalye: number; gun_kapanis: string;
       fix_menu_acik: boolean | null; karma_fix_alakart: boolean | null; isletme_tipi: string | null;
+      masa_hesabi_acik: boolean | null; masa_en_fazla_kisi: number | null; sinir_asilinca: string | null;
+      masa_stogu_adet: number | null; masa_stogu_kisi: number | null; stok_bitince_arka_sira: boolean | null;
       mesaj_acik: boolean | null; mesaj_onay_acik: boolean | null; mesaj_onay_metni: string | null;
       mesaj_teyit_acik: boolean | null; mesaj_teyit_saat: string | null; mesaj_teyit_bitis: string | null;
       mesaj_teyit_metni: string | null; mesaj_sessiz_baslangic: string | null; mesaj_sessiz_bitis: string | null;
@@ -1475,7 +1488,31 @@ export default function RezervasyonPage() {
       sessizBas: (settingsRow?.mesaj_sessiz_baslangic ?? "23:00").slice(0, 5),
       sessizBitis: (settingsRow?.mesaj_sessiz_bitis ?? "09:00").slice(0, 5),
     });
+    // MASA HESABI (Gökhan, 2026-08-20). Gece kulübünde masanın kaç kişi aldığını koltuk değil
+    // "en fazla kişi" belirliyor: masanın kendi sınırı → grubunun sınırı (loca 12, normal 5) →
+    // işletmenin genel sınırı. Program bunu tek yerden, masayı yüklerken uyguluyor; kapasite,
+    // masa seçme, birleştirme, uygunluk kontrolü — hepsi aynı sayıyı görüyor.
+    const hamMasalar = (t as TableRow[]) ?? [];
+    if (settingsRow?.masa_hesabi_acik) {
+      const { data: grupData } = await supabase.from("masa_gruplari")
+        .select("id, en_fazla_kisi").eq("restaurant_id", restId).is("deleted_at", null);
+      const grupSiniri = new Map(((grupData as { id: string; en_fazla_kisi: number | null }[]) ?? [])
+        .map((g) => [g.id, g.en_fazla_kisi]));
+      const genel = settingsRow.masa_en_fazla_kisi ?? 5;
+      setTables(hamMasalar.map((m) => {
+        const grupSiniri_ = m.grup_id ? grupSiniri.get(m.grup_id) ?? null : null;
+        const sinir = (m.en_fazla_kisi && m.en_fazla_kisi > 0) ? m.en_fazla_kisi
+          : (grupSiniri_ && grupSiniri_ > 0) ? grupSiniri_ : genel;
+        return { ...m, seat_count: sinir };
+      }));
+    } else {
+      setTables(hamMasalar);
+    }
     setFixAcik(settingsRow?.fix_menu_acik ?? false);
+    setMasaHesabi(settingsRow?.masa_hesabi_acik ?? false);
+    setSinirAsilinca(settingsRow?.sinir_asilinca ?? "sor");
+    setMasaStoguAdet(settingsRow?.masa_stogu_adet ?? 0);
+    setMasaStoguKisi(settingsRow?.masa_stogu_kisi ?? 5);
     setKarmaFix(settingsRow?.karma_fix_alakart ?? false);
     supabase.from("fix_menuler").select("id, ad").eq("restaurant_id", restId).is("deleted_at", null).order("sira")
       .then(({ data }) => setFixMenuler((data as { id: string; ad: string }[]) ?? []));
@@ -3007,9 +3044,14 @@ export default function RezervasyonPage() {
   // reddediliyor (Gökhan: "yedek rezervasyon almayı durdur"). O yüzden yedek hesabı,
   // YEDEK rozeti ve "Bekleyenler (Yedek)" filtresi de ekrandan kaldırıldı — hiç
   // oluşmayacak bir durumu gösterip kafa karıştırmasınlar.
+  // Kapasite: masa hesabı açıkken tables.seat_count zaten masanın KİŞİ SINIRI (yükleme
+  // sırasında yazılıyor), kapalıyken koltuk sayısı. İki durumda da toplam aynı yerden çıkıyor.
   const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
   // Yedek kapasiteyi doldurmaz — masa tutmuyor, sıra bekliyor (Gökhan, 2026-08-12).
   const kapasiteliRows = rows.filter((r) => !r.yedek && !r.bekleme && (r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu"));
+  // Günün stoğundan kaç masa kullanıldı — kullanılan her masa stoktan düşer.
+  const kullanilanStok = kapasiteliRows.reduce((s, r) => s + (r.stok_masa ?? 0), 0);
+  const kalanStok = Math.max(0, masaStoguAdet - kullanilanStok);
   const gunPax = kapasiteliRows.reduce((s, r) => s + r.party_size, 0);
   // YEDEK — o gün yer bulunamayan, yer açılırsa aranacak misafirler (Gökhan, 2026-08-18:
   // "yer açılınca arayalım listesi uzun, yedek olarak adlandırmak daha mantıklı"). Masa
@@ -3429,7 +3471,7 @@ export default function RezervasyonPage() {
               "karşısındaki rakamlarda tam altlı üstlü olsun"). Etiket sütunu genişliğini
               uzun olan belirler, rakamlar sağa yaslı — basamaklar da üst üste gelir. */}
           <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
-            <span>Kapasite</span>
+            <span {...(masaHesabi ? { title: "Masa hesabında kapasite koltuktan değil, masaların aldığı kişi sayısından çıkıyor." } : {})}>Kapasite</span>
             <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{toplamKapasite}</span>
             <span>pax</span>
             <span>Doluluk</span>
@@ -3439,6 +3481,16 @@ export default function RezervasyonPage() {
               {gunPax >= toplamKapasite && <span style={{ fontWeight: 600, color: "var(--gold-text)" }}> (dolu)</span>}
             </span>
           </div>
+          {/* MASA STOĞU — gece kulübünde ikinci masa yandaki masadan alınmaz, depodaki stoktan
+              gelir (Gökhan, 2026-08-20: "ayarlara stok girilir ama kullanılan her stok düşer").
+              Masa hesabı kapalıysa ya da stok girilmemişse satır hiç görünmez. */}
+          {masaHesabi && masaStoguAdet > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
+              <span>Stok</span>
+              <span className="tnum" style={{ fontWeight: 600, color: kalanStok === 0 ? "var(--gold-text)" : "var(--ink)", textAlign: "right" }}>{kalanStok}</span>
+              <span>masa{kullanilanStok > 0 ? ` (${kullanilanStok} kullanıldı)` : ""}</span>
+            </div>
+          )}
           {/* FİX MENÜ — o gün fix menü alan kaç rezervasyon, kaç kişi (Gökhan, 2026-08-18).
               Kimse almadıysa sıfır olarak duruyor, satır kaybolmuyor. Ayarlar'da fix menü
               KAPALIYSA satır hiç görünmüyor (Gökhan, 2026-08-19: "gece kulübü türündeyim,
