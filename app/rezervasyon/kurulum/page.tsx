@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
+import { BOX_W, BOX_H } from "../masaOlcu";
 
 // KURULUM — kayıt bittikten sonra işletmeyi karşılayan ekran (Gökhan, 2026-08-20:
 // "açıldıktan sonra karşımıza tüm program için geçerli bu ayarlar ekranı gelmeli ve tüm
@@ -29,7 +30,7 @@ type Adim = "isletme" | "saatler" | "salon" | "rezervasyon" | "para" | "ekip" | 
 const ADIMLAR: { anahtar: Adim; ad: string; ozet: string }[] = [
   { anahtar: "isletme", ad: "İşletme bilgileri", ozet: "Kayıtta yazdıkların — kontrol et, eksikleri tamamla." },
   { anahtar: "saatler", ad: "Çalışma saatleri", ozet: "Hangi günler açıksın, kaçta açıp kaçta kapatıyorsun." },
-  { anahtar: "salon", ad: "Salon ve kapasite", ozet: "Salonunu şimdi kurmak zorunda değilsin — kapasiteni yaz, geç." },
+  { anahtar: "salon", ad: "Salon ve kapasite", ozet: "Masalarını gir, program dizsin — ya da sadece kapasiteni yazıp geç." },
   { anahtar: "rezervasyon", ad: "Rezervasyon kuralları", ozet: "Masa mı koltuk mu sayılacak, ne kadar oturulacak." },
   { anahtar: "para", ad: "Para ve satış kuralları", ozet: "Minimum harcama, paket, loca, PR — işletmenin satış düzeni." },
   { anahtar: "ekip", ad: "Ekip ve yetkiler", ozet: "Personelin programa bağlanacağı kodlar." },
@@ -91,9 +92,18 @@ export default function KurulumPage() {
   const [kapanis, setKapanis] = useState("02:00");
 
   // 3 — Salon ve kapasite
+  // İKİ YOL (Gökhan, 2026-08-20): işletme ya masalarını boy boy girer — program masaları
+  // üretip ızgaraya dizer, yerleşim ilk günden çalışır — ya da sadece kapasitesini yazıp
+  // masasız devam eder. Kapasiteden masa UYDURULMUYOR: 120 kişilik bir restorana 30 tane
+  // 4'lük koymak, adamın 8 tane 2'liği ve 4 tane 10'luğu varken yanlış veriyle işe başlamak olur.
   const [masaSayisi, setMasaSayisi] = useState(0);
   const [salonSayisi, setSalonSayisi] = useState(0);
   const [kapasite, setKapasite] = useState("");
+  const [salonYolu, setSalonYolu] = useState<"masalar" | "kapasite">("masalar");
+  const [boyAdet, setBoyAdet] = useState<Record<number, string>>({ 2: "", 4: "", 6: "", 8: "" });
+  // Gece kulübünde bütün masalar aynı — tablo tek satıra düşüyor.
+  const [kulupMasaAdet, setKulupMasaAdet] = useState("");
+  const [kulupMasaKisi, setKulupMasaKisi] = useState("5");
 
   // 4 — Rezervasyon kuralları
   const [oturmaSuresi, setOturmaSuresi] = useState("120");
@@ -208,6 +218,57 @@ export default function KurulumPage() {
 
   const sira = ADIMLAR.findIndex((a) => a.anahtar === adim);
   const sonAdim = sira === ADIMLAR.length - 1;
+  // Masa hesabıyla çalışan türler — sandalye sayılmadığı için masalar aynı boyda, boy tablosu
+  // yerine tek satır soruluyor.
+  const kulupTipi = tip.startsWith("gece_kulubu");
+
+  /** Girilen boy × adet listesinden masaları üretir ve düzgün bir ızgaraya dizer. */
+  const masalariUret = async (restId: string): Promise<string | null> => {
+    // Salon yoksa bir tane açılıyor — işletme sonradan adını değiştirir, yenisini ekler.
+    let alanId: string | null = null;
+    const { data: mevcutAlan } = await supabase.from("dining_areas")
+      .select("id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order").limit(1);
+    alanId = ((mevcutAlan as { id: string }[]) ?? [])[0]?.id ?? null;
+    if (!alanId) {
+      const { data: yeni, error } = await supabase.from("dining_areas")
+        .insert({ restaurant_id: restId, name: "Salon", sort_order: 0 }).select("id").single();
+      if (error) return error.message;
+      alanId = (yeni as { id: string }).id;
+    }
+
+    // Hangi boydan kaç tane: kulüpte tek satır, diğerlerinde 2/4/6/8.
+    const istekler: { kisi: number; adet: number }[] = kulupTipi
+      ? [{ kisi: parseInt(kulupMasaKisi || "5", 10) || 5, adet: parseInt(kulupMasaAdet || "0", 10) || 0 }]
+      : [2, 4, 6, 8].map((k) => ({ kisi: k, adet: parseInt(boyAdet[k] || "0", 10) || 0 }));
+
+    // Izgara: satır başına 6 masa, kutu ölçüsü + aralık. Bu bir BAŞLANGIÇ dizilimi — işletme
+    // salonu kendi planına benzetip raptiyeleyecek.
+    const SATIR_BASI = 6, ARALIK = 12;
+    const satirlar: { name: string; seat_count: number; shape: string; position_x: number; position_y: number; sort_order: number }[] = [];
+    let no = 0;
+    for (const istek of istekler) {
+      for (let i = 0; i < istek.adet; i++) {
+        const sutun = no % SATIR_BASI, satir = Math.floor(no / SATIR_BASI);
+        satirlar.push({
+          name: `Masa ${no + 1}`,
+          seat_count: istek.kisi,
+          shape: istek.kisi > 4 ? "dikdortgen" : "kare",
+          position_x: sutun * (BOX_W + ARALIK),
+          position_y: satir * (BOX_H + ARALIK),
+          sort_order: no,
+        });
+        no++;
+      }
+    }
+    if (satirlar.length === 0) return "Hiç masa girilmedi.";
+
+    const { error } = await supabase.from("restaurant_tables")
+      .insert(satirlar.map((s) => ({ ...s, restaurant_id: restId, area_id: alanId, status: "empty" })));
+    if (error) return error.message;
+    setMasaSayisi(satirlar.length);
+    setSalonSayisi((n) => (n === 0 ? 1 : n));
+    return null;
+  };
 
   /** Bu adımın alanlarını veritabanına yazar. Doğrulama ayrı (kontrolEt). */
   const adimiKaydet = async (): Promise<string | null> => {
@@ -228,7 +289,16 @@ export default function KurulumPage() {
       for (const d of DAYS) oh[d.k] = { acilis, kapanis, kapali: !acikGunler.has(d.k) };
       yama.opening_hours = oh;
     }
-    if (adim === "salon") yama.kapasite_kisi = parseInt(kapasite || "0", 10) || 0;
+    if (adim === "salon") {
+      if (masaSayisi === 0 && salonYolu === "masalar") {
+        const hata = await masalariUret(restaurantId);
+        if (hata) return hata;
+        yama.kapasite_kisi = 0; // masalar var, kapasite artık masalardan sayılıyor
+        if (kulupTipi) yama.masa_en_fazla_kisi = parseInt(kulupMasaKisi || "5", 10) || 5;
+      } else if (masaSayisi === 0) {
+        yama.kapasite_kisi = parseInt(kapasite || "0", 10) || 0;
+      }
+    }
     if (adim === "rezervasyon") {
       yama.default_duration_minutes = parseInt(oturmaSuresi || "120", 10) || 120;
       yama.masa_hesabi_acik = masaHesabi;
@@ -280,8 +350,16 @@ export default function KurulumPage() {
     }
     if (adim === "saatler" && acikGunler.size === 0) return "En az bir gün açık olmalı.";
     if (adim === "salon" && masaSayisi === 0) {
-      const n = parseInt(kapasite || "0", 10);
-      if (!n) return "Salonunu henüz kurmadın — kaç kişilik olduğunu yaz, sonra salonu kurabilirsin.";
+      if (salonYolu === "masalar") {
+        const toplam = kulupTipi
+          ? parseInt(kulupMasaAdet || "0", 10) || 0
+          : [2, 4, 6, 8].reduce((s, k) => s + (parseInt(boyAdet[k] || "0", 10) || 0), 0);
+        if (toplam === 0) return "Kaç masan olduğunu yaz — ya da alttaki seçenekle sadece kapasiteni girip geç.";
+        if (toplam > 300) return "Masa sayısı çok yüksek görünüyor, kontrol eder misin?";
+        if (kulupTipi && !(parseInt(kulupMasaKisi || "0", 10) > 0)) return "Bir masaya en fazla kaç kişi alacağını yaz.";
+      } else if (!parseInt(kapasite || "0", 10)) {
+        return "Salonunu henüz kurmadın — kaç kişilik olduğunu yaz, sonra salonu kurabilirsin.";
+      }
     }
     if (adim === "kvkk") {
       if (!sozlesmeOnay) return "Devam etmek için kullanım sözleşmesini onaylaman gerekiyor.";
@@ -431,15 +509,60 @@ export default function KurulumPage() {
                   </>
                 ) : (
                   <>
-                    <Alan ad="Toplam kapasite (kişi)">
-                      <input value={kapasite} onChange={(e) => setKapasite(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 140 }} />
-                    </Alan>
-                    <Bilgi>
-                      Salonunu şimdi kurmak zorunda değilsin — zaman alan iş, sonra yaparsın. Kapasiteni yazarsan
-                      program rezervasyon almaya bugün başlar, doluluğu bu sayıyla tutar. Ama masa olmadığı için
-                      <b> masa ataması ve otomatik yerleşim çalışmaz</b>. Salonu Ayarlar → Salon ve masa'dan kurunca
-                      yerleşim kendiliğinden açılır.
-                    </Bilgi>
+                    <div style={{ display: "flex", gap: 6, background: "var(--recede)", padding: 3, borderRadius: 980 }}>
+                      {([["masalar", "Masalarımı gireyim"], ["kapasite", "Sadece kapasitemi yazayım"]] as const).map(([y, ad]) => (
+                        <button
+                          key={y} onClick={() => { setSalonYolu(y); setErr(null); }}
+                          style={{
+                            flex: 1, border: "none", borderRadius: 980, padding: "9px 10px", fontSize: 13, cursor: "pointer",
+                            background: salonYolu === y ? "var(--ink-green)" : "transparent",
+                            color: salonYolu === y ? "#fff" : "var(--ink-soft)",
+                          }}
+                        >{ad}</button>
+                      ))}
+                    </div>
+
+                    {salonYolu === "masalar" ? (
+                      <>
+                        {kulupTipi ? (
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <Alan ad="Kaç masan var"><input value={kulupMasaAdet} onChange={(e) => setKulupMasaAdet(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 100 }} /></Alan>
+                            <Alan ad="Bir masaya en fazla kaç kişi"><input value={kulupMasaKisi} onChange={(e) => setKulupMasaKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 100 }} /></Alan>
+                          </div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Hangi boydan kaç masan var?</div>
+                            {[2, 4, 6, 8].map((k) => (
+                              <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "7px 12px", border: "1px solid var(--line-2)", borderRadius: 10 }}>
+                                <span style={{ fontSize: 13.5, color: "var(--ink)" }}>{k} kişilik</span>
+                                <input
+                                  value={boyAdet[k]}
+                                  onChange={(e) => setBoyAdet((s) => ({ ...s, [k]: e.target.value.replace(/\D/g, "") }))}
+                                  inputMode="numeric" placeholder="0"
+                                  className="tnum" style={{ ...inp, width: 76, textAlign: "center" }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <Bilgi>
+                          Program bu masaları üretip düzgün bir ızgaraya dizecek — yerleşim ilk günden çalışır.
+                          Salonunun gerçek şekline benzetmek zaman alan iş; onu Ayarlar → Salon ve masa'dan
+                          masaları sürükleyerek istediğin zaman yaparsın, sonra raptiyeye basarsın.
+                        </Bilgi>
+                      </>
+                    ) : (
+                      <>
+                        <Alan ad="Toplam kapasite (kişi)">
+                          <input value={kapasite} onChange={(e) => setKapasite(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 140 }} />
+                        </Alan>
+                        <Bilgi>
+                          Kapasiteni yazarsan program rezervasyon almaya bugün başlar, doluluğu bu sayıyla tutar.
+                          Ama masa olmadığı için <b>masa ataması ve otomatik yerleşim çalışmaz</b>. Salonu
+                          Ayarlar → Salon ve masa'dan kurunca yerleşim kendiliğinden açılır.
+                        </Bilgi>
+                      </>
+                    )}
                   </>
                 )}
               </div>
