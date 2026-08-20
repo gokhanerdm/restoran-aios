@@ -176,7 +176,10 @@ export default function RezervasyonGirisPage() {
     setBusy(false);
     if (bootErr) { setErr(`İşletme kaydı oluşturulamadı: ${bootErr.message}`); return; }
 
-    if (data.session) { router.push("/rezervasyon"); return; }
+    // Kayıt biter bitmez KURULUM ekranı karşılıyor (Gökhan, 2026-08-20: "açıldıktan sonra
+    // karşımıza tüm program için geçerli bu ayarlar ekranı gelmeli"). /rezervasyon zaten
+    // kilitli, oraya gitse geri gönderilecekti — doğrudan kuruluma alıyoruz.
+    if (data.session) { router.push("/rezervasyon/kurulum"); return; }
     setConfirmMsg(`${email.trim()} adresine bir onay linki gönderdik. Linke tıkladıktan sonra buradan giriş yapabilirsin.`);
     setMode("giris");
   };

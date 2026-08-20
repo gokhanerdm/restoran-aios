@@ -567,12 +567,16 @@ function MobilRezervasyonListesi({
             Eskiden burada toplam masa ile listedeki satır sayısı yazıyordu, web yeni hesaba
             geçince telefon eski rakamda kalmıştı. */}
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div>
-            Masa{" "}
-            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamMasa}</span>
-            <span style={{ color: inkSoft }}>/</span>
-            <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{masaDolu}</span> dolu
-          </div>
+          {/* Salonunu henüz kurmamış işletmede masa yok — "Masa 0/0 dolu" yazmak yerine satır
+              hiç çıkmıyor, kapasite satırı zaten kurulumda yazılan sayıyı gösteriyor. */}
+          {toplamMasa > 0 && (
+            <div>
+              Masa{" "}
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{toplamMasa}</span>
+              <span style={{ color: inkSoft }}>/</span>
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{masaDolu}</span> dolu
+            </div>
+          )}
           {/* BEKLEYEN — kapıda sıra bekleyenler; masa tutmuyorlar, kapasiteye girmiyorlar. */}
           {bekleyenMasa > 0 && (
             <div>Bekleyen <span className="tnum" style={{ fontWeight: 600, color: "var(--gold-text)" }}>{bekleyenMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--gold-text)" }}>{bekleyenPax}</span> pax</div>
@@ -1228,6 +1232,10 @@ export default function RezervasyonPage() {
   const [sinirAsilinca, setSinirAsilinca] = useState("sor");
   const [masaStoguAdet, setMasaStoguAdet] = useState(0);
   const [masaStoguKisi, setMasaStoguKisi] = useState(5);
+  // SALONSUZ ÇALIŞMA (Gökhan, 2026-08-20: "salon ve masa ayarı yapmayan rezervasyon alabilsin
+  // ama yerleşim yapamasın... kapasiteyi yazsın devam etsin"). Kurulumda yazılan toplam kişi
+  // kapasitesi; masa yoksa doluluk bu sayıya göre tutulur.
+  const [kapasiteKisi, setKapasiteKisi] = useState(0);
   // LOCA KURALLARI (Gökhan, 2026-08-20). Hangi masaların loca olduğu masa grubundaki "loca"
   // işaretinden, kuralların kendisi ayarlardan geliyor.
   const [locaGrupIds, setLocaGrupIds] = useState<Set<string>>(new Set());
@@ -1439,6 +1447,17 @@ export default function RezervasyonPage() {
     getMyReservationRestaurantId().then((id) => {
       if (!active) return;
       if (!id) { router.replace("/rezervasyon/giris"); return; }
+      // KURULUM KİLİDİ (Gökhan, 2026-08-20: "kurulum kilitli olsun"). Zorunlu adımlar
+      // bitmeden bu ekran açılmıyor. Sadece İŞLETME SAHİBİ kuruluma gönderiliyor —
+      // personelin ayarlara yetkisi yok, onu oraya atmak kilitli kapıya çarpmak olur.
+      supabase.from("restaurant_settings").select("kurulum_tamam").eq("restaurant_id", id).maybeSingle()
+        .then(async ({ data: ks }) => {
+          if (!active || (ks as { kurulum_tamam: boolean } | null)?.kurulum_tamam !== false) return;
+          const { data: { session } } = await supabase.auth.getSession();
+          const { data: sahip } = await supabase.from("restaurants").select("owner_user_id").eq("id", id).maybeSingle();
+          const sahibiMi = Boolean(session && (sahip as { owner_user_id: string } | null)?.owner_user_id === session.user.id);
+          if (active && sahibiMi) router.replace("/rezervasyon/kurulum");
+        });
       setRestaurantId(id);
       supabase.from("restaurants").select("name").eq("id", id).maybeSingle()
         .then(({ data }) => { if (active) setRestaurantName((data as { name: string } | null)?.name ?? ""); });
@@ -1483,6 +1502,7 @@ export default function RezervasyonPage() {
       fix_menu_acik: boolean | null; karma_fix_alakart: boolean | null; isletme_tipi: string | null;
       masa_hesabi_acik: boolean | null; masa_en_fazla_kisi: number | null; sinir_asilinca: string | null;
       masa_stogu_adet: number | null; masa_stogu_kisi: number | null; stok_bitince_arka_sira: boolean | null;
+      kapasite_kisi: number | null;
       loca_kapora_acik: boolean | null; loca_kapora_tutar: number | null; loca_kapora_zorunlu: boolean | null;
       loca_satis_yetkisi: string | null; loca_walkin_acik: boolean | null; loca_paket_zorunlu: boolean | null;
       mesaj_acik: boolean | null; mesaj_onay_acik: boolean | null; mesaj_onay_metni: string | null;
@@ -1527,6 +1547,7 @@ export default function RezervasyonPage() {
     setFixAcik(settingsRow?.fix_menu_acik ?? false);
     setMasaHesabi(settingsRow?.masa_hesabi_acik ?? false);
     setSinirAsilinca(settingsRow?.sinir_asilinca ?? "sor");
+    setKapasiteKisi(settingsRow?.kapasite_kisi ?? 0);
     setMasaStoguAdet(settingsRow?.masa_stogu_adet ?? 0);
     setMasaStoguKisi(settingsRow?.masa_stogu_kisi ?? 5);
     setLocaKaporaAcik(settingsRow?.loca_kapora_acik ?? false);
@@ -3149,7 +3170,9 @@ export default function RezervasyonPage() {
   // oluşmayacak bir durumu gösterip kafa karıştırmasınlar.
   // Kapasite: masa hesabı açıkken tables.seat_count zaten masanın KİŞİ SINIRI (yükleme
   // sırasında yazılıyor), kapalıyken koltuk sayısı. İki durumda da toplam aynı yerden çıkıyor.
-  const toplamKapasite = tables.reduce((s, t) => s + t.seat_count, 0);
+  // Masa yoksa kapasite kurulumda yazılan sayıdan gelir — salonunu kurmamış işletme de
+  // rezervasyon alabilsin diye (yerleşim ve masa ataması yine kapalı).
+  const toplamKapasite = tables.length > 0 ? tables.reduce((s, t) => s + t.seat_count, 0) : kapasiteKisi;
   // Yedek kapasiteyi doldurmaz — masa tutmuyor, sıra bekliyor (Gökhan, 2026-08-12).
   const kapasiteliRows = rows.filter((r) => !r.yedek && !r.bekleme && (r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu"));
   // Günün stoğundan kaç masa kullanıldı — kullanılan her masa stoktan düşer.
