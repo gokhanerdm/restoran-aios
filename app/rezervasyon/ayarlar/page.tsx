@@ -1424,11 +1424,11 @@ export default function RezervasyonAyarlarPage() {
                 oturmadıkları için fark etmiyor"). İşletme türü gece kulübü seçilince kendiliğinden
                 açılır; buradan her ayrıntısı değiştirilebilir. */}
             <div style={bolumBasligi}>
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Gece kulüplerinde sandalye yoktur, masa satılır: bir masaya 2 kişi de 5 kişi de alınır. Açıkken kapasite koltukla değil masayla sayılır, sayaçlarda koltuk yerine masa görünür.")}>Masa hesabı</span>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Gece kulüplerinde sandalye yoktur, masa satılır: bir masaya 2 kişi de 5 kişi de alınır. Açıkken kapasite koltukla değil masayla sayılır, sayaçlarda koltuk yerine masa görünür.")}>Masa başı rezervasyon</span>
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, cursor: "pointer" }}>
               <input type="checkbox" checked={masaHesabiAcik} onChange={(e) => setMasaHesabiAcik(e.target.checked)} />
-              <span style={{ fontSize: 13.5 }}>Kapasite masayla sayılsın (koltuk sayılmasın)</span>
+              <span style={{ fontSize: 13.5 }}>Rezervasyonu masa başı al</span>
             </label>
             {masaHesabiAcik && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>

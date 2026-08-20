@@ -548,7 +548,10 @@ export default function KurulumPage() {
 
             {adim === "rezervasyon" && (
               <div style={{ display: "grid", gap: 12 }}>
-                <Kutucuk isaretli={masaHesabi} degistir={setMasaHesabi} ad="Masa hesabıyla çalış"/>
+                {/* "Masa hesabı" işletmecinin dilinde karşılığı olmayan bir tabirdi
+                    (Gökhan, 2026-08-20: "o masa hesabı ile çalış diye adlandırılmaz,
+                    rezervasyonu masa başı al olur"). */}
+                <Kutucuk isaretli={masaHesabi} degistir={setMasaHesabi} ad="Rezervasyonu masa başı al"/>
                 {masaHesabi && (
                   <div style={{ display: "grid", gap: 10, paddingLeft: 12, borderLeft: "2px solid var(--line-2)" }}>
                     <Alan ad="Bir masaya en fazla kaç kişi"><input value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
