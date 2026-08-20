@@ -536,7 +536,6 @@ export default function RezervasyonAyarlarPage() {
   // ONLINE REZERVASYON (Gökhan, 2026-08-15 — araştırma sonrası ilk paket).
   // DOLULUK HIZI (pacing) BİLEREK YOK: "bunun bir sınırı yok... limit yok, burası Türkiye."
   // Saate kala sınırı da yok: "yer olduğu sürece bununla ilgili problem yok."
-  const [gunUfku, setGunUfku] = useState("60");
   const [onlineAcik, setOnlineAcik] = useState(true);
   const [onlineMin, setOnlineMin] = useState("1");
   const [onlineMax, setOnlineMax] = useState("12");
@@ -551,6 +550,9 @@ export default function RezervasyonAyarlarPage() {
   // İŞLETME TİPİ VE GECE KULÜBÜ AYARLARI (Gökhan, 2026-08-16)
   // ————————————————————————————————————————————————————————————————
   const [isletmeTipi, setIsletmeTipi] = useState<IsletmeTipi>("restoran");
+  // Gece kulübünde mutfak yok, fix menü de yok (Gökhan, 2026-08-20) — o türe ait
+  // olmayan ayarlar hiç gösterilmiyor.
+  const kulupTipi = isletmeTipi === "gece_kulubu" || isletmeTipi === "gece_kulubu_canli";
   const [fixMenuAcik, setFixMenuAcik] = useState(false);
   const [karmaFixAlakart, setKarmaFixAlakart] = useState(false);
   const [minimumHarcamaAcik, setMinimumHarcamaAcik] = useState(false);
@@ -787,7 +789,6 @@ export default function RezervasyonAyarlarPage() {
     setEsikMudavim(String(sRow?.musteri_sadakat_ziyaret_esigi ?? 5));
     setEsikNoShow(String(sRow?.musteri_no_show_risk_yuzde ?? 30));
     setSadikGecmis(String(sRow?.sadik_masa_gecmis_sayisi ?? 3));
-    setGunUfku(String(sRow?.rezervasyon_gun_ufku ?? 60));
     setOnlineAcik(sRow?.online_acik ?? true);
     setOnlineMin(String(sRow?.online_min_kisi ?? 1));
     setOnlineMax(String(sRow?.online_max_kisi ?? 12));
@@ -1069,7 +1070,6 @@ export default function RezervasyonAyarlarPage() {
       musteri_sadakat_ziyaret_esigi: Math.max(1, parseInt(esikMudavim, 10) || 5),
       musteri_no_show_risk_yuzde: Math.max(0, Math.min(100, parseInt(esikNoShow, 10) || 30)),
       sadik_masa_gecmis_sayisi: Math.max(0, parseInt(sadikGecmis, 10) || 0),
-      rezervasyon_gun_ufku: Math.max(0, parseInt(gunUfku, 10) || 0),
       online_acik: onlineAcik,
       online_min_kisi: enKucukKisi,
       online_max_kisi: enBuyukKisi,
@@ -1747,17 +1747,9 @@ export default function RezervasyonAyarlarPage() {
                 (Gökhan, 2026-08-16) — sağdaki "Online rezervasyon"la eşleşsin diye. */}
             <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Rezervasyon</div>
 
-            {/* GÜN UFKU (Gökhan, 2026-08-15). Saate kala sınırı yok — "yer olduğu sürece
-                bununla ilgili problem yok". */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13.5 }} {...sagTik("Misafirin kendi sayfasından bu kadar ileriye rezervasyon alınabilir. 0 yazılırsa sınır yoktur. Saate kala bir sınır konmadı: yer olduğu sürece son dakika kaydı da alınır.")}>En fazla kaç gün öncesinden rezervasyon:</span>
-              <input
-                value={gunUfku}
-                onChange={(e) => setGunUfku(e.target.value.replace(/\D/g, ""))}
-                inputMode="numeric" className="tnum" style={{ ...inp, width: 62, textAlign: "center" }}
-              />
-              <span style={{ fontSize: 13.5 }}>gün</span>
-            </div>
+            {/* GÜN UFKU KUTUSU KALDIRILDI (Gökhan, 2026-08-20: "isterse seneye bile
+                rezervasyon alır, saçma, kapat onu"). Alan veritabanında duruyor ama
+                pratikte sınırsız (10 yıl) — kimse elle kısmıyor. */}
 
             {/* "Varsayılan oturma süresi" kutusu KALDIRILDI (Gökhan, 2026-08-16). Süre zaten
                 işletme türünün varsayılanından geliyor ve sadece istatistikte kullanılıyor —
@@ -2027,7 +2019,11 @@ export default function RezervasyonAyarlarPage() {
               <span style={{ fontSize: 13.5 }} {...sagTik("Rezervasyonu olmayan ama listede olan misafirler — indirimli ya da ücretsiz giriş. Kapıda isimden aranır, giren işaretlenir. Kişi kartındaki 'içeri alınmasın' işareti rezervasyon girilirken kırmızı uyarı olarak çıkar; ayrı bir liste tutulmaz. Kadın/erkek sayısı hiçbir otomatik ret kuralına bağlanmaz — girişte cinsiyete göre ayrım idari para cezasına konu oluyor, program bu bilgiyi sadece istatistik için tutar.")}>Kapıda isim listesi (guest list) kullanılsın</span>
             </label>
 
-            {/* FİX MENÜ — Salon ve masa'dan buraya alındı (Gökhan, 2026-08-16). */}
+            {/* FİX MENÜ — Salon ve masa'dan buraya alındı (Gökhan, 2026-08-16). Gece
+                kulübünde hiç görünmüyor (Gökhan, 2026-08-20: "gece kulübü ayarlarından fix
+                menüyü kaldır") — orada kişi başı sabit menü satılmıyor. Bir şekilde açık
+                kalmışsa gizlemiyoruz, yoksa işletme kapatamaz. */}
+            {(!kulupTipi || fixMenuAcik) && (<>
             <div style={{ ...bolumBasligi, marginTop: 22 }}>
               <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)" }} {...sagTik("Açıkken rezervasyon alınırken alakart / fix seçimi çıkar. Fix seçilirse hesap kişi sayısı çarpı menü fiyatı olarak kendiliğinden hesaplanır; mutfak şefi kaç fix menü hazırlayacağını görür.")}>Fix menü</span>
               <button
@@ -2068,6 +2064,7 @@ export default function RezervasyonAyarlarPage() {
               <input type="checkbox" checked={karmaFixAlakart} onChange={(e) => setKarmaFixAlakart(e.target.checked)} />
               <span style={{ fontSize: 13 }} {...sagTik("Kapalıyken masa ya fix ya alakarttır — genelde böyle olur. Açıkken rezervasyonda kaç kişi fix ayrıca sorulur, hesap ikisinin toplamı olur.")}>Aynı masada hem fix hem alakart olabilsin</span>
             </label>
+            </>)}
 
             {/* KAPORA — ayrı başlıktan buraya alındı (Gökhan, 2026-08-16). Henüz kurulmadı. */}
             <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginTop: 22, marginBottom: 8 }}>Kapora</div>
@@ -2086,7 +2083,7 @@ export default function RezervasyonAyarlarPage() {
                 kodla girenin rolü kendiliğinden garson gelir — tek tek rol seçmezsin. */}
             <div style={{ fontSize: 13.5, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Personel katılım kodları</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-              {PERSONEL_ROLLERI.map((r) => {
+              {PERSONEL_ROLLERI.filter((r) => !(kulupTipi && r.anahtar === "mutfak")).map((r) => {
                 const k = katilimKodlari.find((x) => x.rol === r.anahtar);
                 const acik = acikYetki === r.anahtar;
                 // Yönetici her sayfayı görür, kutuları kapatılamaz — işletme kendini kilitlemesin.

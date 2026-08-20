@@ -217,6 +217,8 @@ export default function KurulumPage() {
   // Masa hesabıyla çalışan türler — sandalye sayılmadığı için masalar aynı boyda, boy tablosu
   // yerine tek satır soruluyor.
   const kulupTipi = tip.startsWith("gece_kulubu");
+  // Gece kulübünde mutfak yok — mutfak şefi kodu hiç üretilmiyor (Gökhan, 2026-08-20).
+  const rollerim = PERSONEL_ROLLERI.filter((r) => !(kulupTipi && r.anahtar === "mutfak"));
 
   /** Girilen boy × adet listesinden masaları üretir ve düzgün bir ızgaraya dizer. */
   const masalariUret = async (restId: string): Promise<string | null> => {
@@ -386,7 +388,7 @@ export default function KurulumPage() {
   const kodlariUret = async () => {
     if (!restaurantId || busy) return;
     setBusy(true); setErr(null);
-    for (const r of PERSONEL_ROLLERI) {
+    for (const r of rollerim) {
       if (kodlar.some((k) => k.rol === r.anahtar)) continue;
       const { data, error } = await supabase.rpc("katilim_kodu_uret");
       if (error || !data) { setErr(error?.message ?? "Kod üretilemedi."); break; }
@@ -571,7 +573,8 @@ export default function KurulumPage() {
 
             {adim === "para" && (
               <div style={{ display: "grid", gap: 10 }}>
-                <Kutucuk isaretli={fixMenu} degistir={setFixMenu} ad="Fix menü"/>
+                {/* Gece kulübünde fix menü hiç sorulmuyor (Gökhan, 2026-08-20). */}
+                {!kulupTipi && <Kutucuk isaretli={fixMenu} degistir={setFixMenu} ad="Fix menü"/>}
                 <Kutucuk isaretli={minimumHarcama} degistir={setMinimumHarcama} ad="Minimum harcama"/>
                 <Kutucuk isaretli={masaPaketi} degistir={setMasaPaketi} ad="Masa paketi"/>
                 <Kutucuk isaretli={ozelGece} degistir={setOzelGece} ad="Özel gece / etkinlik"/>
@@ -611,7 +614,7 @@ export default function KurulumPage() {
                   </button>
                 ) : (
                   <div style={{ display: "grid", gap: 6 }}>
-                    {PERSONEL_ROLLERI.map((r) => {
+                    {rollerim.map((r) => {
                       const k = kodlar.find((x) => x.rol === r.anahtar);
                       return (
                         <div key={r.anahtar} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", border: "1px solid var(--line-2)", borderRadius: 10 }}>
