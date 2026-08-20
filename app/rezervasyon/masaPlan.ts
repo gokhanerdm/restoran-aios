@@ -934,15 +934,16 @@ export const birlesikYerlesim = (
       satirBlok[s].push(blokKur([m], s, govdeSol(m, evX(m)!), false));
     });
 
-    // Kümeye katılmak için satırından ayrılan masanın ev yeri boşta kalır — satırdan bir masa
-    // çıkarmak gerekirse önce oraya konur (Gökhan: "artan masayı, o masayı aldığı yere koyacak").
-    // gidenSatir: masanın katıldığı küme hangi satırda — yani hangi satır bu masayla GENİŞLEDİ.
-    // Öksüz masa aramasında önce o satıra bakılır (bkz. aşağıdaki boşluk doldurma).
-    const bosalan: { satir: number; sol: number; gidenSatir: number; kume: Blok }[] = [];
-    satirBlok.flat().forEach((b) => b.uyeler.forEach((m) => {
-      const ev = satirNo.get(m.id)!;
-      if (ev !== b.satir) bosalan.push({ satir: ev, sol: govdeSol(m, evX(m)!), gidenSatir: b.satir, kume: b });
-    }));
+    // BOŞLUK DOLDURMA KALDIRILDI (Gökhan, 2026-08-19: "kaldır").
+    //
+    // 15 Ağustos'ta şöyle bir kural konmuştu: bir sıra büyük grup için genişleyince, o sıranın
+    // ucunda kalan artık masa, masasını veren sıradaki boşluğa gönderilirdi. Bugünkü "işi olmayan
+    // masa yerinden kıpırdamaz" kuralıyla çelişiyordu ve zincirleme kaymaya yol açıyordu: Halime'nin
+    // kümesi Giriş 12'yi kendi sırasından çekince açılan deliğe Giriş 8 üçüncü sıradan taşınmış,
+    // Giriş 13 sağa, Giriş 14 aşağı, Giriş 7 de salonun dışına itilmişti.
+    //
+    // Artık delik delik kalıyor; işi olmayan masa evinde duruyor, sadece bir küme fiilen üstüne
+    // binerse kenara çekiliyor (aşağıdaki son çakışma kontrolü).
 
     // Bir satırı dizer. Sığmıyorsa null döner (zorla=true ise en iyi çabayla dizer, üst üste
     // bindirmeden — o zaman sınır taşabilir).
@@ -1006,29 +1007,10 @@ export const birlesikYerlesim = (
       return cikti;
     };
 
-    // Sığmayan bloğa uygun başka satır ara (kural 3) — önce en yakın satır.
-    // ÖNCE BOŞALAN YERE. Bir küme başka sıradan masa çektiyse o masanın yeri boşta kalır;
-    // sırayı şişiren masa yüzünden taşan masa ORAYA gider (Gökhan, 2026-08-15: "sırada şişen
-    // masayı, sırayı şişiren masanın geldiği yere götürecek"). O nokta tanımı gereği boş
-    // olduğu için masa oraya SABİT konur; satırın geri kalanı onun etrafından dizilir. Böyle
-    // bir yer yoksa eskisi gibi en yakın uygun satır aranır.
+    // Sığmayan bloğa uygun başka satır ara (kural 3) — önce en yakın satır. Bu YALNIZCA satır
+    // gerçekten taştığında çalışır; boşalan yeri doldurmak için masa taşıma kuralı kaldırıldı
+    // (Gökhan, 2026-08-19).
     const uygunSatir = (kaynak: number, b: Blok): { satir: number; dogal: number; sabit?: boolean } | null => {
-      // 1) Boşalan yerler — önce bu satıra masa VEREN satırınki.
-      const sirali = bosalan.map((x, i) => ({ ...x, i }))
-        .sort((x, y) => Math.abs(x.satir - kaynak) - Math.abs(y.satir - kaynak));
-      for (const spot of sirali) {
-        if (spot.satir === kaynak) continue;
-        const carpan = engeller[spot.satir].some((o) => spot.sol < o.sag && o.sol < spot.sol + b.gen);
-        if (carpan) continue;
-        engeller[spot.satir].push({ sol: spot.sol, sag: spot.sol + b.gen });
-        const olur = diz(spot.satir) !== null;
-        if (olur) {
-          bosalan.splice(bosalan.findIndex((x) => x === bosalan[spot.i] || (x.satir === spot.satir && x.sol === spot.sol)), 1);
-          return { satir: spot.satir, dogal: spot.sol, sabit: true };
-        }
-        engeller[spot.satir].pop();
-      }
-      // 2) Boşalan yer yoksa en yakın uygun satır.
       const adaylar = satirlar.map((_, i) => i).filter((i) => i !== kaynak)
         .sort((x, y) => Math.abs(x - kaynak) - Math.abs(y - kaynak) || x - y);
       for (const hedef of adaylar) {
@@ -1105,51 +1087,10 @@ export const birlesikYerlesim = (
       }
     }
 
-    // ÖKSÜZ KALAN MASAYI BOŞ ALANA GÖNDER (Gökhan, 2026-08-15: "masa hizası 18 kişiyse ve
-    // 20 kişilik rezervasyon varsa 20 yaparsın ama fazla masayı boş yere gönderirsin").
-    // Bir sıra büyük grup için genişletilince o sıranın kalanındaki masa, grubun bittiği
-    // yerden kopuk, ortada asılı kalıyordu — üstelik grubun masasını verdiği satırda kocaman
-    // bir delik dururken. Artık öyle bir masa o deliğe taşınır.
-    for (const spot of [...bosalan]) {
-      let enIyi: { blok: Blok; satir: number } | null = null;
-      // 1) ÖNCE GENİŞLEYEN SIRA. O sırada kümenin dışında kalan masa "fazla" masadır; sıranın
-      //    ucunda tutulmaz, boşalan yere gönderilir. En sağdaki (en dışarıda kalan) seçilir.
-      if (spot.gidenSatir !== spot.satir) {
-        const artiklar = [...(diz(spot.gidenSatir, true) ?? [])]
-          .filter((y) => y.blok !== spot.kume)
-          .sort((a, b) => b.sol - a.sol);
-        if (artiklar.length > 0) enIyi = { blok: artiklar[0].blok, satir: spot.gidenSatir };
-      }
-      // 2) Olmadıysa: nerede olursa olsun, önünde kocaman boşluk kalmış blok.
-      if (!enIyi) {
-        let enGenis = AYRI_MESAFE * 2;
-        for (let i = 0; i < satirlar.length; i++) {
-          if (i === spot.satir) continue;
-          const sirali = [...(diz(i, true) ?? [])].sort((a, b) => a.sol - b.sol);
-          for (let k = 1; k < sirali.length; k++) {
-            const onceki = sirali[k - 1];
-            const aralik = sirali[k].sol - (onceki.sol + onceki.blok.gen);
-            if (aralik <= enGenis) continue;
-            enGenis = aralik;
-            enIyi = { blok: sirali[k].blok, satir: i };
-          }
-        }
-      }
-      if (!enIyi) continue;
-      const { blok, satir: kaynak } = enIyi;
-      if (engeller[spot.satir].some((o) => spot.sol < o.sag && o.sol < spot.sol + blok.gen)) continue;
-      satirBlok[kaynak] = satirBlok[kaynak].filter((x) => x !== blok);
-      engeller[spot.satir].push({ sol: spot.sol, sag: spot.sol + blok.gen });
-      if (diz(spot.satir) === null || diz(kaynak) === null) {
-        // Taşımak işleri bozuyorsa vazgeç, eski hâline dön.
-        engeller[spot.satir].pop();
-        satirBlok[kaynak].push(blok);
-        continue;
-      }
-      let bx = spot.sol;
-      blok.uyeler.forEach((m) => { yerlesmis.set(m.id, { x: xIcin(m, bx), y: satirlar[spot.satir].y }); bx += gen(m); });
-      bosalan.splice(bosalan.indexOf(spot), 1);
-    }
+    // ÖKSÜZ MASAYI BOŞ ALANA GÖNDERME KURALI KALDIRILDI (Gökhan, 2026-08-19: "kaldır").
+    // Bir sıra büyük grup için genişleyince, o sıranın ucundaki masa, masasını veren sıradaki
+    // deliğe taşınıyordu (15 Ağustos kuralı). İşi olmayan masanın yerinden oynamaması kuralı
+    // buna ağır basıyor: masa kendi kendine sıra atlamıyor, delik delik kalıyor.
 
     satirlar.forEach((s, i) => {
       (diz(i, true) ?? []).forEach(({ blok, sol }) => {
