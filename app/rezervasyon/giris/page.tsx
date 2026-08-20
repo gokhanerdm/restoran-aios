@@ -40,7 +40,10 @@ const TUM_GUNLER = new Set<DayKey>(DAYS.map((d) => d.k));
 // BURAYA YENİ TÜR EKLENİRSE o iki fonksiyona da eklenmeli, yoksa "Diğer" varsayılanına düşer.
 const ISLETME_TURLERI = [
   "Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Fast food",
-  "Meyhane", "Yeni nesil meyhane", "Canlı müzik", "Gazino", "Bar / Pub", "Gece kulübü", "Diğer",
+  // Canlı müzik AKŞAM mekanı (18:00–01:00); gece 12'de açılıp sabah kapanan canlı müzikli
+  // kulüpler ayrı tür (Gökhan, 2026-08-20).
+  "Meyhane", "Yeni nesil meyhane", "Canlı müzik", "Gazino", "Bar / Pub",
+  "Gece kulübü", "Gece kulübü - canlı müzik", "Diğer",
 ];
 
 // Güçlü parola standardı — kabul gören en yaygın kural: en az 8 karakter, bir büyük harf,
