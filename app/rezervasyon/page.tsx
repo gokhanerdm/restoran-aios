@@ -1267,6 +1267,10 @@ export default function RezervasyonPage() {
     setMenuKapali(v);
     if (typeof window !== "undefined") window.localStorage.setItem("rzv_menu_kapali", v ? "1" : "0");
   };
+  // KAYDEDEN — rezervasyonu kim aldı (Gökhan, 2026-08-20). Kullanıcı kimliği ekranda ad olarak
+  // görünsün diye eşleme: işletmenin personel kayıtları + işletme sahibi (Ayarlar'daki yetkili
+  // adı). Veri zaten created_by'da tutuluyordu, hiçbir yerde gösterilmiyordu.
+  const [kimAdlari, setKimAdlari] = useState<Record<string, string>>({});
   const [wName, setWName] = useState("");
   const [wPhone, setWPhone] = useState("");
   const [wParty, setWParty] = useState("2");
@@ -1652,6 +1656,28 @@ export default function RezervasyonPage() {
   }, [pencereAcik]);
 
   const yenile = async () => { if (restaurantId && gun) await load(restaurantId, gun); };
+
+  // Kaydeden adları — kimlik yerine ad görünsün diye bir kez okunuyor (Gökhan, 2026-08-20).
+  useEffect(() => {
+    if (!restaurantId) return;
+    let acik = true;
+    (async () => {
+      const [{ data: pers }, { data: isl }] = await Promise.all([
+        supabase.from("personel_hesaplari").select("user_id, ad_soyad").eq("restaurant_id", restaurantId),
+        supabase.from("restaurants").select("owner_user_id, contact_name").eq("id", restaurantId).maybeSingle(),
+      ]);
+      if (!acik) return;
+      const harita: Record<string, string> = {};
+      ((pers as { user_id: string | null; ad_soyad: string | null }[] | null) ?? []).forEach((p) => {
+        if (p.user_id && p.ad_soyad) harita[p.user_id] = p.ad_soyad;
+      });
+      const sahip = isl as { owner_user_id: string | null; contact_name: string | null } | null;
+      // Sahibin kendi kaydı personel listesinde yok; Ayarlar'daki yetkili adıyla görünüyor.
+      if (sahip?.owner_user_id) harita[sahip.owner_user_id] = (sahip.contact_name ?? "").trim() || "İşletme";
+      setKimAdlari(harita);
+    })();
+    return () => { acik = false; };
+  }, [restaurantId]);
   const gunDegistir = (g: string) => setGun(g);
 
   // MİSAFİR MASASI TESPİTİ — form doldurulurken çalışır. Aynı numara + aynı isim + aynı güne
@@ -3015,6 +3041,16 @@ export default function RezervasyonPage() {
 
   // FİX MENÜ — o gün fix alan rezervasyon ve kişi sayısı (Gökhan, 2026-08-18). İptal ve
   // gelmedi sayılmıyor; sayaçlarda kapasiteyi dolduran rezervasyonlarla aynı ölçü.
+  // KAYDEDEN SÜTUNU sadece GENİŞ ekranda, yani sol menü kapalıyken görünüyor (Gökhan,
+  // 2026-08-20: "sadece geniş ekranda görünsün yani sol menü kapalıyken").
+  const kaydedenGorunsun = !isMobile && menuKapali;
+  // Kaydı kim aldı: personelse adı, işletme sahibiyse yetkili adı. Online formdan gelen
+  // rezervasyonda kullanıcı yok — orada "Misafir" yazıyor.
+  const kaydedenAdi = (r: Rez) => {
+    if (!r.created_by) return r.source === "online" ? "Misafir" : "—";
+    return kimAdlari[r.created_by] ?? "—";
+  };
+
   const fixRows = kapasiteliRows.filter((r) => r.servis_tipi === "fix");
   const fixSayisi = fixRows.length;
   const fixPax = fixRows.reduce((s, r) => s + r.party_size, 0);
@@ -3471,6 +3507,15 @@ export default function RezervasyonPage() {
             {mutfakGorunumu ? "Servis" : "Masa"}
           </HeaderCell>
           <RowSep genislik={AYRAC} />
+          {/* KAYDEDEN — rezervasyonu kim aldı (Gökhan, 2026-08-20: "sadece rezervasyon satırına
+              kimin aldığını koyalım, nottan önce bir satır yap"). Yalnızca GENİŞ ekranda, yani
+              sol menü kapalıyken görünüyor; menü açıkken yer dar, sütun gizleniyor. */}
+          {kaydedenGorunsun && (
+            <>
+              <HeaderCell width={SUTUN.kaydeden} align="center">Kaydeden</HeaderCell>
+              <RowSep genislik={AYRAC} />
+            </>
+          )}
           {/* NOT sütunu ESNEK — yer daraldığında daralma buradan olur (Gökhan, 2026-08-15:
               "daraltmayı not alanından yap"). Diğer sütunlar sabit kalır. */}
           <HeaderCell flex>Not</HeaderCell>
@@ -3558,6 +3603,16 @@ export default function RezervasyonPage() {
                       </div>
                     </Cell>
                     <RowSep genislik={AYRAC} />
+                    {kaydedenGorunsun && (
+                      <>
+                        <Cell width={SUTUN.kaydeden} align="center">
+                          <span style={{ fontSize: 12, color: inkSoft, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {kaydedenAdi(r)}
+                          </span>
+                        </Cell>
+                        <RowSep genislik={AYRAC} />
+                      </>
+                    )}
                     <Cell flex>
                       <span style={{ fontSize: 12, color: inkSoft, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {r.note || "—"}
@@ -3784,6 +3839,16 @@ export default function RezervasyonPage() {
                   )}
                 </Cell>
                 <RowSep genislik={AYRAC} />
+                {kaydedenGorunsun && (
+                  <>
+                    <Cell width={SUTUN.kaydeden} align="center">
+                      <span style={{ fontSize: 12, color: inkSoft, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {kaydedenAdi(r)}
+                      </span>
+                    </Cell>
+                    <RowSep genislik={AYRAC} />
+                  </>
+                )}
                 <Cell flex>
                   <button
                     onClick={(e) => duzenleAc(e.currentTarget.getBoundingClientRect(), r, "not")}
@@ -3891,6 +3956,16 @@ export default function RezervasyonPage() {
                     <span style={{ fontSize: 12.5, color: inkSoft }}>—</span>
                   </Cell>
                   <RowSep genislik={AYRAC} />
+                  {kaydedenGorunsun && (
+                    <>
+                      <Cell width={SUTUN.kaydeden} align="center">
+                        <span style={{ fontSize: 12, color: inkSoft, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {kaydedenAdi(r)}
+                        </span>
+                      </Cell>
+                      <RowSep genislik={AYRAC} />
+                    </>
+                  )}
                   <Cell flex>
                     <span style={{ fontSize: 12, color: inkSoft, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.note || "—"}
@@ -4546,6 +4621,8 @@ const SUTUN = {
   telefon: 88,
   pax: 40,
   masa: 106,
+  // Rezervasyonu kimin aldığı — sadece sol menü kapalıyken açılan sütun (Gökhan, 2026-08-20).
+  kaydeden: 96,
   durum: DURUM_ALANI + 18, // düğme alanı + kenar boşluğu (4 mm)
 } as const;
 // Durum düğmelerinin satır kenarına bıraktığı boşluk (Gökhan: "kutunun sonu ile
