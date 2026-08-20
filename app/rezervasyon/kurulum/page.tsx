@@ -27,14 +27,16 @@ import { BOX_W, BOX_H } from "../masaOlcu";
 // Ayarlar'da bekliyor ("ihtiyacı olursa gider zaten").
 
 type Adim = "isletme" | "saatler" | "salon" | "rezervasyon" | "para" | "ekip" | "kvkk";
-const ADIMLAR: { anahtar: Adim; ad: string; ozet: string }[] = [
-  { anahtar: "isletme", ad: "İşletme bilgileri", ozet: "Kayıtta yazdıkların — kontrol et, eksikleri tamamla." },
-  { anahtar: "saatler", ad: "Çalışma saatleri", ozet: "Hangi günler açıksın, kaçta açıp kaçta kapatıyorsun." },
-  { anahtar: "salon", ad: "Salon ve kapasite", ozet: "Masalarını gir, program dizsin — ya da sadece kapasiteni yazıp geç." },
-  { anahtar: "rezervasyon", ad: "Rezervasyon kuralları", ozet: "Masa mı koltuk mu sayılacak, ne kadar oturulacak." },
-  { anahtar: "para", ad: "Para ve satış kuralları", ozet: "Minimum harcama, paket, loca, PR — işletmenin satış düzeni." },
-  { anahtar: "ekip", ad: "Ekip ve yetkiler", ozet: "Personelin programa bağlanacağı kodlar." },
-  { anahtar: "kvkk", ad: "KVKK ve sözleşme", ozet: "Kullanım sözleşmesi ve misafirine göstereceğin metin." },
+// Adımların altında açıklama satırı YOK (Gökhan, 2026-08-20: "tüm açıklamaları kaldır") —
+// ekran sadece sorunun kendisini gösteriyor.
+const ADIMLAR: { anahtar: Adim; ad: string }[] = [
+  { anahtar: "isletme", ad: "İşletme bilgileri" },
+  { anahtar: "saatler", ad: "Çalışma saatleri" },
+  { anahtar: "salon", ad: "Salon ve kapasite" },
+  { anahtar: "rezervasyon", ad: "Rezervasyon kuralları" },
+  { anahtar: "para", ad: "Para ve satış kuralları" },
+  { anahtar: "ekip", ad: "Ekip ve yetkiler" },
+  { anahtar: "kvkk", ad: "KVKK ve sözleşme" },
 ];
 
 type DayKey = "pzt" | "sal" | "car" | "per" | "cum" | "cmt" | "paz";
@@ -106,7 +108,6 @@ export default function KurulumPage() {
   const [kulupMasaKisi, setKulupMasaKisi] = useState("5");
 
   // 4 — Rezervasyon kuralları
-  const [oturmaSuresi, setOturmaSuresi] = useState("120");
   const [masaHesabi, setMasaHesabi] = useState(false);
   const [masaEnFazlaKisi, setMasaEnFazlaKisi] = useState("5");
   const [sinirAsilinca, setSinirAsilinca] = useState("sor");
@@ -166,7 +167,6 @@ export default function KurulumPage() {
       const ilkAcik = DAYS.find((d) => oh[d.k] && !oh[d.k].kapali) ?? DAYS[0];
       if (oh[ilkAcik.k]) { setAcilis(oh[ilkAcik.k].acilis); setKapanis(oh[ilkAcik.k].kapanis); }
     }
-    setOturmaSuresi(String((sRow?.default_duration_minutes as number) ?? 120));
     setMasaHesabi(Boolean(sRow?.masa_hesabi_acik));
     setMasaEnFazlaKisi(String((sRow?.masa_en_fazla_kisi as number) ?? 5));
     setSinirAsilinca((sRow?.sinir_asilinca as string) ?? "sor");
@@ -300,7 +300,6 @@ export default function KurulumPage() {
       }
     }
     if (adim === "rezervasyon") {
-      yama.default_duration_minutes = parseInt(oturmaSuresi || "120", 10) || 120;
       yama.masa_hesabi_acik = masaHesabi;
       yama.masa_en_fazla_kisi = parseInt(masaEnFazlaKisi || "5", 10) || 5;
       yama.sinir_asilinca = sinirAsilinca;
@@ -409,10 +408,6 @@ export default function KurulumPage() {
       <div style={{ width: "min(920px, 96vw)", margin: "0 auto" }}>
         <div style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 18, fontWeight: 600, color: "var(--ink)" }}>{isim || "İşletme kurulumu"}</div>
-          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 3 }}>
-            Programı kullanmaya başlamadan önce işletmeni tanıtalım. {ADIMLAR.length} adım — istediğin zaman bırakıp
-            kaldığın yerden devam edebilirsin.
-          </div>
         </div>
 
         <div style={{ display: "flex", gap: 14, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -448,8 +443,7 @@ export default function KurulumPage() {
 
           {/* Adımın içeriği */}
           <div style={{ flex: "1 1 420px", minWidth: 300, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 }}>
-            <div style={{ fontSize: 15.5, fontWeight: 600, color: "var(--ink)" }}>{su.ad}</div>
-            <div style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 4, marginBottom: 14 }}>{su.ozet}</div>
+            <div style={{ fontSize: 15.5, fontWeight: 600, color: "var(--ink)", marginBottom: 14 }}>{su.ad}</div>
 
             {err && <div style={{ marginBottom: 12, padding: "10px 13px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{err}</div>}
 
@@ -490,10 +484,6 @@ export default function KurulumPage() {
                   <Alan ad="Açılış"><input type="time" value={acilis} onChange={(e) => setAcilis(e.target.value)} style={{ ...inp, width: 140 }} /></Alan>
                   <Alan ad="Kapanış"><input type="time" value={kapanis} onChange={(e) => setKapanis(e.target.value)} style={{ ...inp, width: 140 }} /></Alan>
                 </div>
-                <Bilgi>
-                  Kapanış açılıştan önceyse program bunu gece yarısını aşan bir gün olarak okur — gece 02:00'de
-                  kapanan bir mekânda saat 01:00'deki rezervasyon hâlâ dünkü geceye yazılır.
-                </Bilgi>
               </div>
             )}
 
@@ -502,10 +492,8 @@ export default function KurulumPage() {
                 {masaSayisi > 0 ? (
                   <>
                     <div style={{ fontSize: 14, color: "var(--ink)" }}>
-                      Salonun kurulu: <b>{salonSayisi}</b> salon, <b>{masaSayisi}</b> masa. Program masa ataması ve
-                      otomatik yerleşim yapabilir.
+                      Salonun kurulu: <b>{salonSayisi}</b> salon, <b>{masaSayisi}</b> masa.
                     </div>
-                    <Bilgi>Masaların dizilimini Ayarlar → Salon ve masa ekranından istediğin zaman düzenleyebilirsin.</Bilgi>
                   </>
                 ) : (
                   <>
@@ -545,22 +533,12 @@ export default function KurulumPage() {
                             ))}
                           </div>
                         )}
-                        <Bilgi>
-                          Program bu masaları üretip düzgün bir ızgaraya dizecek — yerleşim ilk günden çalışır.
-                          Salonunun gerçek şekline benzetmek zaman alan iş; onu Ayarlar → Salon ve masa'dan
-                          masaları sürükleyerek istediğin zaman yaparsın, sonra raptiyeye basarsın.
-                        </Bilgi>
                       </>
                     ) : (
                       <>
                         <Alan ad="Toplam kapasite (kişi)">
                           <input value={kapasite} onChange={(e) => setKapasite(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 140 }} />
                         </Alan>
-                        <Bilgi>
-                          Kapasiteni yazarsan program rezervasyon almaya bugün başlar, doluluğu bu sayıyla tutar.
-                          Ama masa olmadığı için <b>masa ataması ve otomatik yerleşim çalışmaz</b>. Salonu
-                          Ayarlar → Salon ve masa'dan kurunca yerleşim kendiliğinden açılır.
-                        </Bilgi>
                       </>
                     )}
                   </>
@@ -570,10 +548,7 @@ export default function KurulumPage() {
 
             {adim === "rezervasyon" && (
               <div style={{ display: "grid", gap: 12 }}>
-                <Alan ad="Oturma süresi (dakika)"><input value={oturmaSuresi} onChange={(e) => setOturmaSuresi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 110 }} /></Alan>
-                <Kutucuk isaretli={masaHesabi} degistir={setMasaHesabi} ad="Masa hesabıyla çalış">
-                  Sandalye sayılmaz, masa satılır. Bir masaya 2 kişi de 5 kişi de oturabilir; kapasite masayla ölçülür.
-                </Kutucuk>
+                <Kutucuk isaretli={masaHesabi} degistir={setMasaHesabi} ad="Masa hesabıyla çalış"/>
                 {masaHesabi && (
                   <div style={{ display: "grid", gap: 10, paddingLeft: 12, borderLeft: "2px solid var(--line-2)" }}>
                     <Alan ad="Bir masaya en fazla kaç kişi"><input value={masaEnFazlaKisi} onChange={(e) => setMasaEnFazlaKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
@@ -588,27 +563,21 @@ export default function KurulumPage() {
                       <Alan ad="Masa stoğu (adet)"><input value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
                       <Alan ad="Stok masası kaç kişilik"><input value={masaStoguKisi} onChange={(e) => setMasaStoguKisi(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 80 }} /></Alan>
                     </div>
-                    <Bilgi>
-                      İkinci masa yandaki masadan alınmaz — o masa başka misafirin. Önce depodaki stok masalardan
-                      verilir, kullanılan her masa stoktan düşer; stok bitince arka sıradan gelir.
-                    </Bilgi>
                   </div>
                 )}
-                <Kutucuk isaretli={onlineAcik} degistir={setOnlineAcik} ad="Online rezervasyon açık">
-                  Misafir kendi rezervasyonunu internetten oluşturabilsin.
-                </Kutucuk>
+                <Kutucuk isaretli={onlineAcik} degistir={setOnlineAcik} ad="Online rezervasyon açık"/>
                 <Alan ad="Kaç gün ilerisi açık olsun"><input value={gunUfku} onChange={(e) => setGunUfku(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 90 }} /></Alan>
               </div>
             )}
 
             {adim === "para" && (
               <div style={{ display: "grid", gap: 10 }}>
-                <Kutucuk isaretli={fixMenu} degistir={setFixMenu} ad="Fix menü">Kişi başı sabit menü satılıyor.</Kutucuk>
-                <Kutucuk isaretli={minimumHarcama} degistir={setMinimumHarcama} ad="Minimum harcama">Masanın en az harcaması gereken bir tutar var.</Kutucuk>
-                <Kutucuk isaretli={masaPaketi} degistir={setMasaPaketi} ad="Masa paketi">Masa, içindekilerle birlikte paket olarak satılıyor.</Kutucuk>
-                <Kutucuk isaretli={ozelGece} degistir={setOzelGece} ad="Özel gece / etkinlik">Belirli gecelerde ayrı program ve fiyat oluyor.</Kutucuk>
-                <Kutucuk isaretli={prAcik} degistir={setPrAcik} ad="PR çalışıyor">Misafir getiren PR'lar var, komisyon hesaplanacak.</Kutucuk>
-                <Kutucuk isaretli={guestList} degistir={setGuestList} ad="Guest list / kapı listesi">Kapıda isim listesi tutuluyor.</Kutucuk>
+                <Kutucuk isaretli={fixMenu} degistir={setFixMenu} ad="Fix menü"/>
+                <Kutucuk isaretli={minimumHarcama} degistir={setMinimumHarcama} ad="Minimum harcama"/>
+                <Kutucuk isaretli={masaPaketi} degistir={setMasaPaketi} ad="Masa paketi"/>
+                <Kutucuk isaretli={ozelGece} degistir={setOzelGece} ad="Özel gece / etkinlik"/>
+                <Kutucuk isaretli={prAcik} degistir={setPrAcik} ad="PR çalışıyor"/>
+                <Kutucuk isaretli={guestList} degistir={setGuestList} ad="Guest list / kapı listesi"/>
 
                 {EGLENCE_TIPLERI.has(tip) && (
                   <div style={{ marginTop: 6, paddingTop: 12, borderTop: "1px solid var(--line-2)", display: "grid", gap: 10 }}>
@@ -628,28 +597,15 @@ export default function KurulumPage() {
                         <option value="herkes">Herkes</option>
                       </select>
                     </Alan>
-                    <Kutucuk isaretli={locaWalkin} degistir={setLocaWalkin} ad="Loca kapıdan da satılabilir">
-                      Rezervasyonsuz gelen misafire kapıda boş loca verilebilsin.
-                    </Kutucuk>
-                    <Kutucuk isaretli={locaPaketZorunlu} degistir={setLocaPaketZorunlu} ad="Loca ancak paketle satılır">
-                      Locaya paketsiz rezervasyon yazılamasın.
-                    </Kutucuk>
+                    <Kutucuk isaretli={locaWalkin} degistir={setLocaWalkin} ad="Loca kapıdan da satılabilir"/>
+                    <Kutucuk isaretli={locaPaketZorunlu} degistir={setLocaPaketZorunlu} ad="Loca ancak paketle satılır"/>
                   </div>
                 )}
-                <Bilgi>
-                  Masa gruplarını, hangi grubun loca olduğunu, paketleri ve tutarları Ayarlar'dan gireceksin.
-                  Burada sadece bu işletmenin hangi düzenle çalıştığını söylüyorsun.
-                </Bilgi>
               </div>
             )}
 
             {adim === "ekip" && (
               <div style={{ display: "grid", gap: 12 }}>
-                <Bilgi>
-                  Personelin her biri Ekip uygulamasından kendi profilini açar ve buradaki kodu yazarak işletmene
-                  bağlanır. Kod rolü taşır — hangi kodu verirsen o yetkiyle girer. Kodları şimdi üret, dağıtmayı
-                  sonra düşünürsün.
-                </Bilgi>
                 {kodlar.length === 0 ? (
                   <button onClick={kodlariUret} disabled={busy} style={{ ...btnIkincil, opacity: busy ? 0.6 : 1 }}>
                     {busy ? "Üretiliyor…" : "Bütün rollerin kodunu üret"}
@@ -667,26 +623,19 @@ export default function KurulumPage() {
                     })}
                   </div>
                 )}
-                <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
-                  Bu adım zorunlu değil — kodları sonra Ayarlar → Paneller ve yetkiler'den de üretebilirsin.
-                </div>
               </div>
             )}
 
             {adim === "kvkk" && (
               <div style={{ display: "grid", gap: 12 }}>
-                <Kutucuk isaretli={sozlesmeOnay} degistir={setSozlesmeOnay} ad="Kullanım sözleşmesini ve aydınlatma metnini okudum, onaylıyorum">
-                  Programı kullanabilmen için gerekli. İşletme verilerinin nasıl saklandığını ve işlendiğini anlatır.
-                </Kutucuk>
+                <Kutucuk isaretli={sozlesmeOnay} degistir={setSozlesmeOnay} ad="Kullanım sözleşmesini ve aydınlatma metnini okudum, onaylıyorum"/>
                 <div>
                   <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 6 }}>
-                    Misafirine göstereceğin KVKK metni — hazır taslağı okuyup kendine göre düzelt.
+                    Misafirine göstereceğin KVKK metni
                   </div>
                   <textarea value={kvkkNotice} onChange={(e) => setKvkkNotice(e.target.value)} rows={7} style={{ ...inp, resize: "vertical", lineHeight: 1.5 }} />
                 </div>
-                <Kutucuk isaretli={metinOnay} degistir={setMetinOnay} ad="Bu metni okudum, işletmem adına onaylıyorum">
-                  Misafirin rezervasyon verirken bu metni görecek. Sorumluluğu işletmene ait.
-                </Kutucuk>
+                <Kutucuk isaretli={metinOnay} degistir={setMetinOnay} ad="Bu metni okudum, işletmem adına onaylıyorum"/>
               </div>
             )}
 
@@ -716,18 +665,11 @@ function Alan({ ad, children }: { ad: string; children: React.ReactNode }) {
   );
 }
 
-function Bilgi({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12.5, color: "var(--ink-soft)", lineHeight: 1.55, background: "var(--recede)", borderRadius: 10, padding: "10px 12px" }}>{children}</div>;
-}
-
-function Kutucuk({ isaretli, degistir, ad, children }: { isaretli: boolean; degistir: (v: boolean) => void; ad: string; children?: React.ReactNode }) {
+function Kutucuk({ isaretli, degistir, ad }: { isaretli: boolean; degistir: (v: boolean) => void; ad: string }) {
   return (
     <label style={{ display: "flex", gap: 9, alignItems: "flex-start", cursor: "pointer" }}>
       <input type="checkbox" checked={isaretli} onChange={(e) => degistir(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16, flexShrink: 0 }} />
-      <span>
-        <span style={{ fontSize: 13.5, color: "var(--ink)" }}>{ad}</span>
-        {children && <span style={{ display: "block", fontSize: 12.5, color: "var(--ink-soft)", marginTop: 2, lineHeight: 1.45 }}>{children}</span>}
-      </span>
+      <span style={{ fontSize: 13.5, color: "var(--ink)" }}>{ad}</span>
     </label>
   );
 }
