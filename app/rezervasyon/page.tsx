@@ -1787,9 +1787,14 @@ export default function RezervasyonPage() {
       id: t.id, seat_count: t.seat_count, position_x: t.position_x, position_y: t.position_y,
       alanId: t.area_id,
     }));
+    // MASA HESABINDA STOK VARSA sınırı aşan kişi salonun masasını değil stoğu bekler
+    // (Gökhan, 2026-08-20). Planlayıcı salon masalarına bakıyor; stoktan karşılanacak kısım
+    // ona sorulmuyor, yoksa "yer yok" der ve stok boşa durur.
+    const enBuyukMasa2 = tables.length > 0 ? Math.max(...tables.map((t) => t.seat_count)) : kisi;
+    const planKisi = masaHesabi && kalanStok > 0 ? Math.min(kisi, enBuyukMasa2) : kisi;
     const { yerlesemeyen: planDisi } = salonuPlanla(
       planMasalar,
-      [...gruplar.map((k, i) => ({ id: `mevcut-${i}`, kisi: k })), { id: "yeni", kisi }],
+      [...gruplar.map((k, i) => ({ id: `mevcut-${i}`, kisi: k })), { id: "yeni", kisi: planKisi }],
       [],
     );
     if (planDisi.length === 0) return true;
@@ -1967,6 +1972,30 @@ export default function RezervasyonPage() {
         .select("id").single();
       kartId = (kart as { id: string } | null)?.id ?? null;
     }
+    // SINIR AŞILINCA İKİNCİ MASA (Gökhan, 2026-08-20: "6 7 8 olduğunda iki masa birleşir").
+    // Masa hesabında bir masanın aldığı kişi sınırlıdır; kişi sayısı bunu aşarsa ikinci masa
+    // gerekir. O masa YANDAKİ masadan alınmaz — o masa başka misafirin — önce depodaki
+    // stoktan verilir, kullanılan her masa stoktan düşer. Stok bittiğinde masa arka sıradan
+    // gelir; bu durumda program masayı yerleşim sırasında kendisi seçer.
+    let stokMasa = 0;
+    if (masaHesabi && tables.length > 0) {
+      const enBuyukMasa = Math.max(...tables.map((t) => t.seat_count));
+      if (kisi > enBuyukMasa) {
+        const gerekenEk = Math.ceil((kisi - enBuyukMasa) / Math.max(masaStoguKisi, 1));
+        if (sinirAsilinca === "ekleme") {
+          // İşletme "eklemesin, ben seçeyim" demiş: kayıt açılır, masayı insan seçer.
+        } else {
+          const stoktanVerilebilir = Math.min(gerekenEk, kalanStok);
+          const onay = sinirAsilinca === "otomatik" ? true : await confirm(
+            stoktanVerilebilir > 0
+              ? `${kisi} kişi tek masaya sığmıyor. Stoktan ${stoktanVerilebilir} masa eklensin mi? (stokta ${kalanStok} masa var)`
+              : `${kisi} kişi tek masaya sığmıyor ve stok bitti. İkinci masa arka sıradaki masalardan verilsin mi?`,
+            { confirmLabel: "Ekle" },
+          );
+          if (onay) stokMasa = stoktanVerilebilir;
+        }
+      }
+    }
     const { data: yeniKayit, error } = await supabase.from("reservations").insert({
       restaurant_id: restaurantId,
       guest_name: toTitleTr(fName),
@@ -1993,6 +2022,8 @@ export default function RezervasyonPage() {
       servis_tipi: fixAcik ? fServis : null,
       fix_menu_id: fixAcik && fServis === "fix" ? (fFixMenu || null) : null,
       fix_kisi: fixAcik && fServis === "fix" && karmaFix && fFixKisi.trim() ? parseInt(fFixKisi, 10) : null,
+      // Stoktan verilen masa adedi — günün stoğu bundan düşüyor (masa hesabı).
+      stok_masa: stokMasa,
     }).select("id").single();
     setBusy(false);
     if (error) { setErr(error.message); return; }
