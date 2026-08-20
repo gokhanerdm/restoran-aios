@@ -970,6 +970,39 @@ function SalonInner() {
     if (error) { setErr(error.message); return; }
     if (restaurantId) await load(restaurantId);
   };
+  // AÇIK SALONUN BÜTÜN MASALARINI SİLER (Gökhan, 2026-08-20: "masa silin yanına tüm masaları
+  // sil seçeneği koy"). Salonu baştan kurarken tek tek silmek işkenceydi. Öbür salonlara
+  // dokunmaz; misafir OTURAN masa varsa hiçbiri silinmez — önce onların kalkması gerekir.
+  const deleteAllTables = async () => {
+    if (!restaurantId || !selectedAreaId) return;
+    const hedef = tables.filter((t) => t.area_id === selectedAreaId);
+    if (hedef.length === 0) { setErr("Bu salonda silinecek masa yok."); return; }
+    const oturan = hedef.filter((t) => t.status === "occupied");
+    if (oturan.length > 0) {
+      setErr(`${oturan.map((t) => t.name).join(", ")} masasında misafir oturuyor — önce kalkması gerekiyor.`);
+      return;
+    }
+    const ayrilmis = hedef.filter((t) => t.status === "reserved").length;
+    const salonAdi = areas.find((a) => a.id === selectedAreaId)?.name ?? "Bu salon";
+    const ok = await confirm(
+      `${salonAdi} salonundaki ${hedef.length} masanın hepsi silinsin mi?`
+        + (ayrilmis > 0 ? ` ${ayrilmis} tanesi bir rezervasyona ayrılmış, o rezervasyonlar masasız kalacak.` : "")
+        + " Bu işlem geri alınamaz.",
+      { confirmLabel: "Hepsini sil" },
+    );
+    if (!ok) return;
+    setErr(null);
+    const ids = hedef.map((t) => t.id);
+    // Önce bağları kopar — rezervasyon silinmiş masayı tutmaya devam etmesin.
+    await supabase.from("reservation_tables").delete().in("table_id", ids);
+    await supabase.from("reservations").update({ table_id: null }).in("table_id", ids);
+    const { error } = await supabase.from("restaurant_tables")
+      .update({ deleted_at: new Date().toISOString(), status: "empty", reservation_note: null })
+      .in("id", ids);
+    if (error) { setErr(error.message); return; }
+    setSeciliMasaId(null);
+    await load(restaurantId);
+  };
   // Yön→adım vektörü — sağ/sol X'te, yukarı/aşağı Y'de gerçek masa boyu + aralık kadar kayar.
   // Bu ok EKRANDA görülen yön. Plan 90 derece çevrikken (dikey salon, yatay ekran) planın kendi
   // ekseni ekrandakiyle aynı değil: ekranda sola gitmek planda aşağı gitmek demek. Ok aynen
@@ -1854,17 +1887,28 @@ function SalonInner() {
           </div>
         )}
 
-        <button
-          onClick={() => {
-            if (!seciliMasa) { setErr("Önce silmek istediğin masaya tıkla."); return; }
-            setErr(null);
-            void deleteTable(seciliMasa);
-          }}
-          disabled={!selectedAreaId}
-          style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
-        >
-          <Trash2 size={14} /> Masa sil
-        </button>
+        {/* Masa sil · Tümünü sil — yan yana (Gökhan, 2026-08-20). Tümünü sil yalnızca AÇIK
+            SALONUN masalarını siler, öbür salonlara dokunmaz. */}
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => {
+              if (!seciliMasa) { setErr("Önce silmek istediğin masaya tıkla."); return; }
+              setErr(null);
+              void deleteTable(seciliMasa);
+            }}
+            disabled={!selectedAreaId}
+            style={{ ...btnSecondaryHeader, flex: 1, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
+          >
+            <Trash2 size={14} /> Masa sil
+          </button>
+          <button
+            onClick={() => { setErr(null); void deleteAllTables(); }}
+            disabled={!selectedAreaId}
+            style={{ ...btnSecondaryHeader, flex: 1, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
+          >
+            <Trash2 size={14} /> Tümünü sil
+          </button>
+        </div>
 
         {/* Duvar/Bar/Kolon/Servis/Kapı/Loca — tıklanınca hemen eklenir, sürükleyip yerine
             çekilir (Gökhan: "onları ekleyim çekiştirirler olabilir mi"). */}
