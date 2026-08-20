@@ -31,3 +31,7 @@ alter table public.reservations
 -- İşletme türü listesine "gece kulübü — canlı müzik" eklendi, canlı müzik akşam mekanı
 -- 18:00–01:00'e çekildi ve türlerin varsayılanına masa_hesabi_acik girdi. Fonksiyonların
 -- tam gövdesi veritabanında; buradaki dosya alan göçünü belgeliyor.
+
+-- Hangi masa grubunun loca olduğu (Gökhan, 2026-08-20). Loca kuralları bu işaretli gruplara
+-- uygulanıyor; isimden tahmin edilmiyor.
+alter table public.masa_gruplari add column if not exists loca boolean not null default false;

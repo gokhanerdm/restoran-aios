@@ -71,6 +71,8 @@ type Rez = {
   created_by: string | null;
   // Bu rezervasyona stoktan verilen masa adedi (masa hesabı — Gökhan, 2026-08-20).
   stok_masa: number | null;
+  // Loca kuralları: kapora alındı mı, hangi paket seçilmiş (Gökhan, 2026-08-20).
+  kapora_alindi: boolean | null; kapora_tutar: number | null; masa_paketi_id: string | null;
   alan_hesap_id: string | null;
   // Fix menü mü alakart mı — mutfak şefi listede masa yerine bunu görüyor (Gökhan,
   // 2026-08-17). Sadece ayarlarda fix menü açıkken sorulur.
@@ -1226,6 +1228,15 @@ export default function RezervasyonPage() {
   const [sinirAsilinca, setSinirAsilinca] = useState("sor");
   const [masaStoguAdet, setMasaStoguAdet] = useState(0);
   const [masaStoguKisi, setMasaStoguKisi] = useState(5);
+  // LOCA KURALLARI (Gökhan, 2026-08-20). Hangi masaların loca olduğu masa grubundaki "loca"
+  // işaretinden, kuralların kendisi ayarlardan geliyor.
+  const [locaGrupIds, setLocaGrupIds] = useState<Set<string>>(new Set());
+  const [locaKaporaAcik, setLocaKaporaAcik] = useState(false);
+  const [locaKaporaTutar, setLocaKaporaTutar] = useState<number | null>(null);
+  const [locaKaporaZorunlu, setLocaKaporaZorunlu] = useState(false);
+  const [locaSatisYetkisi, setLocaSatisYetkisi] = useState("herkes");
+  const [locaWalkinAcik, setLocaWalkinAcik] = useState(true);
+  const [locaPaketZorunlu, setLocaPaketZorunlu] = useState(false);
   // İşletme türü — yeni nesil meyhanede rezervasyon satırında fix/alakart da yazıyor
   // (Gökhan, 2026-08-18).
   const [isletmeTipi, setIsletmeTipi] = useState("");
@@ -1448,7 +1459,7 @@ export default function RezervasyonPage() {
   const load = useCallback(async (restId: string, targetGun: string) => {
     const { start, end } = gunSiniri(targetGun);
     const [{ data: r, error }, { data: t }, { data: s }] = await Promise.all([
-      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, seated_at, created_at, cancel_reason, source, masa_kilit, kisi_karti_id, kadin_sayisi, erkek_sayisi, hesap_tutari, yedek, gelen_kisi, misafir_masasi, misafir_yakin, tercih_alan_id, created_by, alan_hesap_id, servis_tipi, fix_menu_id, fix_kisi, bekleme, bekleme_baslangic, bekleme_dakika, teyit_durumu, teyit_zamani, stok_masa")
+      supabase.from("reservations").select("id, guest_name, guest_phone, party_size, reserved_at, status, note, table_id, arrived_at, seated_at, created_at, cancel_reason, source, masa_kilit, kisi_karti_id, kadin_sayisi, erkek_sayisi, hesap_tutari, yedek, gelen_kisi, misafir_masasi, misafir_yakin, tercih_alan_id, created_by, alan_hesap_id, servis_tipi, fix_menu_id, fix_kisi, bekleme, bekleme_baslangic, bekleme_dakika, teyit_durumu, teyit_zamani, stok_masa, kapora_alindi, kapora_tutar, masa_paketi_id")
         .eq("restaurant_id", restId).is("deleted_at", null)
         .gte("reserved_at", start).lt("reserved_at", end)
         // Sıralama üç kademeli olmalı (Gökhan, 2026-08-15: "bazı rezervasyonlar kafasına
@@ -1458,7 +1469,7 @@ export default function RezervasyonPage() {
         // reserved_at ve id eşitliği kırıyor — sıra artık her tazelemede aynı.
         .order("created_at").order("reserved_at").order("id"),
       supabase.from("restaurant_tables").select("id, name, seat_count, status, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, en_fazla_kisi, grup_id, area_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_settings").select("kvkk_notice, default_duration_minutes, auto_seating, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde, masa_ek_sandalye, gun_kapanis, fix_menu_acik, karma_fix_alakart, isletme_tipi, mesaj_acik, mesaj_onay_acik, mesaj_onay_metni, mesaj_teyit_acik, mesaj_teyit_saat, mesaj_teyit_bitis, mesaj_teyit_metni, mesaj_sessiz_baslangic, mesaj_sessiz_bitis, masa_hesabi_acik, masa_en_fazla_kisi, sinir_asilinca, masa_stogu_adet, masa_stogu_kisi, stok_bitince_arka_sira").eq("restaurant_id", restId).maybeSingle(),
+      supabase.from("restaurant_settings").select("kvkk_notice, default_duration_minutes, auto_seating, varsayilan_rezervasyon_saati, musteri_sadakat_ziyaret_esigi, musteri_no_show_risk_yuzde, masa_ek_sandalye, gun_kapanis, fix_menu_acik, karma_fix_alakart, isletme_tipi, mesaj_acik, mesaj_onay_acik, mesaj_onay_metni, mesaj_teyit_acik, mesaj_teyit_saat, mesaj_teyit_bitis, mesaj_teyit_metni, mesaj_sessiz_baslangic, mesaj_sessiz_bitis, masa_hesabi_acik, masa_en_fazla_kisi, sinir_asilinca, masa_stogu_adet, masa_stogu_kisi, stok_bitince_arka_sira, loca_kapora_acik, loca_kapora_tutar, loca_kapora_zorunlu, loca_satis_yetkisi, loca_walkin_acik, loca_paket_zorunlu").eq("restaurant_id", restId).maybeSingle(),
     ]);
     if (error) { setErr(error.message); return; }
     const list = (r as Rez[]) ?? [];
@@ -1472,6 +1483,8 @@ export default function RezervasyonPage() {
       fix_menu_acik: boolean | null; karma_fix_alakart: boolean | null; isletme_tipi: string | null;
       masa_hesabi_acik: boolean | null; masa_en_fazla_kisi: number | null; sinir_asilinca: string | null;
       masa_stogu_adet: number | null; masa_stogu_kisi: number | null; stok_bitince_arka_sira: boolean | null;
+      loca_kapora_acik: boolean | null; loca_kapora_tutar: number | null; loca_kapora_zorunlu: boolean | null;
+      loca_satis_yetkisi: string | null; loca_walkin_acik: boolean | null; loca_paket_zorunlu: boolean | null;
       mesaj_acik: boolean | null; mesaj_onay_acik: boolean | null; mesaj_onay_metni: string | null;
       mesaj_teyit_acik: boolean | null; mesaj_teyit_saat: string | null; mesaj_teyit_bitis: string | null;
       mesaj_teyit_metni: string | null; mesaj_sessiz_baslangic: string | null; mesaj_sessiz_bitis: string | null;
@@ -1493,9 +1506,12 @@ export default function RezervasyonPage() {
     // işletmenin genel sınırı. Program bunu tek yerden, masayı yüklerken uyguluyor; kapasite,
     // masa seçme, birleştirme, uygunluk kontrolü — hepsi aynı sayıyı görüyor.
     const hamMasalar = (t as TableRow[]) ?? [];
+    // Masa grupları: hangi grup LOCA (loca kuralları oraya uygulanır) ve grubun kişi sınırı.
+    // Masa hesabı kapalı olsa da loca kuralları çalıştığı için grup listesi her zaman okunuyor.
+    const { data: grupData } = await supabase.from("masa_gruplari")
+      .select("id, en_fazla_kisi, loca").eq("restaurant_id", restId).is("deleted_at", null);
+    setLocaGrupIds(new Set(((grupData as { id: string; loca: boolean }[]) ?? []).filter((g) => g.loca).map((g) => g.id)));
     if (settingsRow?.masa_hesabi_acik) {
-      const { data: grupData } = await supabase.from("masa_gruplari")
-        .select("id, en_fazla_kisi").eq("restaurant_id", restId).is("deleted_at", null);
       const grupSiniri = new Map(((grupData as { id: string; en_fazla_kisi: number | null }[]) ?? [])
         .map((g) => [g.id, g.en_fazla_kisi]));
       const genel = settingsRow.masa_en_fazla_kisi ?? 5;
@@ -1513,6 +1529,12 @@ export default function RezervasyonPage() {
     setSinirAsilinca(settingsRow?.sinir_asilinca ?? "sor");
     setMasaStoguAdet(settingsRow?.masa_stogu_adet ?? 0);
     setMasaStoguKisi(settingsRow?.masa_stogu_kisi ?? 5);
+    setLocaKaporaAcik(settingsRow?.loca_kapora_acik ?? false);
+    setLocaKaporaTutar(settingsRow?.loca_kapora_tutar ?? null);
+    setLocaKaporaZorunlu(settingsRow?.loca_kapora_zorunlu ?? false);
+    setLocaSatisYetkisi(settingsRow?.loca_satis_yetkisi ?? "herkes");
+    setLocaWalkinAcik(settingsRow?.loca_walkin_acik ?? true);
+    setLocaPaketZorunlu(settingsRow?.loca_paket_zorunlu ?? false);
     setKarmaFix(settingsRow?.karma_fix_alakart ?? false);
     supabase.from("fix_menuler").select("id, ad").eq("restaurant_id", restId).is("deleted_at", null).order("sira")
       .then(({ data }) => setFixMenuler((data as { id: string; ad: string }[]) ?? []));
@@ -2221,6 +2243,56 @@ export default function RezervasyonPage() {
   const masaAta = async (r: Rez, tableIds: string[]) => {
     if (tableIds.length === 0) return;
     setErr(null);
+
+    // LOCA KURALLARI (Gökhan, 2026-08-20: "her gece kulübünde loca var ve kuralları var").
+    // Kurallar masa verilirken işliyor: loca ancak o an belli oluyor. Hangi masaların loca
+    // olduğu masa grubundaki "loca" işaretinden geliyor, kuralların hepsi Ayarlar'da.
+    const locaMasalari = tableIds
+      .map((id) => tables.find((t) => t.id === id))
+      .filter((t): t is TableRow => !!t && !!t.grup_id && locaGrupIds.has(t.grup_id));
+    if (locaMasalari.length > 0) {
+      // 1) Kim satabilir. İşletme sahibinde rol boş gelir, o her zaman yetkili.
+      const rolSirasi: Record<string, number> = { yonetici: 3, pr: 2, karsilama: 1, herkes: 0 };
+      const benimRol = rolum === null ? "yonetici" : rolum;
+      const yeter = locaSatisYetkisi === "herkes"
+        || (locaSatisYetkisi === "karsilama" && ["karsilama", "yonetici"].includes(benimRol))
+        || (locaSatisYetkisi === "pr" && ["pr", "yonetici"].includes(benimRol))
+        || (locaSatisYetkisi === "yonetici" && benimRol === "yonetici");
+      if (!yeter) {
+        const kimler = locaSatisYetkisi === "yonetici" ? "yönetici"
+          : locaSatisYetkisi === "pr" ? "PR ve yönetici" : "karşılama ve yönetici";
+        setErr(`Loca satma yetkin yok — bu işletmede locayı ${kimler} satabiliyor.`);
+        return;
+      }
+      // 2) Kapıdan gelene loca kapalıysa verilmez.
+      if (!locaWalkinAcik && r.source === "kapi") {
+        setErr("Kapıdan gelen misafire loca verilemiyor — ayarlarda kapalı.");
+        return;
+      }
+      // 3) Paketsiz loca satılamıyorsa uyar.
+      if (locaPaketZorunlu && !r.masa_paketi_id) {
+        setErr("Loca paketsiz verilemiyor — önce rezervasyona paket seç.");
+        return;
+      }
+      // 4) Kapora. Zorunluysa alınmadan masa verilmiyor; zorunlu değilse soruluyor, alındıysa
+      // rezervasyona işleniyor.
+      if (locaKaporaAcik && !r.kapora_alindi) {
+        const tutarYazi = locaKaporaTutar ? ` (${locaKaporaTutar.toLocaleString("tr-TR")} ₺)` : "";
+        const alindi = await confirm(
+          `Loca kaporası${tutarYazi} alındı mı?`,
+          { confirmLabel: "Alındı" },
+        );
+        if (!alindi && locaKaporaZorunlu) {
+          setErr("Bu işletmede loca kaporasız verilemiyor.");
+          return;
+        }
+        if (alindi) {
+          await supabase.from("reservations")
+            .update({ kapora_alindi: true, kapora_tutar: locaKaporaTutar })
+            .eq("id", r.id);
+        }
+      }
+    }
     // NOTTA BAŞKA SALON YAZIYORSA UYAR (Gökhan, 2026-08-14: "notunda teras isteniyor diyen
     // rezervasyona bahçeden masa verdim, buna engel olabilir miyiz"). Yasak değil — son söz
     // işletmenin; ama yanlışlıkla olmasın diye soruyor.

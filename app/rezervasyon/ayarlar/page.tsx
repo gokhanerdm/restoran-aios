@@ -346,7 +346,7 @@ const YETKI_SECENEKLERI: { anahtar: string; ad: string }[] = [
 ];
 
 // Liste hâlindeki ayarların satır tipleri — her biri kendi tablosunda.
-type MasaGrubu = { id: string; ad: string; renk: string; fiyatlama_modu: string; tutar: number; dahil_kisi: number | null; asan_kisi_ucreti: number | null; en_fazla_kisi: number | null; sira: number };
+type MasaGrubu = { id: string; ad: string; renk: string; fiyatlama_modu: string; tutar: number; dahil_kisi: number | null; asan_kisi_ucreti: number | null; en_fazla_kisi: number | null; loca: boolean; sira: number };
 // Grup renkleri — salon planında masa bu renkle çizilir. Boş/dolu/rezerve renkleriyle
 // karışmasın diye orta koyulukta, birbirinden ayırt edilebilir bir dizi.
 const GRUP_RENKLERI = ["#8B93A7", "#B4654A", "#5E8C61", "#8E6BA8", "#C08A2E", "#3F7CAC", "#A34D6B", "#4F7A78"];
@@ -716,7 +716,7 @@ export default function RezervasyonAyarlarPage() {
       supabase.from("masa_olculeri").select("shape, seat_tier, width_cm, height_cm").eq("restaurant_id", restId),
       supabase.from("restaurant_photos").select("id, dosya_yolu, sira").eq("restaurant_id", restId).order("sira"),
       supabase.from("dining_areas").select("id, name, online_acik").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("masa_gruplari").select("id, ad, renk, fiyatlama_modu, tutar, dahil_kisi, asan_kisi_ucreti, en_fazla_kisi, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
+      supabase.from("masa_gruplari").select("id, ad, renk, fiyatlama_modu, tutar, dahil_kisi, asan_kisi_ucreti, en_fazla_kisi, loca, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("fix_menuler").select("id, ad, kisi_basi_fiyat, aciklama, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("masa_paketleri").select("id, ad, fiyat, icindekiler, kisi_tavani, sise_adedi, masa_hakki, loca_paketi, sira").eq("restaurant_id", restId).is("deleted_at", null).order("sira"),
       supabase.from("ozel_geceler").select("id, gun, ad, sanatci").eq("restaurant_id", restId).is("deleted_at", null).order("gun"),
@@ -1515,6 +1515,12 @@ export default function RezervasyonAyarlarPage() {
                       style={{ ...inp, width: 56, flexShrink: 0, textAlign: "center" }}
                     />
                   )}
+                  {/* LOCA İŞARETİ — loca kuralları (kapora, satış yetkisi, kapı girişi, paket
+                      zorunluluğu) bu işaretli gruplara uygulanır (Gökhan, 2026-08-20). */}
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, flexShrink: 0, cursor: "pointer" }} title="Bu grup loca — aşağıdaki loca kuralları uygulanır">
+                    <input type="checkbox" defaultChecked={g.loca} onChange={(e) => listeGuncelle("masa_gruplari", g.id, { loca: e.target.checked })} />
+                    Loca
+                  </label>
                   <button onClick={() => listeSil("masa_gruplari", g.id)} style={silBtn} aria-label="Grubu sil"><X size={13} /></button>
                 </div>
               ))}
