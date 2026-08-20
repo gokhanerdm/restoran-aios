@@ -211,7 +211,9 @@ export type PlanMasa = KonumluMasa & {
   id: string; genislik?: number; yukseklik?: number; normalX?: number | null; normalY?: number | null;
   alanId?: string | null; alanEni?: number | null; shape?: string; rotated?: boolean;
 };
-export type PlanRez = { id: string; kisi: number };
+// ekMasa: masa hesabında bu rezervasyona kaç EK masa verileceği. Verilmezse kişi sayısından
+// hesaplanır; verilirse işletmenin kararıdır ("önce sorsun" / "eklemesin, ben seçeyim").
+export type PlanRez = { id: string; kisi: number; ekMasa?: number };
 export type PlanSonuc = { atamalar: Record<string, string[]>; yerlesemeyen: string[] };
 
 // Masaları sıralara böler: aynı yükseklikteler aynı sıra, her sıra soldan sağa dizili.
@@ -507,14 +509,53 @@ const masalariSec = (
 // günden bulunup buraya veriliyor (Gökhan, 2026-08-15: "rezervasyonları birbirine bağlama").
 export type MisafirBagi = Record<string, { evSahibiId: string; yakin: boolean }>;
 
+// MASA HESABI (gece kulübü) — bambaşka bir dağıtım kuralı (Gökhan, 2026-08-20).
+//
+// Normal kural "kişiyi koltuklara sığdır, gerekirse bitişik masaları birleştir"dir. Gece
+// kulübünde bu YANLIŞ: sandalye yoktur, masa satılır ve yandaki masa başka misafirindir
+// (Gökhan: "birleştirmeyi yanındaki masa ile yaptı, gece kulübüne özel yedek masadan
+// çekecekti, yedek yoksa arka masadan çekecekti").
+//
+// Buradaki kural:
+//   • Rezervasyon önce TEK masa alır. Sınırı aşıyorsa her sınır katı için bir masa daha ister.
+//   • Ek masa önce DEPODAN ÇIKMIŞ YEDEK STOK masalarından gelir (S1, S2…).
+//   • Stok bittiyse ek masa ARKA SIRADAN gelir. "Ön" = salonun sıralamadaki birinci masasının
+//     durduğu yer (Gökhan: "ön sıra, sıralamada birinci masanın olduğu yer olarak algılansın");
+//     arka sıra ona en uzak masalardır — böylece öndeki iyi masalar bozulmaz.
+//   • Hiçbiri yoksa rezervasyon yerleşemez; komşunun masası ASLA alınmaz.
+export type MasaKurali = { sinir: number; stokIds: ReadonlySet<string> };
+
 const planKur = (
   masalar: PlanMasa[],
   serbest: PlanRez[],
   sabitler: { rez: PlanRez; masaIds: string[] }[],
   mevcut: Record<string, string[]>,
   misafirler: MisafirBagi = {},
+  masaKurali?: MasaKurali,
 ): PlanSonuc => {
   const siralar = siralaraBol(masalar);
+  // Salonun "ön"ü: o salonun sıralamadaki ilk masası (masalar dizisi sort_order ile geliyor).
+  const onNoktalari = new Map<string | null, { x: number; y: number }>();
+  masalar.forEach((m) => {
+    const anahtar = m.alanId ?? null;
+    if (onNoktalari.has(anahtar)) return;
+    const x = asilKX(m), y = asilKY(m);
+    if (x !== null && y !== null) onNoktalari.set(anahtar, { x, y });
+  });
+  /** Masa hesabında ek masa seçer: önce boş stok masası, sonra öne en uzak boş masa. */
+  const ekMasaSec = (ana: PlanMasa, bos: ReadonlySet<string>): PlanMasa | null => {
+    const adaylar = masalar.filter((m) => bos.has(m.id) && (m.alanId ?? null) === (ana.alanId ?? null));
+    if (adaylar.length === 0) return null;
+    const stoktakiler = adaylar.filter((m) => masaKurali!.stokIds.has(m.id));
+    if (stoktakiler.length > 0) return komsulukSirasi(stoktakiler, ana)[0];
+    const on = onNoktalari.get(ana.alanId ?? null);
+    if (!on) return adaylar[adaylar.length - 1];
+    const onaUzaklik = (m: PlanMasa) => {
+      const x = asilKX(m), y = asilKY(m);
+      return x === null || y === null ? -1 : Math.hypot(x - on.x, y - on.y);
+    };
+    return [...adaylar].sort((a, b) => onaUzaklik(b) - onaUzaklik(a))[0];
+  };
   const bosIds = new Set(masalar.map((m) => m.id));
   const atamalar: Record<string, string[]> = {};
   const koltuk = (ids: string[]) => ids.reduce((s, id) => s + (masalar.find((m) => m.id === id)?.seat_count ?? 0), 0);
@@ -586,6 +627,50 @@ const planKur = (
     const mevcutMasalari = (mevcut[rez.id] ?? [])
       .map((id) => masalar.find((m) => m.id === id))
       .filter((m): m is PlanMasa => !!m);
+
+    // MASA HESABI YOLU — bitişik masa birleştirme hiç denenmiyor (bkz. MasaKurali).
+    if (masaKurali) {
+      // Ana masa: tek masa, normal seçim kuralları (mevcut yerini koru, kümeye yakın dur).
+      let ana: { masalar: PlanMasa[]; taşımaSayisi: number } | null = null;
+      for (const liste of aramaListeleri) {
+        if (liste.length === 0) continue;
+        // Tek masalık adaylar — en küçük yeten boydan başlayarak.
+        const boylar = [...new Set(bosMasalar.map((m) => m.seat_count))].sort((a, b) => a - b);
+        for (const boy of boylar) {
+          const secim = masalariSec(liste, bosIds, [boy], tercih, mevcutMasalari, kumeMerkezleri);
+          if (secim) { ana = secim; break; }
+        }
+        if (ana) break;
+      }
+      if (!ana) { yerlesemeyen.push(rez.id); return; }
+      const secilen = [...ana.masalar];
+      secilen.forEach((m) => bosIds.delete(m.id));
+      // Sınırı aşan her kat için bir masa daha: önce stok, sonra arka sıra.
+      const gerekenEk = rez.ekMasa ?? Math.max(0, Math.ceil(rez.kisi / Math.max(masaKurali.sinir, 1)) - 1);
+      for (let i = 0; i < gerekenEk; i++) {
+        const ek = ekMasaSec(secilen[0], bosIds);
+        if (!ek) {
+          // Ek masa yok — rezervasyon yerleşemiyor, alınan masa geri bırakılıyor.
+          secilen.forEach((m) => bosIds.add(m.id));
+          yerlesemeyen.push(rez.id);
+          return;
+        }
+        bosIds.delete(ek.id);
+        secilen.push(ek);
+      }
+      atamalar[rez.id] = secilen.map((m) => m.id);
+      if (secilen.length > 1) {
+        const noktalar = secilen.filter((m) => asilKX(m) !== null && asilKY(m) !== null);
+        if (noktalar.length > 0) {
+          kumeMerkezleri.push({
+            x: noktalar.reduce((s, m) => s + asilKX(m)!, 0) / noktalar.length,
+            y: noktalar.reduce((s, m) => s + asilKY(m)!, 0) / noktalar.length,
+          });
+        }
+      }
+      return;
+    }
+
     for (const liste of aramaListeleri) {
       if (liste.length === 0) continue;
       for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
@@ -632,10 +717,11 @@ export const salonuPlanla = (
   sabitler: { rez: PlanRez; masaIds: string[] }[],
   mevcut: Record<string, string[]> = {},
   misafirler: MisafirBagi = {},
+  masaKurali?: MasaKurali,
 ): PlanSonuc => {
-  const azOynayan = planKur(masalar, serbest, sabitler, mevcut, misafirler);
+  const azOynayan = planKur(masalar, serbest, sabitler, mevcut, misafirler, masaKurali);
   if (azOynayan.yerlesemeyen.length === 0) return azOynayan;
-  const sifirdan = planKur(masalar, serbest, sabitler, {}, misafirler);
+  const sifirdan = planKur(masalar, serbest, sabitler, {}, misafirler, masaKurali);
   return sifirdan.yerlesemeyen.length < azOynayan.yerlesemeyen.length ? sifirdan : azOynayan;
 };
 
