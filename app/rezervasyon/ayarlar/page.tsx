@@ -116,6 +116,11 @@ function UlkeKodu({ deger, onDegis }: { deger: string; onDegis: (k: string) => v
   );
 }
 
+// SİMÜLE EDİLMİŞ TÜRLER — kayıt ekranındaki listeyle birebir aynı (Gökhan, 2026-08-20:
+// "simülesi yapılmamış başlıkları kaldır"). Diğer türlerin varsayılanları veritabanında
+// duruyor, sadece seçilemiyorlar; her tür işletme işletme denendikçe buraya eklenecek.
+const SIMULE_TIPLER = new Set<IsletmeTipi>(["yn_meyhane", "gece_kulubu", "gece_kulubu_canli"]);
+
 // İŞLETME TÜRÜ KUTUSU — işletme adının yanında, aşağı açılan liste (Gökhan, 2026-08-16:
 // "işletme adı satırını ikiye böl ve yanına işletme türünü koy, akordion açılsın oradan seçsin").
 // Ülke kodu kutusuyla aynı desen: native <select> yerine kendi listesi, çünkü seçili türün
@@ -123,6 +128,10 @@ function UlkeKodu({ deger, onDegis }: { deger: string; onDegis: (k: string) => v
 function TurSecici({ deger, onDegis }: { deger: IsletmeTipi; onDegis: (t: IsletmeTipi) => void }) {
   const [acik, setAcik] = useState(false);
   const secili = ISLETME_TIPLERI.find((t) => t.anahtar === deger) ?? ISLETME_TIPLERI[0];
+  // Kayıt ekranıyla aynı kural: sadece simüle edilmiş türler seçilebiliyor (Gökhan,
+  // 2026-08-20). İşletmenin ŞU ANKİ türü listede olmasa bile gösteriliyor — yoksa eski bir
+  // hesap ayarları açtığında kendi türünü göremez, farkında olmadan başka türe geçer.
+  const secilebilir = ISLETME_TIPLERI.filter((t) => SIMULE_TIPLER.has(t.anahtar) || t.anahtar === deger);
   return (
     <div style={{ position: "relative" }}>
       <button
@@ -136,7 +145,7 @@ function TurSecici({ deger, onDegis }: { deger: IsletmeTipi; onDegis: (t: Isletm
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={() => setAcik(false)} />
           <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 41, background: "var(--card)", border: "1px solid var(--line-2)", borderRadius: 10, boxShadow: "0 6px 18px rgba(0,0,0,0.12)", overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
-            {ISLETME_TIPLERI.map((t) => (
+            {secilebilir.map((t) => (
               <button
                 key={t.anahtar} type="button"
                 onClick={() => { onDegis(t.anahtar); setAcik(false); }}

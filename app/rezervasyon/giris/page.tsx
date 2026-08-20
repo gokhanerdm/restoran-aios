@@ -38,12 +38,18 @@ const TUM_GUNLER = new Set<DayKey>(DAYS.map((d) => d.k));
 // (Gökhan, 2026-08-16: "kayıtta zaten işletme türü seçimi var, biz sadece ayarları ve
 // özellikleri bağlayacağız"). Eşleşme veritabanında: isletme_turu_slug + isletme_tipi_varsayilani.
 // BURAYA YENİ TÜR EKLENİRSE o iki fonksiyona da eklenmeli, yoksa "Diğer" varsayılanına düşer.
+//
+// LİSTEDE SADECE SİMÜLE EDİLMİŞ TÜRLER DURUYOR (Gökhan, 2026-08-20: "simülesi yapılmamış
+// başlıkları kaldır, şu an yn meyhane, gece kulübü ve gece canlı müzik olsun"). Restoran,
+// kafe, meyhane, gazino, bar gibi türlerin varsayılanları veritabanında hazır ama daha
+// işletme işletme oturup denenmedi — denenmemiş bir türü seçtirip yanlış varsayılanla
+// başlatmaktansa listeye hiç koymuyoruz. Her tür simüle edildikçe buraya geri eklenecek.
 const ISLETME_TURLERI = [
-  "Restoran", "Kafe", "Kafeterya", "Pastane / Fırın", "Fast food",
-  // Canlı müzik AKŞAM mekanı (18:00–01:00); gece 12'de açılıp sabah kapanan canlı müzikli
-  // kulüpler ayrı tür (Gökhan, 2026-08-20).
-  "Meyhane", "Yeni nesil meyhane", "Canlı müzik", "Gazino", "Bar / Pub",
-  "Gece kulübü", "Gece kulübü - canlı müzik", "Diğer",
+  "Yeni nesil meyhane",
+  "Gece kulübü",
+  // Gece 12'de açılıp sabah kapanan, sahnesinde canlı müzik olan kulüp — akşam mekanı
+  // olan "Canlı müzik"ten ayrı tür (Gökhan, 2026-08-20).
+  "Gece kulübü - canlı müzik",
 ];
 
 // Güçlü parola standardı — kabul gören en yaygın kural: en az 8 karakter, bir büyük harf,
