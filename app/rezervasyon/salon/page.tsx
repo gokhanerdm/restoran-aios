@@ -1283,12 +1283,20 @@ function SalonInner() {
   // hedef büyüyüp salon ekranda küçücük kalmasın (Gökhan, 2026-08-13: "salon gösteriminde
   // büyümüyor"). Eski bir kaymadan ötürü çizginin dışında duran masa varsa kaydırarak görülür.
   // Ölçü girilmemişse eskisi gibi masaların kapladığı yere bakılır.
+  //
+  // ÖLÇÜSÜZ SALONDA HEDEF TUVALDEN KÜÇÜK OLAMAZ (Gökhan, 2026-08-20: "yeni masa açtım ama
+  // koyduğum yerden kaçıyor, yanda kaydırma çubuğu çıkıyor"). Ölçü girilmemiş bir salonda
+  // tek masa kalınca hedef 97×196 noktaya düşüyor, yakınlaştırma tavana vuruyor ve TUVAL
+  // (en az 600×360) ekrandan taşıyordu — kaydırma çubuğu buydu. Dahası hedef masanın kendi
+  // yerinden hesaplandığı için masa sürüklenince ölçek değişiyor, masa yerinde dursa bile
+  // ekran kayıyor ve masa "kaçıyor" gibi görünüyordu. Ölçüsüz salonda sığdırılacak şey
+  // tuvalin kendisidir; o sabit olduğu için sürükleme ölçeği artık oynatmıyor.
   const fitGenislik = odaGenislikPx
     ? Math.max(1, odaGenislikPx, ...ogeSagSinirlari)
-    : Math.max(1, ...govdeSagSinirlari, ...ogeSagSinirlari);
+    : Math.max(1, containerWidth, ...govdeSagSinirlari, ...ogeSagSinirlari);
   const fitYukseklik = odaDerinlikPx
     ? Math.max(1, odaDerinlikPx, ...ogeAltSinirlari)
-    : Math.max(1, ...govdeAltSinirlari, ...ogeAltSinirlari);
+    : Math.max(1, containerHeight, ...govdeAltSinirlari, ...ogeAltSinirlari);
 
   // PLANI ÇEVİRME (Gökhan, 2026-08-10: "salonun eni geniş ise geniş tarafa yerleşecek, boyu
   // geniş ise boyu yerleşecek — kullanıcı salonu tam kutunun içinde görecek"). Yatık bir

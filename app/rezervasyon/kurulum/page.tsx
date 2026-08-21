@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
-import { BOX_W, BOX_H } from "../masaOlcu";
+import { BOX_W, BOX_H, PX_PER_CM } from "../masaOlcu";
 
 // KURULUM — kayıt bittikten sonra işletmeyi karşılayan ekran (Gökhan, 2026-08-20:
 // "açıldıktan sonra karşımıza tüm program için geçerli bu ayarlar ekranı gelmeli ve tüm
@@ -222,26 +222,41 @@ export default function KurulumPage() {
 
   /** Girilen boy × adet listesinden masaları üretir ve düzgün bir ızgaraya dizer. */
   const masalariUret = async (restId: string): Promise<string | null> => {
+    // Hangi boydan kaç tane: kulüpte tek satır, diğerlerinde 2/4/6/8.
+    const istekler: { kisi: number; adet: number }[] = kulupTipi
+      ? [{ kisi: parseInt(kulupMasaKisi || "5", 10) || 5, adet: parseInt(kulupMasaAdet || "0", 10) || 0 }]
+      : [2, 4, 6, 8].map((k) => ({ kisi: k, adet: parseInt(boyAdet[k] || "0", 10) || 0 }));
+    const toplamMasa = istekler.reduce((s, i) => s + i.adet, 0);
+    if (toplamMasa === 0) return "Hiç masa girilmedi.";
+
+    // Izgara: satır başına 6 masa, kutu ölçüsü + aralık. Bu bir BAŞLANGIÇ dizilimi — işletme
+    // salonu kendi planına benzetip raptiyeleyecek.
+    const SATIR_BASI = 6, ARALIK = 12;
+
     // Salon yoksa bir tane açılıyor — işletme sonradan adını değiştirir, yenisini ekler.
+    // ÖLÇÜSÜ DE VERİLİYOR (Gökhan, 2026-08-20). Ölçüsüz salonda program "ekrana sığdırılacak
+    // alan"ı masaların kapladığı yerden hesaplıyor; salonda tek masa kalınca o alan avuç içi
+    // kadar oluyor, yakınlaştırma tavana vuruyor ve masa sürüklendikçe ekran kayıyordu.
+    // Izgaranın kapladığı dikdörtgen kadar bir salon açıyoruz; işletme gerçek ölçüsünü
+    // Ayarlar'dan girince o geçerli olur.
+    const izgaraEn = Math.min(SATIR_BASI, toplamMasa) * (BOX_W + ARALIK) + ARALIK;
+    const izgaraBoy = Math.ceil(toplamMasa / SATIR_BASI) * (BOX_H + ARALIK) + ARALIK;
+
     let alanId: string | null = null;
     const { data: mevcutAlan } = await supabase.from("dining_areas")
       .select("id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order").limit(1);
     alanId = ((mevcutAlan as { id: string }[]) ?? [])[0]?.id ?? null;
     if (!alanId) {
       const { data: yeni, error } = await supabase.from("dining_areas")
-        .insert({ restaurant_id: restId, name: "Salon", sort_order: 0 }).select("id").single();
+        .insert({
+          restaurant_id: restId, name: "Salon", sort_order: 0,
+          genislik_cm: Math.round(izgaraEn / PX_PER_CM),
+          derinlik_cm: Math.round(izgaraBoy / PX_PER_CM),
+        }).select("id").single();
       if (error) return error.message;
       alanId = (yeni as { id: string }).id;
     }
 
-    // Hangi boydan kaç tane: kulüpte tek satır, diğerlerinde 2/4/6/8.
-    const istekler: { kisi: number; adet: number }[] = kulupTipi
-      ? [{ kisi: parseInt(kulupMasaKisi || "5", 10) || 5, adet: parseInt(kulupMasaAdet || "0", 10) || 0 }]
-      : [2, 4, 6, 8].map((k) => ({ kisi: k, adet: parseInt(boyAdet[k] || "0", 10) || 0 }));
-
-    // Izgara: satır başına 6 masa, kutu ölçüsü + aralık. Bu bir BAŞLANGIÇ dizilimi — işletme
-    // salonu kendi planına benzetip raptiyeleyecek.
-    const SATIR_BASI = 6, ARALIK = 12;
     const satirlar: { name: string; seat_count: number; shape: string; position_x: number; position_y: number; sort_order: number }[] = [];
     let no = 0;
     for (const istek of istekler) {
@@ -251,15 +266,13 @@ export default function KurulumPage() {
           name: `Masa ${no + 1}`,
           seat_count: istek.kisi,
           shape: istek.kisi > 4 ? "dikdortgen" : "kare",
-          position_x: sutun * (BOX_W + ARALIK),
-          position_y: satir * (BOX_H + ARALIK),
+          position_x: sutun * (BOX_W + ARALIK) + ARALIK,
+          position_y: satir * (BOX_H + ARALIK) + ARALIK,
           sort_order: no,
         });
         no++;
       }
     }
-    if (satirlar.length === 0) return "Hiç masa girilmedi.";
-
     const { error } = await supabase.from("restaurant_tables")
       .insert(satirlar.map((s) => ({ ...s, restaurant_id: restId, area_id: alanId, status: "empty" })));
     if (error) return error.message;
