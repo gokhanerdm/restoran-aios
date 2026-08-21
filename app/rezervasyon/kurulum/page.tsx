@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyReservationRestaurantId } from "@/lib/supabase/reservationAccount";
 import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
-import { BOX_W, BOX_H, PX_PER_CM } from "../masaOlcu";
+import { BOX_W, BOX_H } from "../masaOlcu";
 
 // KURULUM — kayıt bittikten sonra işletmeyi karşılayan ekran (Gökhan, 2026-08-20:
 // "açıldıktan sonra karşımıza tüm program için geçerli bu ayarlar ekranı gelmeli ve tüm
@@ -106,6 +106,11 @@ export default function KurulumPage() {
   // Gece kulübünde bütün masalar aynı — tablo tek satıra düşüyor.
   const [kulupMasaAdet, setKulupMasaAdet] = useState("");
   const [kulupMasaKisi, setKulupMasaKisi] = useState("5");
+  // Salonu program açmaz, işletme açar (Gökhan, 2026-08-20: "salon oluşturulmadan masa
+  // girilemesin"). Ölçü isteğe bağlı ama girilirse salon çizgisi ve duvar kuralı çalışır.
+  const [yeniSalonAdi, setYeniSalonAdi] = useState("Salon");
+  const [salonEn, setSalonEn] = useState("");
+  const [salonBoy, setSalonBoy] = useState("");
 
   // 4 — Rezervasyon kuralları
   const [masaHesabi, setMasaHesabi] = useState(false);
@@ -220,6 +225,25 @@ export default function KurulumPage() {
   // Gece kulübünde mutfak yok — mutfak şefi kodu hiç üretilmiyor (Gökhan, 2026-08-20).
   const rollerim = PERSONEL_ROLLERI.filter((r) => !(kulupTipi && r.anahtar === "mutfak"));
 
+  /** İşletmenin girdiği ad ve ölçüyle salonu açar. Masa girişi ancak bundan sonra çıkar. */
+  const salonOlustur = async () => {
+    if (!restaurantId || busy) return;
+    if (!yeniSalonAdi.trim()) { setErr("Salona bir ad ver."); return; }
+    setBusy(true); setErr(null);
+    const { error } = await supabase.from("dining_areas").insert({
+      restaurant_id: restaurantId,
+      name: toTitleTr(yeniSalonAdi),
+      sort_order: salonSayisi,
+      // Ölçü isteğe bağlı: girilirse salon çizgisi çıkar, masalar duvarın dışına taşamaz.
+      genislik_cm: parseInt(salonEn || "0", 10) || null,
+      derinlik_cm: parseInt(salonBoy || "0", 10) || null,
+    });
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setSalonSayisi((n) => n + 1);
+    setYeniSalonAdi("");
+  };
+
   /** Girilen boy × adet listesinden masaları üretir ve düzgün bir ızgaraya dizer. */
   const masalariUret = async (restId: string): Promise<string | null> => {
     // Hangi boydan kaç tane: kulüpte tek satır, diğerlerinde 2/4/6/8.
@@ -233,29 +257,13 @@ export default function KurulumPage() {
     // salonu kendi planına benzetip raptiyeleyecek.
     const SATIR_BASI = 6, ARALIK = 12;
 
-    // Salon yoksa bir tane açılıyor — işletme sonradan adını değiştirir, yenisini ekler.
-    // ÖLÇÜSÜ DE VERİLİYOR (Gökhan, 2026-08-20). Ölçüsüz salonda program "ekrana sığdırılacak
-    // alan"ı masaların kapladığı yerden hesaplıyor; salonda tek masa kalınca o alan avuç içi
-    // kadar oluyor, yakınlaştırma tavana vuruyor ve masa sürüklendikçe ekran kayıyordu.
-    // Izgaranın kapladığı dikdörtgen kadar bir salon açıyoruz; işletme gerçek ölçüsünü
-    // Ayarlar'dan girince o geçerli olur.
-    const izgaraEn = Math.min(SATIR_BASI, toplamMasa) * (BOX_W + ARALIK) + ARALIK;
-    const izgaraBoy = Math.ceil(toplamMasa / SATIR_BASI) * (BOX_H + ARALIK) + ARALIK;
-
-    let alanId: string | null = null;
+    // SALON PROGRAM TARAFINDAN AÇILMAZ (Gökhan, 2026-08-20: "salon oluşturulmadan masa
+    // girilemesin"). Masalar hangi salona gireceğini bilmeden üretilmez; salonu işletme
+    // kendisi, adıyla ve ölçüsüyle açar (bkz. salonOlustur).
     const { data: mevcutAlan } = await supabase.from("dining_areas")
       .select("id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order").limit(1);
-    alanId = ((mevcutAlan as { id: string }[]) ?? [])[0]?.id ?? null;
-    if (!alanId) {
-      const { data: yeni, error } = await supabase.from("dining_areas")
-        .insert({
-          restaurant_id: restId, name: "Salon", sort_order: 0,
-          genislik_cm: Math.round(izgaraEn / PX_PER_CM),
-          derinlik_cm: Math.round(izgaraBoy / PX_PER_CM),
-        }).select("id").single();
-      if (error) return error.message;
-      alanId = (yeni as { id: string }).id;
-    }
+    const alanId = ((mevcutAlan as { id: string }[]) ?? [])[0]?.id ?? null;
+    if (!alanId) return "Önce salonunu oluştur, masalar oraya girecek.";
 
     const satirlar: { name: string; seat_count: number; shape: string; position_x: number; position_y: number; sort_order: number }[] = [];
     let no = 0;
@@ -365,6 +373,7 @@ export default function KurulumPage() {
     if (adim === "saatler" && acikGunler.size === 0) return "En az bir gün açık olmalı.";
     if (adim === "salon" && masaSayisi === 0) {
       if (salonYolu === "masalar") {
+        if (salonSayisi === 0) return "Önce salonunu oluştur, masalar oraya girecek.";
         const toplam = kulupTipi
           ? parseInt(kulupMasaAdet || "0", 10) || 0
           : [2, 4, 6, 8].reduce((s, k) => s + (parseInt(boyAdet[k] || "0", 10) || 0), 0);
@@ -526,7 +535,30 @@ export default function KurulumPage() {
                     </div>
 
                     {salonYolu === "masalar" ? (
+                      salonSayisi === 0 ? (
+                        // SALON ÖNCE (Gökhan, 2026-08-20: "salon oluşturulmadan masa
+                        // girilemesin"). Masalar hangi salona gireceği belli olmadan açılmaz.
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <Alan ad="Salon adı">
+                            <input
+                              value={yeniSalonAdi} onChange={(e) => setYeniSalonAdi(e.target.value)}
+                              onBlur={(e) => setYeniSalonAdi(toTitleTr(e.target.value))}
+                              style={{ ...inp, width: 220 }}
+                            />
+                          </Alan>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                            <Alan ad="En (cm)"><input value={salonEn} onChange={(e) => setSalonEn(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="isteğe bağlı" style={{ ...inp, width: 130 }} /></Alan>
+                            <Alan ad="Boy (cm)"><input value={salonBoy} onChange={(e) => setSalonBoy(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="isteğe bağlı" style={{ ...inp, width: 130 }} /></Alan>
+                          </div>
+                          <button onClick={salonOlustur} disabled={busy} style={{ ...btnIkincil, opacity: busy ? 0.6 : 1 }}>
+                            {busy ? "…" : "Salonu oluştur"}
+                          </button>
+                        </div>
+                      ) : (
                       <>
+                        <div style={{ fontSize: 13, color: "var(--ink-soft)" }}>
+                          Salon hazır ({salonSayisi}). Masalar buraya girecek.
+                        </div>
                         {kulupTipi ? (
                           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                             <Alan ad="Kaç masan var"><input value={kulupMasaAdet} onChange={(e) => setKulupMasaAdet(e.target.value.replace(/\D/g, ""))} inputMode="numeric" style={{ ...inp, width: 100 }} /></Alan>
@@ -549,6 +581,7 @@ export default function KurulumPage() {
                           </div>
                         )}
                       </>
+                      )
                     ) : (
                       <>
                         <Alan ad="Toplam kapasite (kişi)">
