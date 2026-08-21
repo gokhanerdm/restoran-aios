@@ -184,6 +184,8 @@ function SalonInner() {
   // Masaya sol tık artık pencere açmıyor, masayı SEÇİYOR; sol menüdeki "Masa çoğalt" ve
   // "Masa sil" hep bu seçili masaya çalışıyor. Aynı masaya tekrar tıklamak seçimi bırakır.
   const [seciliMasaId, setSeciliMasaId] = useState<string | null>(null);
+  // "Seçili" satırındaki ad kutusunun taslağı — başka masa seçilince o masanın adına döner.
+  const [adTaslak, setAdTaslak] = useState("");
   // Hızlı masa çoğaltma (Gökhan: "bir masa açtım, yön seçtim, adet ve aralık girdim, o
   // yönde o kadar masa açtı") — sol menüdeki "Masa çoğalt" düğmesinin altında açılan mini form.
   const [cogaltAcik, setCogaltAcik] = useState(false);
@@ -1194,6 +1196,10 @@ function SalonInner() {
   // Sol menüdeki Masa çoğalt / Masa sil bu masaya çalışır. Masa silinir ya da başka salona
   // geçilirse seçim kendiliğinden düşer — düğmeler o zaman "önce bir masa seç" der.
   const seciliMasa = tablesInArea.find((t) => t.id === seciliMasaId) ?? null;
+  // Seçim değişince ad kutusu o masanın adını gösterir. Kutuya yazarken bu çalışmasın diye
+  // bağımlılık masanın kendisi değil KİMLİĞİ — aynı masa seçiliyken taslağa dokunulmuyor.
+  const seciliAd = seciliMasa?.name ?? "";
+  useEffect(() => { setAdTaslak(seciliAd); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [seciliMasaId]);
   // Esc her şeyi bırakır: masa seçimi, çoğaltma formu ve açık sağ tık menüsü.
   useEffect(() => {
     const kapat = (e: KeyboardEvent) => {
@@ -1827,9 +1833,28 @@ function SalonInner() {
             menü butonun altına açılsın"). Çoğaltma eskiden masanın sağ tık menüsündeydi. */}
         {seciliMasa && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--muted)", padding: "0 2px" }}>
-            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              Seçili: <span style={{ color: "var(--ink-green)", fontWeight: 600 }}>{seciliMasa.name}</span>
-            </span>
+            {/* Masanın adı buradan değiştirilebiliyor (Gökhan, 2026-08-20: "seçili diye bir
+                satır var, oradan masa adı değiştirilebilsin"). Kutudan çıkınca ya da Enter'a
+                basınca kaydediliyor; boş bırakılırsa eski ad geri geliyor. */}
+            <span style={{ flexShrink: 0 }}>Seçili:</span>
+            <input
+              value={adTaslak}
+              onChange={(e) => setAdTaslak(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setAdTaslak(seciliMasa.name); }}
+              onBlur={() => {
+                const yeni = adTaslak.trim();
+                if (!yeni) { setAdTaslak(seciliMasa.name); return; }
+                if (yeni === seciliMasa.name) return;
+                void renameTable(seciliMasa.id, yeni);
+              }}
+              style={{
+                flex: 1, minWidth: 0, border: "1px solid transparent", borderRadius: 6,
+                padding: "3px 5px", background: "transparent", color: "var(--ink-green)",
+                fontSize: 12, fontWeight: 600, outline: "none",
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = "var(--line-2)"; e.currentTarget.style.background = "var(--card)"; }}
+              onBlurCapture={(e) => { e.currentTarget.style.borderColor = "transparent"; e.currentTarget.style.background = "transparent"; }}
+            />
             <button
               onClick={() => { setSeciliMasaId(null); setCogaltAcik(false); }}
               title="Seçimi bırak"
