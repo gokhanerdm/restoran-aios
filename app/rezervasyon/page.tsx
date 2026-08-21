@@ -1235,7 +1235,6 @@ export default function RezervasyonPage() {
   const [masaEnFazlaKisi, setMasaEnFazlaKisi] = useState(5);
   const [sinirAsilinca, setSinirAsilinca] = useState("sor");
   const [masaStoguAdet, setMasaStoguAdet] = useState(0);
-  const [masaStoguKisi, setMasaStoguKisi] = useState(5);
   // SALONSUZ ÇALIŞMA (Gökhan, 2026-08-20: "salon ve masa ayarı yapmayan rezervasyon alabilsin
   // ama yerleşim yapamasın... kapasiteyi yazsın devam etsin"). Kurulumda yazılan toplam kişi
   // kapasitesi; masa yoksa doluluk bu sayıya göre tutulur.
@@ -1554,7 +1553,6 @@ export default function RezervasyonPage() {
     setSinirAsilinca(settingsRow?.sinir_asilinca ?? "sor");
     setKapasiteKisi(settingsRow?.kapasite_kisi ?? 0);
     setMasaStoguAdet(settingsRow?.masa_stogu_adet ?? 0);
-    setMasaStoguKisi(settingsRow?.masa_stogu_kisi ?? 5);
     setLocaKaporaAcik(settingsRow?.loca_kapora_acik ?? false);
     setLocaKaporaTutar(settingsRow?.loca_kapora_tutar ?? null);
     setLocaKaporaZorunlu(settingsRow?.loca_kapora_zorunlu ?? false);
@@ -2733,36 +2731,6 @@ export default function RezervasyonPage() {
           .in("id", eskiStok.map((m) => m.id));
         masalar = masalar.filter((m) => !eskiStok.some((e) => e.id === m.id));
       }
-      const bugunStok = masalar.filter((m) => m.stok && m.stok_gun === planGunu);
-      const gerekenEk = rezler.reduce(
-        (s, r) => s + (sinirAsilinca === "otomatik"
-          ? Math.max(0, Math.ceil(r.party_size / Math.max(masaEnFazlaKisi, 1)) - 1)
-          : (r.stok_masa ?? 0)), 0,
-      );
-      // Stok sınırlı: işletmenin depoda kaç masası varsa o kadar çıkabilir.
-      const cikacak = Math.min(gerekenEk, masaStoguAdet) - bugunStok.length;
-      if (cikacak > 0) {
-        const salonMasalari = masalar.filter((m) => !m.stok);
-        const alanId = salonMasalari[0]?.area_id ?? null;
-        // Depodan çıkan masa salonun arkasına konur; yerleşim onu misafirin masasının yanına çeker.
-        const enAltY = Math.max(0, ...salonMasalari.map((m) => Number(m.position_y ?? 0)));
-        const yeniler = Array.from({ length: cikacak }, (_, i) => ({
-          restaurant_id: restaurantId,
-          name: `S${bugunStok.length + i + 1}`,
-          area_id: alanId,
-          status: "empty",
-          shape: "kare",
-          seat_count: masaStoguKisi,
-          sort_order: 900 + bugunStok.length + i,
-          position_x: (bugunStok.length + i) * (BOX_W + 12),
-          position_y: enAltY + BOX_H + 40,
-          stok: true,
-          stok_gun: planGunu,
-        }));
-        const { data: eklenen } = await supabase.from("restaurant_tables").insert(yeniler)
-          .select("id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id, stok, stok_gun");
-        masalar = [...masalar, ...((eklenen as TazeMasa[]) ?? [])];
-      }
       stokIds = new Set(masalar.filter((m) => m.stok).map((m) => m.id));
     }
 
@@ -2846,6 +2814,68 @@ export default function RezervasyonPage() {
     // yerinde bırakılmaz. Tercihi olanlar önce planlanır, masa çakışırsa onlar kazanır.
     const korunanAtamalar = { ...mevcutAtamalar, ...salonTercihi };
     const planSirasi = [...serbest].sort((a, b) => (salonTercihi[b.id] ? 1 : 0) - (salonTercihi[a.id] ? 1 : 0));
+
+    // ————— DEPODAN MASA ÇIKARMA (masa hesabı, Gökhan 2026-08-20) —————
+    // Yedek masa YANINA ÇAĞIRAN MASANIN AYNISI olur: aynı şekil, aynı kişi sınırı, dolayısıyla
+    // aynı ölçü. Bunu bilmek için önce her rezervasyonun ANA masası belli olmalı — o yüzden
+    // plan iki geçişli: birinci geçiş kimseye ek masa vermeden ana masaları buluyor, depodan
+    // çıkacak masalar o ana masalara göre üretiliyor, ikinci (asıl) geçiş ek masaları dağıtıyor.
+    if (masaHesabi && !sadeceDuzen && masaStoguAdet > 0) {
+      const bugunStok = masalar.filter((m) => m.stok);
+      const bosStok = bugunStok.filter((m) => !rezler.some((r) => masaOf(r).includes(m.id))).length;
+      const gerekenEk = (r: TazeRez) => (sinirAsilinca === "otomatik"
+        ? Math.max(0, Math.ceil(r.party_size / Math.max(masaEnFazlaKisi, 1)) - 1)
+        : (r.stok_masa ?? 0));
+      const toplamEk = rezler.reduce((s, r) => s + gerekenEk(r), 0);
+      // Depoda kalan masa sayısı ve zaten salonda duran boş stok masaları düşülür.
+      const cikacak = Math.min(toplamEk - bosStok, masaStoguAdet - bugunStok.length);
+      if (cikacak > 0) {
+        // Birinci geçiş: ek masa YOK, herkes tek masasını alsın.
+        const { atamalar: ilk } = salonuPlanla(
+          masalar.map(planMasa),
+          planSirasi.map((r) => ({ id: r.id, kisi: r.party_size, ekMasa: 0 })),
+          sabit.map((r) => ({ rez: { id: r.id, kisi: r.party_size, ekMasa: 0 }, masaIds: masaOf(r) })),
+          korunanAtamalar, misafirler, { sinir: masaEnFazlaKisi, stokIds },
+        );
+        // Ek masa isteyen rezervasyonlar, çok isteyenden aza doğru — stok azsa büyük grup öncelikli.
+        const isteyenler = rezler
+          .map((r) => ({ r, ek: gerekenEk(r), ana: masalar.find((m) => m.id === (ilk[r.id] ?? [])[0]) }))
+          .filter((x) => x.ek > 0 && x.ana)
+          .sort((a, b) => b.ek - a.ek);
+        const yeniler: Record<string, unknown>[] = [];
+        let sira = bugunStok.length;
+        for (const { ek, ana } of isteyenler) {
+          for (let i = 0; i < ek && yeniler.length < cikacak; i++) {
+            // Depodan çıkan masa salonun arkasına konur; yerleşim onu misafirin masasının yanına çeker.
+            const enAltY = Math.max(0, ...masalar.filter((m) => m.area_id === ana!.area_id).map((m) => Number(m.position_y ?? 0)));
+            yeniler.push({
+              restaurant_id: restaurantId,
+              name: `S${sira + 1}`,
+              area_id: ana!.area_id,
+              status: "empty",
+              // Yanına çağıran masanın aynısı: şekil ve kişi sınırı ondan kopyalanıyor,
+              // ölçü de zaten bu ikisinden çıkıyor (masaOlcu / masa_olculeri).
+              shape: ana!.shape,
+              seat_count: ana!.seat_count,
+              en_fazla_kisi: planKoltuk(ana!),
+              rotated: ana!.rotated,
+              sort_order: 900 + sira,
+              position_x: (sira % 6) * (BOX_W + 12),
+              position_y: enAltY + BOX_H + 40,
+              stok: true,
+              stok_gun: planGunu,
+            });
+            sira++;
+          }
+        }
+        if (yeniler.length > 0) {
+          const { data: eklenen } = await supabase.from("restaurant_tables").insert(yeniler)
+            .select("id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id, stok, stok_gun");
+          masalar = [...masalar, ...((eklenen as TazeMasa[]) ?? [])];
+          stokIds = new Set(masalar.filter((m) => m.stok).map((m) => m.id));
+        }
+      }
+    }
 
     const { atamalar, yerlesemeyen } = sadeceDuzen
       // Sadece düzen tazeleme: masa dağıtımına hiç karışılmaz, o günün kendi atamaları aynen
