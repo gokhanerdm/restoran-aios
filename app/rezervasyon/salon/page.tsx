@@ -1809,10 +1809,15 @@ function SalonInner() {
             ve öğe ekleyi buton olarak sol menüye koy"). Masa her zaman sürüklenebilir; masaya
             tıklayıp bırakmak (sürüklemeden) yine o masanın rezervasyon listesini açar. */}
         {/* Masa ekle — tuvale sağ tıkla da eklenebiliyor, düğme görünür olsun diye burada. */}
+        {/* Salon yokken de GÖRÜNÜR ve basılabilir; basınca ne yapılması gerektiğini söyler
+            (Gökhan, 2026-08-20: "masa ekle görünsün ama salon olmadan masa ekle dediğinde
+            salon oluştur desin"). Sönük ve tepkisiz bir düğme neyin eksik olduğunu anlatmıyordu. */}
         <button
-          onClick={() => { if (!selectedAreaId) return; setAddingTable(true); setErr(null); }}
-          disabled={!selectedAreaId}
-          style={{ ...btnSecondaryHeader, opacity: !selectedAreaId ? 0.5 : 1 }}
+          onClick={() => {
+            if (!selectedAreaId) { setErr("Önce salon oluştur — masa bir salona eklenir."); return; }
+            setAddingTable(true); setErr(null);
+          }}
+          style={btnSecondaryHeader}
         >
           <Plus size={14} /> Masa ekle
         </button>
@@ -1897,6 +1902,8 @@ function SalonInner() {
 
         {/* Masa sil · Tümünü sil — yan yana (Gökhan, 2026-08-20). Tümünü sil yalnızca AÇIK
             SALONUN masalarını siler, öbür salonlara dokunmaz. */}
+        {/* İkisi TEK SATIRA sığar (Gökhan, 2026-08-20: "iki satır olmuş, tek satıra sığacak
+            şekilde ayarla") — çöp kutusu ikonu yalnızca ilkinde, yanlar dar, yazı sarmıyor. */}
         <div style={{ display: "flex", gap: 6 }}>
           <button
             onClick={() => {
@@ -1905,16 +1912,16 @@ function SalonInner() {
               void deleteTable(seciliMasa);
             }}
             disabled={!selectedAreaId}
-            style={{ ...btnSecondaryHeader, flex: 1, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
+            style={{ ...btnSil, opacity: !selectedAreaId ? 0.5 : 1 }}
           >
-            <Trash2 size={14} /> Masa sil
+            <Trash2 size={13} /> Masa sil
           </button>
           <button
             onClick={() => { setErr(null); void deleteAllTables(); }}
             disabled={!selectedAreaId}
-            style={{ ...btnSecondaryHeader, flex: 1, opacity: !selectedAreaId ? 0.5 : 1, color: "var(--danger)" }}
+            style={{ ...btnSil, opacity: !selectedAreaId ? 0.5 : 1 }}
           >
-            <Trash2 size={14} /> Tümünü sil
+            Tümünü sil
           </button>
         </div>
 
@@ -2732,6 +2739,13 @@ const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, paddin
 // Sol menüdeki düğme kutuları 3 mm alçaltıldı (Gökhan, 2026-08-15: "buton kutularını 3'er mm
 // küçült") — üstten ve alttan 1,5'er mm. Salon adları da bu ölçüye getirildi, hepsi aynı.
 const btnSecondaryHeader: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid var(--line-2)", borderRadius: 10, padding: "calc(9px - 1.5mm) 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, cursor: "pointer" };
+// Masa sil / Tümünü sil — yan yana tek satırda durabilsinler diye dar yanlı, sarmayan sürüm.
+const btnSil: React.CSSProperties = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4,
+  border: "1px solid var(--line-2)", borderRadius: 10, padding: "calc(9px - 1.5mm) 6px",
+  background: "var(--card)", color: "var(--danger)", fontSize: 12.5, cursor: "pointer",
+  flex: 1, minWidth: 0, whiteSpace: "nowrap",
+};
 const ogeMenuBtn: React.CSSProperties = { all: "unset", cursor: "pointer", display: "block", width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8, fontSize: 13, color: "var(--ink)" };
 // Telefon kontrol satırındaki yuvarlak ikon düğmeleri — parmakla basılabilecek kadar büyük
 // (32px), ama üstteki satır tek sıra kalsın diye yazısız.
