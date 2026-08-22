@@ -4,7 +4,11 @@
 
 Restoran işletme programı. Next.js (app router), TypeScript, Supabase. Ekranlar `app/` altında her biri kendi klasöründe, ortak yardımcılar `lib/`, veritabanı `supabase/migrations/`.
 
-İki modül ayrı ürün olarak çıkacak, şimdilik bu programın içinde duruyor: **Rezervasyon** (yayında kendi Supabase projesine kopyalanıyor) ve **Ekip** (personel uygulamasının kabuğu, `/ekip`). İkisi de programın geri kalanına bağlanmadan, sökülebilir kalacak şekilde yazılır.
+**Rezervasyon** kalıcı olarak bu programın parçası. Ayrıca kopyası alınıp kendi Supabase projesiyle ayrı bir ürün olarak yayınlanıyor — kopyanın tek başına çalışması gerekiyor.
+
+**Ekip** (`/ekip`, personel uygulamasının kabuğu) ileride sökülüp ayrı bir uygulamaya taşınacak.
+
+İkisi de programın geri kalanına bağlanmadan yazılır: biri kopyalanabilsin, diğeri sökülebilsin diye.
 
 ## Veri
 Birden fazla tabloyu etkileyen ya da atomik olması gereken işlemler (sipariş kapatma, stok girişi) Supabase RPC ile yapılır, ayrı ayrı client insert'lerle değil.
