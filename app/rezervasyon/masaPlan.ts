@@ -530,14 +530,20 @@ export type MisafirBagi = Record<string, { evSahibiId: string; yakin: boolean }>
 // (Gökhan: "birleştirmeyi yanındaki masa ile yaptı, gece kulübüne özel yedek masadan
 // çekecekti, yedek yoksa arka masadan çekecekti").
 //
-// Buradaki kural:
+// Buradaki kural (Gökhan, 2026-08-24 ile güncellendi):
 //   • Rezervasyon önce TEK masa alır. Sınırı aşıyorsa her sınır katı için bir masa daha ister.
-//   • Ek masa önce DEPODAN ÇIKMIŞ YEDEK STOK masalarından gelir (S1, S2…).
-//   • Stok bittiyse ek masa ARKA SIRADAN gelir. "Ön" = salonun sıralamadaki birinci masasının
-//     durduğu yer (Gökhan: "ön sıra, sıralamada birinci masanın olduğu yer olarak algılansın");
-//     arka sıra ona en uzak masalardır — böylece öndeki iyi masalar bozulmaz.
+//   • Ek masa önce AYARLARDAKİ MASA KAPASİTESİNDEN düşer. Salona hiçbir masa çizilmez —
+//     "görünürde gelmesine gerek yok, kişi sayısı zaten yazıyor, işletme orada iki masa
+//     olduğunu anlar". Eskiden depodan S1/S2 diye gerçek masa üretiliyordu, kaldırıldı.
+//   • Kapasite bittiyse ek masa ARKA SIRADAN gelir ve o masa planından KAYBOLUR (fiilen
+//     kaldırılıp öne taşınmıştır). "Ön" = salonun sıralamadaki birinci masasının durduğu yer
+//     (Gökhan: "ön sıra, sıralamada birinci masanın olduğu yer olarak algılansın"); arka sıra
+//     ona en uzak masalardır — böylece öndeki iyi masalar bozulmaz.
 //   • Hiçbiri yoksa rezervasyon yerleşemez; komşunun masası ASLA alınmaz.
-export type MasaKurali = { sinir: number; stokIds: ReadonlySet<string> };
+//
+// stokKalan: o gün ayarlardaki masa kapasitesinden geriye kaç masa kaldığı. Bu sayı kadar ek
+// masa hiç çizilmeden verilir; bitince arka sıraya inilir.
+export type MasaKurali = { sinir: number; stokKalan: number };
 
 const planKur = (
   masalar: PlanMasa[],
@@ -556,12 +562,10 @@ const planKur = (
     const x = asilKX(m), y = asilKY(m);
     if (x !== null && y !== null) onNoktalari.set(anahtar, { x, y });
   });
-  /** Masa hesabında ek masa seçer: önce boş stok masası, sonra öne en uzak boş masa. */
+  /** Masa hesabında ek masa seçer: salonun ARKA sırasındaki boş masa (öne en uzak olan). */
   const ekMasaSec = (ana: PlanMasa, bos: ReadonlySet<string>): PlanMasa | null => {
     const adaylar = masalar.filter((m) => bos.has(m.id) && (m.alanId ?? null) === (ana.alanId ?? null));
     if (adaylar.length === 0) return null;
-    const stoktakiler = adaylar.filter((m) => masaKurali!.stokIds.has(m.id));
-    if (stoktakiler.length > 0) return komsulukSirasi(stoktakiler, ana)[0];
     const on = onNoktalari.get(ana.alanId ?? null);
     if (!on) return adaylar[adaylar.length - 1];
     const onaUzaklik = (m: PlanMasa) => {
@@ -602,6 +606,9 @@ const planKur = (
   });
 
   const yerlesemeyen: string[] = [];
+  // Ayarlardaki masa kapasitesinden geriye kalan — her ek masa buradan düşüyor, bitince
+  // arka sıradaki masaya iniliyor (Gökhan, 2026-08-24).
+  let kapasiteKalan = masaKurali?.stokKalan ?? 0;
   // O gün kurulan birleşik kümelerin merkezleri — sonraki birleşmeler bunların yanına toplanır.
   const kumeMerkezleri: { x: number; y: number }[] = [];
   // Büyükten küçüğe: kalabalık grupların seçeneği az, önce onlar yerleşmeli. Misafir masaları
@@ -682,9 +689,11 @@ const planKur = (
       if (!ana) { yerlesemeyen.push(rez.id); return; }
       const secilen = [...ana.masalar];
       secilen.forEach((m) => { bosIds.delete(m.id); secilebilirIds.delete(m.id); });
-      // Sınırı aşan her kat için bir masa daha: önce stok, sonra arka sıra.
+      // Sınırı aşan her kat için bir masa daha: önce ayarlardaki kapasiteden (masa çizilmez),
+      // kapasite bitince arka sıradan (o masa planından kaybolur).
       const gerekenEk = rez.ekMasa ?? Math.max(0, Math.ceil(rez.kisi / Math.max(masaKurali.sinir, 1)) - 1);
       for (let i = 0; i < gerekenEk; i++) {
+        if (kapasiteKalan > 0) { kapasiteKalan--; continue; }
         const ek = ekMasaSec(secilen[0], secilebilirIds);
         if (!ek) {
           // Ek masa yok — rezervasyon yerleşemiyor, alınan masa geri bırakılıyor.

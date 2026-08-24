@@ -36,6 +36,9 @@ type Shape = MasaSekli;
 type TableRow = {
   id: string; name: string; area_id: string | null; status: string; sort_order: number;
   position_x: number | null; position_y: number | null; seat_count: number; shape: Shape; rotated: boolean; grup_id: string | null;
+  // tasindi_gun: masa hesabında bu masa o gece başka bir masanın yanına taşındı — plandan
+  // kaybolur (Gökhan, 2026-08-24: "arka sıradaki masa kaybolur").
+  tasindi_gun: string | null;
 };
 type OturanBilgi = { guestName: string; partySize: number; status: string };
 
@@ -286,7 +289,7 @@ function SalonInner() {
     const { start, end } = bugunSiniri();
     const [{ data: a }, { data: t }, { data: r }, { data: o }, { data: m }, { data: g }] = await Promise.all([
       supabase.from("dining_areas").select("id, name, sort_order, genislik_cm, derinlik_cm").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
-      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated, grup_id").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
+      supabase.from("restaurant_tables").select("id, name, area_id, status, sort_order, position_x, position_y, seat_count, shape, rotated, grup_id, tasindi_gun").eq("restaurant_id", restId).is("deleted_at", null).order("sort_order"),
       // Sadece oturanlar değil, masası ayrılmış BEKLEYENLER de gösteriliyor — garson planda
       // hangi masada kimin olduğunu görsün (Gökhan: "masaların üzerinde rezervasyon isimleri
       // yazsın"). reservation_tables üzerinden gidiliyor ki birleştirilmiş masaların HEPSİNDE
@@ -1192,7 +1195,9 @@ function SalonInner() {
   const odaGenislikPx = selectedArea?.genislik_cm ? selectedArea.genislik_cm * PX_PER_CM : null;
   const odaDerinlikPx = selectedArea?.derinlik_cm ? selectedArea.derinlik_cm * PX_PER_CM : null;
 
-  const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId).sort((x, y) => x.sort_order - y.sort_order);
+  // Taşınmış masa planda çizilmiyor — fiilen arka sıradan alınıp başka masanın yanına
+  // götürülmüş durumda (Gökhan, 2026-08-24).
+  const tablesInArea = tables.filter((t) => t.area_id === selectedAreaId && t.tasindi_gun !== bugunIstanbul()).sort((x, y) => x.sort_order - y.sort_order);
   // Sol menüdeki Masa çoğalt / Masa sil bu masaya çalışır. Masa silinir ya da başka salona
   // geçilirse seçim kendiliğinden düşer — düğmeler o zaman "önce bir masa seç" der.
   const seciliMasa = tablesInArea.find((t) => t.id === seciliMasaId) ?? null;

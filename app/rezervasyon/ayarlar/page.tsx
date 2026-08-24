@@ -1449,7 +1449,10 @@ export default function RezervasyonAyarlarPage() {
                   </select>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13.5 }} {...sagTik("İkinci masa yandaki masadan alınmaz — o masa başka misafirindir. Önce depodaki stok masalardan verilir; kullanılan her masa stoktan düşer.")}>Yedek masa stoğu (ad.)</span>
+                  {/* Ek masa artık salona ÇİZİLMİYOR (Gökhan, 2026-08-24): buradaki kapasiteden
+                      düşüyor, o kadar. Masanın üstünde 6 kişi yazdığı için orada iki masa
+                      olduğu zaten anlaşılıyor. */}
+                  <span style={{ fontSize: 13.5 }} {...sagTik("İkinci masa yandaki masadan alınmaz — o masa başka misafirindir. Buraya yazdığınız kapasiteden düşer ve salona ayrıca çizilmez; masanın üstündeki kişi sayısı orada iki masa olduğunu zaten belli eder. Kapasite bitince ikinci masa arka sıradan alınır ve o masa plandan kaybolur.")}>Masa kapasitesi (ad.)</span>
                   <input
                     value={masaStoguAdet} onChange={(e) => setMasaStoguAdet(e.target.value.replace(/\D/g, ""))}
                     inputMode="numeric" className="tnum" style={{ ...inp, width: 56, textAlign: "center" }}
