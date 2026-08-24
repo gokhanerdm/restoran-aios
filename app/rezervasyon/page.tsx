@@ -605,9 +605,10 @@ function MobilRezervasyonListesi({
           {yedekMasa > 0 && (
             <div>Yedek <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekPax}</span> pax</div>
           )}
-          {/* LOCA — otomatik dağıtılmıyor, kapasiteye girmiyor; kendi satırında duruyor. */}
+          {/* LOCA — kapasite bloğunun altında ayrı satır (Gökhan, 2026-08-24). Üstteki
+              kapasiteye girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. */}
           {locaMasa > 0 && (
-            <div>Loca <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax{locaIstendi > 0 ? ` (${locaIstendi} istendi)` : ""}</div>
+            <div>Loca <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax (<span className="tnum">{locaMasa}</span> masa{locaIstendi > 0 ? <>, <span className="tnum">{locaIstendi}</span> istendi</> : null})</div>
           )}
           {/* FİX — Ayarlar'da fix menü kapalıysa satır hiç görünmüyor, webdeki kuralın aynısı. */}
           {fixAcik && (
@@ -3871,20 +3872,20 @@ export default function RezervasyonPage() {
               pax
               {gunPax >= toplamKapasite && <span style={{ fontWeight: 600, color: "var(--gold-text)" }}> (dolu)</span>}
             </span>
+            {/* LOCA — kapasitenin kendi bloğunda ayrı satır (Gökhan, 2026-08-24: "loca diye
+                ayrı bir satır açarız kapasitede"). Yukarıdaki Kapasite/Doluluk rakamlarına
+                girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. Loca yoksa satır çıkmaz. */}
+            {locaMasalari.length > 0 && (
+              <>
+                <span title="Loca otomatik dağıtılmaz, elle verilir — bu yüzden üstteki kapasite ve masa sayısına girmiyor. Notunda loca yazan rezervasyon locaya yönlendirilir.">Loca</span>
+                <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaKapasite}</span>
+                <span>
+                  pax (<span className="tnum">{locaMasalari.length}</span> masa
+                  {locaRows.length > 0 ? <>, <span className="tnum">{locaRows.length}</span> istendi</> : null})
+                </span>
+              </>
+            )}
           </div>
-          {/* LOCA — otomatik dağıtımın dışında olduğu için yukarıdaki Masa/Kapasite sayılarına
-              girmiyor (Gökhan, 2026-08-24: "yerleşim localara manuel yapılacak"). Kaybolmasın
-              diye kendi sayacında duruyor: kaç loca var, kaçı istenmiş. Loca yoksa satır çıkmaz. */}
-          {locaMasalari.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
-              <span title="Loca otomatik dağıtılmaz, elle verilir — bu yüzden kapasite ve masa sayısına girmiyor. Notunda loca yazan rezervasyon locaya yönlendirilir.">Loca</span>
-              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaMasalari.length}</span>
-              <span>masa{locaRows.length > 0 ? ` (${locaRows.length} istendi)` : ""}</span>
-              <span>Kapasite</span>
-              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaKapasite}</span>
-              <span>pax</span>
-            </div>
-          )}
           {/* MASA STOĞU — gece kulübünde ikinci masa yandaki masadan alınmaz, depodaki stoktan
               gelir (Gökhan, 2026-08-20: "ayarlara stok girilir ama kullanılan her stok düşer").
               Masa hesabı kapalıysa ya da stok girilmemişse satır hiç görünmez. */}
