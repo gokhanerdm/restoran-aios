@@ -590,7 +590,9 @@ const planKur = (
   serbest.forEach((rez) => {
     if (misafirler[rez.id]) return;
     const ids = mevcut[rez.id] ?? [];
-    if (ids.length === 0 || !ids.every((id) => bosIds.has(id)) || koltuk(ids) < rez.kisi) return;
+    // Locada koltuk şartı aranmaz: sabit kişi sayısı yok, aynı locaya 2 kişi de 10 kişi de
+    // girer (Gökhan, 2026-08-24).
+    if (ids.length === 0 || !ids.every((id) => bosIds.has(id)) || (!rez.loca && koltuk(ids) < rez.kisi)) return;
     // KURAL DIŞI ESKİ YERLEŞİM KORUNMAZ: loca istemeyen bir rezervasyon daha önce (kural
     // konmadan önce) locaya oturtulmuşsa burada bırakılmaz, masası geri alınır. Kilitli ve
     // oturmuş olanlar zaten yukarıda sabit sayıldı, onlara dokunulmuyor.
@@ -651,6 +653,17 @@ const planKur = (
     const mevcutMasalari = (mevcut[rez.id] ?? [])
       .map((id) => masalar.find((m) => m.id === id))
       .filter((m): m is PlanMasa => !!m);
+
+    // LOCA YOLU — bir loca tek başına yeter (Gökhan, 2026-08-24: "locanın kişi paxı olmaz,
+    // 2 kişide alabiliyorsun oraya 10 kişide"). Koltuk sayısına bakılmıyor, loca birleştirilmiyor.
+    // Boş loca yoksa rezervasyon yerleşmez; masayı insan verir.
+    if (rez.loca) {
+      if (bosMasalar.length === 0) { yerlesemeyen.push(rez.id); return; }
+      const secilen = mevcutMasalari.length > 0 ? komsulukSirasi(bosMasalar, mevcutMasalari[0])[0] : bosMasalar[0];
+      bosIds.delete(secilen.id);
+      atamalar[rez.id] = [secilen.id];
+      return;
+    }
 
     // MASA HESABI YOLU — bitişik masa birleştirme hiç denenmiyor (bkz. MasaKurali).
     if (masaKurali) {

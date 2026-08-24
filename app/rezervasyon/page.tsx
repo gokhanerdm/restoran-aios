@@ -605,10 +605,13 @@ function MobilRezervasyonListesi({
           {yedekMasa > 0 && (
             <div>Yedek <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekMasa}</span> masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--brand)" }}>{yedekPax}</span> pax</div>
           )}
-          {/* LOCA — kapasite bloğunun altında ayrı satır (Gökhan, 2026-08-24). Üstteki
-              kapasiteye girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. */}
+          {/* LOCA — kapasite bloğunun altında ayrı satır (Gökhan, 2026-08-24). Locanın sabit
+              kişi sayısı yok, o yüzden kapasite yazılmıyor: sayı rezervasyon aldıkça doluyor. */}
           {locaMasa > 0 && (
-            <div>Loca <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax (<span className="tnum">{locaMasa}</span> masa{locaIstendi > 0 ? <>, <span className="tnum">{locaIstendi}</span> istendi</> : null})</div>
+            <div>
+              Loca <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaMasa}</span> masa
+              {locaIstendi > 0 && <> · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaIstendi}</span> dolu · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax</>}
+            </div>
           )}
           {/* FİX — Ayarlar'da fix menü kapalıysa satır hiç görünmüyor, webdeki kuralın aynısı. */}
           {fixAcik && (
@@ -3328,6 +3331,8 @@ export default function RezervasyonPage() {
   const fPlanAlan = (fPlanAlanId ? salonlar.find((s) => s.id === fPlanAlanId) : null) ?? salonlar[0] ?? null;
   const fPlanMasalari = tables.filter((t) => (t.area_id ?? null) === (fPlanAlan?.id ?? null));
   const fSeciliKisi = fMasaSecimi.reduce((s, id) => s + (tables.find((t) => t.id === id)?.seat_count ?? 0), 0);
+  // Seçimde loca varsa koltuk sayacı anlamsız — locanın sabit kişi sayısı yok (Gökhan, 2026-08-24).
+  const fSecimdeLoca = fMasaSecimi.some((id) => tables.find((t) => t.id === id)?.shape === "loca");
   const fHedefKisi = parseInt(fParty, 10) || 0;
   // Tıklama seçer/çıkarır — atama YOK, pencere kapanmaz, sınır yok (Gökhan: "ondan ona
   // ondan ona gezebilsin, karar verme aşamasında tıklanma sınırı olmasın").
@@ -3341,8 +3346,11 @@ export default function RezervasyonPage() {
   const assigningRez = assigningId ? rows.find((row) => row.id === assigningId) ?? null : null;
   const assigningBuRezMasalari = assigningRez ? (rezMasalar[assigningRez.id] ?? []) : [];
   const assigningSecilebilir = assigningRez ? tables.filter((t) => t.status === "empty" || assigningBuRezMasalari.includes(t.id)) : [];
-  const assigningUygun = assigningRez ? assigningSecilebilir.filter((t) => t.seat_count >= assigningRez.party_size).sort((a, b) => a.seat_count - b.seat_count) : [];
-  const assigningDiger = assigningRez ? assigningSecilebilir.filter((t) => t.seat_count < assigningRez.party_size).sort((a, b) => b.seat_count - a.seat_count) : [];
+  // Loca her zaman "uygun" listede: sabit kişi sayısı olmadığı için koltuk kıyası yapılmıyor
+  // (Gökhan, 2026-08-24). Yoksa 4 koltuklu bir loca 10 kişilik rezervasyonda "Diğerleri"ne düşüyor.
+  const assigningYeter = (t: TableRow) => t.shape === "loca" || t.seat_count >= (assigningRez?.party_size ?? 0);
+  const assigningUygun = assigningRez ? assigningSecilebilir.filter(assigningYeter).sort((a, b) => a.seat_count - b.seat_count) : [];
+  const assigningDiger = assigningRez ? assigningSecilebilir.filter((t) => !assigningYeter(t)).sort((a, b) => b.seat_count - a.seat_count) : [];
   const assigningSeciliKisi = masaSecimi.reduce((s, id) => s + (tables.find((t) => t.id === id)?.seat_count ?? 0), 0);
   // Bir masaya tıklayınca eklenir/çıkarılır — eklenen seçim kapasiteyi karşılıyorsa (Gökhan:
   // "seçim yapıldığında akordion kapansın ve masa seçilmiş olsun") otomatik atanıp pencere
@@ -3429,12 +3437,15 @@ export default function RezervasyonPage() {
   const yerlesimMasalari = tables.filter((t) => t.shape !== "loca");
   const locaIsteyen = (r: { note: string | null }) => locaMasalari.length > 0 && nottaLoca(r.note, locaMasalari);
   const toplamKapasite = yerlesimMasalari.length > 0 ? yerlesimMasalari.reduce((s, t) => s + t.seat_count, 0) : kapasiteKisi;
-  const locaKapasite = locaMasalari.reduce((s, t) => s + t.seat_count, 0);
+  // LOCANIN SABİT PAX'I YOK (Gökhan, 2026-08-24: "locanın kişi paxı olmaz, 2 kişide
+  // alabiliyorsun oraya 10 kişide"). Bu yüzden locada koltuk sayısı gösterilmiyor; sayı
+  // rezervasyon alındıkça doluyor — o gün localara kaç kişi yazıldıysa o.
   // Yedek kapasiteyi doldurmaz — masa tutmuyor, sıra bekliyor (Gökhan, 2026-08-12).
   const kapasiteliRows = rows.filter((r) => !r.yedek && !r.bekleme && (r.status === "bekleniyor" || r.status === "geldi" || r.status === "oturdu"));
   // Salon hesabına giren rezervasyonlar — loca isteyenler ayrı.
   const salonRows = kapasiteliRows.filter((r) => !locaIsteyen(r));
   const locaRows = kapasiteliRows.filter((r) => locaIsteyen(r));
+  const locaPax = locaRows.reduce((s, r) => s + r.party_size, 0);
   // Günün stoğundan kaç masa kullanıldı — kullanılan her masa stoktan düşer.
   // Kullanilan stok = depodan CIKMIS masa sayisi. Rezervasyondaki stok_masa alanindan degil
   // gercek masalardan sayiliyor: bir stok masasi bosalsa da gece boyunca salonda kaliyor,
@@ -3788,7 +3799,7 @@ export default function RezervasyonPage() {
             yedekMasa={yedekRows.length}
             yedekPax={yedekPax}
             locaMasa={locaMasalari.length}
-            locaPax={locaKapasite}
+            locaPax={locaPax}
             locaIstendi={locaRows.length}
             bekleyenMasa={bekleyenRows.length}
             bekleyenPax={bekleyenPax}
@@ -3877,11 +3888,13 @@ export default function RezervasyonPage() {
                 girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. Loca yoksa satır çıkmaz. */}
             {locaMasalari.length > 0 && (
               <>
-                <span title="Loca otomatik dağıtılmaz, elle verilir — bu yüzden üstteki kapasite ve masa sayısına girmiyor. Notunda loca yazan rezervasyon locaya yönlendirilir.">Loca</span>
-                <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaKapasite}</span>
+                <span title="Locanın sabit kişi sayısı yok — aynı locaya 2 kişi de girer 10 kişi de. Bu yüzden kapasite yazılmıyor; sayı rezervasyon aldıkça doluyor. Loca otomatik dağıtılmaz, elle verilir.">Loca</span>
+                <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaMasalari.length}</span>
                 <span>
-                  pax (<span className="tnum">{locaMasalari.length}</span> masa
-                  {locaRows.length > 0 ? <>, <span className="tnum">{locaRows.length}</span> istendi</> : null})
+                  masa
+                  {locaRows.length > 0 && (
+                    <> · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaRows.length}</span> dolu · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax</>
+                  )}
                 </span>
               </>
             )}
@@ -4668,7 +4681,13 @@ export default function RezervasyonPage() {
                   return fPlanMasalari.find((t) => t.id === id)?.shape === "loca" ? "var(--gold)" : null;
                 }}
                 benimPostam={new Set(fMasaSecimi)}
-                altYazi={(id) => fPlanDolu[id] ?? `${fPlanMasalari.find((t) => t.id === id)?.seat_count ?? 0} kişi`}
+                // Locada koltuk yazılmıyor — sabit kişi sayısı yok (Gökhan, 2026-08-24).
+                altYazi={(id) => {
+                  const dolu = fPlanDolu[id];
+                  if (dolu !== undefined) return dolu;
+                  const t = fPlanMasalari.find((x) => x.id === id);
+                  return t?.shape === "loca" ? "Loca" : `${t?.seat_count ?? 0} kişi`;
+                }}
                 onMasaTikla={fMasaTikla}
               />
             </div>
@@ -4692,9 +4711,13 @@ export default function RezervasyonPage() {
                 <button type="button" onClick={() => setFPlanAcik(false)} style={btnPrimary}>Tamam</button>
               )}
             </div>
-            <div style={{ fontSize: 12.5, color: fSeciliKisi >= fHedefKisi && fMasaSecimi.length > 0 ? "var(--brand-strong)" : inkSoft }}>
-              <span className="tnum">{fMasaSecimi.length}</span> masa · <span className="tnum">{fSeciliKisi}/{fHedefKisi}</span> kişi
-              {fMasaSecimi.length > 0 && fSeciliKisi >= fHedefKisi ? " ✓" : ""}
+            {/* Locada koltuk sayacı gösterilmiyor: kaç kişi girdiğini loca değil rezervasyon
+                belirliyor (Gökhan, 2026-08-24). */}
+            <div style={{ fontSize: 12.5, color: fMasaSecimi.length > 0 && (fSecimdeLoca || fSeciliKisi >= fHedefKisi) ? "var(--brand-strong)" : inkSoft }}>
+              <span className="tnum">{fMasaSecimi.length}</span> masa
+              {fSecimdeLoca
+                ? " · loca"
+                : <> · <span className="tnum">{fSeciliKisi}/{fHedefKisi}</span> kişi{fMasaSecimi.length > 0 && fSeciliKisi >= fHedefKisi ? " ✓" : ""}</>}
             </div>
             {fMasaSecimi.length > 0 && (
               <div style={{ fontSize: 12, color: "var(--ink)", lineHeight: 1.5 }}>
@@ -4866,7 +4889,7 @@ export default function RezervasyonPage() {
               const secili = masaSecimi.includes(t.id);
               return (
                 <button key={t.id} onClick={() => masaToggle(t.id)} style={masaBtnStil(secili)}>
-                  {t.name} <span className="tnum" style={{ color: secili ? "#fff" : inkSoft }}>({t.seat_count} pax)</span>
+                  {t.name} <span className="tnum" style={{ color: secili ? "#fff" : inkSoft }}>({t.shape === "loca" ? "Loca" : t.seat_count + " pax"})</span>
                 </button>
               );
             })}
@@ -4882,7 +4905,7 @@ export default function RezervasyonPage() {
                     const secili = masaSecimi.includes(t.id);
                     return (
                       <button key={t.id} onClick={() => masaToggle(t.id)} style={masaBtnStil(secili)}>
-                        {t.name} <span className="tnum" style={{ color: secili ? "#fff" : inkSoft }}>({t.seat_count} pax)</span>
+                        {t.name} <span className="tnum" style={{ color: secili ? "#fff" : inkSoft }}>({t.shape === "loca" ? "Loca" : t.seat_count + " pax"})</span>
                       </button>
                     );
                   })}
