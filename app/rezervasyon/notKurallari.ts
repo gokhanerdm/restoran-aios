@@ -69,6 +69,38 @@ export const istenenSalon = (
   return nottakiSalon(r.note, salonlar);
 };
 
+// ————————————————————————————————————————————————————————————————————————
+// LOCA (Gökhan, 2026-08-24: "notlardaki loca kelimesini algılayacak ya da localara verilen
+// isim neyse onu algılayacak")
+//
+// Otomatik yerleşim locaya oturtmuyor. Tek istisna: notta loca isteniyorsa. İki yol var,
+// ikisi de ayara yazılmadan çalışır:
+//   1) Notta "loca" kelimesi geçiyor → rezervasyon localardan yer arar.
+//   2) Notta bir loca masasının KENDİ ADI geçiyor ("L1", "VIP 2") → doğrudan o masa aranır.
+// Salon adı kuralındaki gibi büyük/küçük harf ve Türkçe karakter farkı yutulur.
+// ————————————————————————————————————————————————————————————————————————
+
+export type LocaMasasi = { id: string; name: string };
+
+// TEK KARAKTERLİK ADA BAKILMAZ: locaya "1" adı verilmişse, notta geçen her "1" (saat, kişi
+// sayısı, adres) locaya yönlendirir. İki karakterden kısa adlar aranmıyor.
+const adAranir = (ad: string) => sadelestir(ad).length >= 2;
+
+/** Notta loca isteniyor mu — kelimenin kendisi ya da bir loca masasının adı. */
+export const nottaLoca = (not: string | null, locaMasalari: LocaMasasi[] = []): boolean =>
+  notGeciyorMu(not, "loca") || locaMasalari.some((m) => m.name && adAranir(m.name) && notGeciyorMu(not, m.name));
+
+/**
+ * Notta adı geçen loca masası. Birden fazla ad geçiyorsa en uzun eşleşme kazanır — "LOCA 1"
+ * ile "LOCA" birlikte varsa doğru olan seçilsin.
+ */
+export const nottakiLocaMasasi = (not: string | null, locaMasalari: LocaMasasi[]): string | null => {
+  const uyanlar = locaMasalari
+    .filter((m) => m.name && adAranir(m.name) && notGeciyorMu(not, m.name))
+    .sort((a, b) => sadelestir(b.name).length - sadelestir(a.name).length);
+  return uyanlar[0]?.id ?? null;
+};
+
 // "Her zamanki masası" kalıpları — programın kendi bildiği liste, ayardan gelmez.
 const HER_ZAMANKI = [
   "her zamanki masa", "her zamanki masasi", "her zamanki masasina", "her zamanki yer",

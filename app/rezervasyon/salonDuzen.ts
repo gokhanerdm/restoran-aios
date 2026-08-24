@@ -9,7 +9,7 @@
 // Bu yüzden otomatik yerleşim kapalıyken de güvenlidir.
 import { supabase } from "@/lib/supabase/client";
 import { birlesikYerlesim, salonuPlanla, komsulukSirasi, type PlanMasa } from "./masaPlan";
-import { herZamankiMasa, istenenSalon, nottaHerZamankiMasa, type Salon, type Ziyaret } from "./notKurallari";
+import { herZamankiMasa, istenenSalon, nottaHerZamankiMasa, nottaLoca, nottakiLocaMasasi, type Salon, type Ziyaret } from "./notKurallari";
 import { govdeCizim, PX_PER_CM, type Shape } from "./masaOlcu";
 
 export const bugunIstanbulGun = () =>
@@ -26,14 +26,15 @@ const gunSiniri = (gun: string) => {
 // normal_rotated: birleşmek için çevrilmeden önceki asıl duruş (Gökhan, 2026-08-19) — masa
 // evine dönerken eski yönüne de döner.
 // varsayilan_*: işletmenin raptiye ile kaydettiği kalıcı düzen — masanın gerçek evi budur.
+// name: notta locanın kendi adı geçebiliyor (Gökhan, 2026-08-24) — yerleşim onu arıyor.
 type Masa = {
-  id: string; seat_count: number; position_x: number | null; position_y: number | null;
+  id: string; name: string; seat_count: number; position_x: number | null; position_y: number | null;
   shape: Shape; rotated: boolean; normal_x: number | null; normal_y: number | null;
   normal_rotated: boolean | null;
   varsayilan_x: number | null; varsayilan_y: number | null; varsayilan_rotated: boolean | null;
   area_id: string | null;
 };
-const MASA_ALAN = "id, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id";
+const MASA_ALAN = "id, name, seat_count, position_x, position_y, shape, rotated, normal_x, normal_y, normal_rotated, varsayilan_x, varsayilan_y, varsayilan_rotated, area_id";
 
 // Salonun (dining_area) GERÇEK eni piksel olarak — yerleşimin sağ duvarı budur, masa buranın
 // dışına çıkarılmaz. Eskiden salonun eni hiç bilinmiyordu; sağ duvar "o sıradaki en sağdaki
@@ -189,6 +190,10 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
   const serbest = rezler.filter((r) => !sabitIds.has(r.id));
   const planMasalar = masalar.map(planMasa);
   const masaById = new Map(planMasalar.map((m) => [m.id, m]));
+  // LOCA (Gökhan, 2026-08-24) — otomatik yerleşim locaya oturtmaz; sadece notunda loca
+  // isteyene verilir. Notta locanın kendi adı yazıyorsa doğrudan o masa tutulur.
+  const locaAdlari = masalar.filter((m) => m.shape === "loca").map((m) => ({ id: m.id, name: m.name }));
+  const locaIster = (r: { note: string | null }) => locaAdlari.length > 0 && nottaLoca(r.note, locaAdlari);
 
   // ————————————————————————————————————————————————————————————————
   // TERCİHLER (Gökhan, 2026-08-12)
@@ -257,6 +262,16 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
     oncelikli.add(r.id);
   });
 
+  // 1b) NOTTA LOCA ADI — misafir belli bir locayı istemiş, o masa doğrudan tutulur.
+  serbest.forEach((r) => {
+    if (tercih[r.id]) return;
+    const masaId = nottakiLocaMasasi(r.note, locaAdlari);
+    if (!masaId || doluIds.has(masaId)) return;
+    doluIds.add(masaId);
+    tercih[r.id] = [masaId];
+    oncelikli.add(r.id);
+  });
+
   // 2) İSTENEN SALON — notta yazan ya da misafirin online seçtiği salonun boş masalarından
   //    yer ayrılır.
   serbest.forEach((r) => {
@@ -266,7 +281,7 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
     const alanMasalari = planMasalar.filter((m) => m.alanId === alan && !doluIds.has(m.id));
     // O salonun kendi içinde tek başına planlanır — masa seçme kuralları (tam ölçü → üst boy →
     // birleştirme, aynı sıra önceliği) aynen çalışsın diye planlayıcı yeniden kullanılıyor.
-    const { atamalar: a } = salonuPlanla(alanMasalari, [{ id: r.id, kisi: r.party_size }], [], {});
+    const { atamalar: a } = salonuPlanla(alanMasalari, [{ id: r.id, kisi: r.party_size, loca: locaIster(r) }], [], {});
     const secim = a[r.id];
     if (!secim || secim.length === 0) {
       // Salon dolu — program kendi kafasına göre başka salona atmaz, işletmeye sorulur
@@ -284,8 +299,8 @@ export const yerlesimYap = async (restaurantId: string, gun: string) => {
   const sirali = [...serbest].sort((a, b) => (oncelikli.has(b.id) ? 1 : 0) - (oncelikli.has(a.id) ? 1 : 0));
   const { atamalar, yerlesemeyen } = salonuPlanla(
     planMasalar,
-    sirali.map((r) => ({ id: r.id, kisi: r.party_size })),
-    sabit.map((r) => ({ rez: { id: r.id, kisi: r.party_size }, masaIds: masaOf(r) })),
+    sirali.map((r) => ({ id: r.id, kisi: r.party_size, loca: locaIster(r) })),
+    sabit.map((r) => ({ rez: { id: r.id, kisi: r.party_size, loca: locaIster(r) }, masaIds: masaOf(r) })),
     tercih, // sıfırdan kurulur ama tercihler korunur
   );
 

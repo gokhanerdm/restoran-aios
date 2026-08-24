@@ -15,7 +15,20 @@
 
 import { BOX_W, BOX_H } from "./masaOlcu";
 
-export type MasaBilgi = { seat_count: number };
+// shape isteğe bağlı: verilirse LOCA masaları havuza hiç girmez — loca otomatik dağıtılmıyor
+// (Gökhan, 2026-08-24). Böylece "elde ne kaldı" dökümü de locayı boş yer gibi saymıyor.
+export type MasaBilgi = { seat_count: number; shape?: string };
+
+// LOCA — otomatik yerleşimin dışında (Gökhan, 2026-08-24: "yerleşim localara manuel
+// yapılacak"). Loca masanın ŞEKLİ; Salon ekranında masa eklenirken seçiliyor. Masa
+// gruplarıyla ilgisi yok — o gruplar etkinlik/özel gün fiyatlaması için.
+//
+// Kural iki yönlü çalışıyor:
+//   • Notunda loca geçmeyen rezervasyona loca ASLA verilmez — ne tek masa olarak, ne
+//     birleştirmede, ne de masa hesabındaki ek masa olarak.
+//   • Notunda loca geçen rezervasyona da SADECE loca verilir; boş loca yoksa yerleşmez,
+//     salon ekranı bunu "masa bulunamadı" diye söyler ve masayı insan seçer.
+export const locaMasasiMi = (m: { shape?: string }) => m.shape === "loca";
 
 // Salon planındaki konum — birleştirmede "kendi sırasındaki masa" önceliği bundan çıkıyor
 // (Gökhan: "öncelik hep aynı sıra için olsun"). Aynı sıra = yaklaşık aynı yükseklik.
@@ -66,7 +79,7 @@ export type Havuz = Map<number, number>;
 
 export const havuzKur = (masalar: MasaBilgi[]): Havuz => {
   const h: Havuz = new Map();
-  masalar.forEach((m) => h.set(m.seat_count, (h.get(m.seat_count) ?? 0) + 1));
+  masalar.filter((m) => !locaMasasiMi(m)).forEach((m) => h.set(m.seat_count, (h.get(m.seat_count) ?? 0) + 1));
   return h;
 };
 
@@ -213,7 +226,8 @@ export type PlanMasa = KonumluMasa & {
 };
 // ekMasa: masa hesabında bu rezervasyona kaç EK masa verileceği. Verilmezse kişi sayısından
 // hesaplanır; verilirse işletmenin kararıdır ("önce sorsun" / "eklemesin, ben seçeyim").
-export type PlanRez = { id: string; kisi: number; ekMasa?: number };
+// loca: bu rezervasyon LOCA istiyor mu (notunda geçiyor). Bkz. LOCA kuralı aşağıda.
+export type PlanRez = { id: string; kisi: number; ekMasa?: number; loca?: boolean };
 export type PlanSonuc = { atamalar: Record<string, string[]>; yerlesemeyen: string[] };
 
 // Masaları sıralara böler: aynı yükseklikteler aynı sıra, her sıra soldan sağa dizili.
@@ -570,10 +584,17 @@ const planKur = (
   // halledecekken 7 rezervasyonun masasını değiştiriyor").
   // Misafir masaları bu korumanın DIŞINDA: yakın/uzak tercihi ancak yeniden seçilirse
   // uygulanabilir, eski yer o tercihi tutmuyor olabilir.
+  // Rezervasyonun bir masaya oturmaya HAKKI var mı — loca kuralı (yukarı bkz. locaMasasiMi).
+  const masaUygun = (rez: PlanRez, m: PlanMasa) => (rez.loca ? locaMasasiMi(m) : !locaMasasiMi(m));
+
   serbest.forEach((rez) => {
     if (misafirler[rez.id]) return;
     const ids = mevcut[rez.id] ?? [];
     if (ids.length === 0 || !ids.every((id) => bosIds.has(id)) || koltuk(ids) < rez.kisi) return;
+    // KURAL DIŞI ESKİ YERLEŞİM KORUNMAZ: loca istemeyen bir rezervasyon daha önce (kural
+    // konmadan önce) locaya oturtulmuşsa burada bırakılmaz, masası geri alınır. Kilitli ve
+    // oturmuş olanlar zaten yukarıda sabit sayıldı, onlara dokunulmuyor.
+    if (!ids.every((id) => { const m = masalar.find((x) => x.id === id); return !!m && masaUygun(rez, m); })) return;
     ids.forEach((id) => bosIds.delete(id));
     atamalar[rez.id] = ids;
   });
@@ -588,7 +609,10 @@ const planKur = (
     return am - bm || b.kisi - a.kisi;
   });
   sirali.forEach((rez) => {
-    const bosMasalar = masalar.filter((m) => bosIds.has(m.id));
+    // Bu rezervasyonun BAKABİLECEĞİ boş masalar. Boş olmak yetmiyor: loca kuralı da tutmalı.
+    // Seçim bu küme üzerinden yapılıyor, seçilen masa asıl bosIds'ten düşülüyor.
+    const bosMasalar = masalar.filter((m) => bosIds.has(m.id) && masaUygun(rez, m));
+    const secilebilirIds = new Set(bosMasalar.map((m) => m.id));
     // Misafir masasıysa ev sahibinin masalarının ortası hedef alınır.
     let tercih: YakinlikTercihi | undefined;
     const bag = misafirler[rez.id];
@@ -637,18 +661,18 @@ const planKur = (
         // Tek masalık adaylar — en küçük yeten boydan başlayarak.
         const boylar = [...new Set(bosMasalar.map((m) => m.seat_count))].sort((a, b) => a - b);
         for (const boy of boylar) {
-          const secim = masalariSec(liste, bosIds, [boy], tercih, mevcutMasalari, kumeMerkezleri);
+          const secim = masalariSec(liste, secilebilirIds, [boy], tercih, mevcutMasalari, kumeMerkezleri);
           if (secim) { ana = secim; break; }
         }
         if (ana) break;
       }
       if (!ana) { yerlesemeyen.push(rez.id); return; }
       const secilen = [...ana.masalar];
-      secilen.forEach((m) => bosIds.delete(m.id));
+      secilen.forEach((m) => { bosIds.delete(m.id); secilebilirIds.delete(m.id); });
       // Sınırı aşan her kat için bir masa daha: önce stok, sonra arka sıra.
       const gerekenEk = rez.ekMasa ?? Math.max(0, Math.ceil(rez.kisi / Math.max(masaKurali.sinir, 1)) - 1);
       for (let i = 0; i < gerekenEk; i++) {
-        const ek = ekMasaSec(secilen[0], bosIds);
+        const ek = ekMasaSec(secilen[0], secilebilirIds);
         if (!ek) {
           // Ek masa yok — rezervasyon yerleşemiyor, alınan masa geri bırakılıyor.
           secilen.forEach((m) => bosIds.add(m.id));
@@ -656,6 +680,7 @@ const planKur = (
           return;
         }
         bosIds.delete(ek.id);
+        secilebilirIds.delete(ek.id);
         secilen.push(ek);
       }
       atamalar[rez.id] = secilen.map((m) => m.id);
@@ -674,7 +699,7 @@ const planKur = (
     for (const liste of aramaListeleri) {
       if (liste.length === 0) continue;
       for (const boylar of boyAdaylari(bosMasalar, rez.kisi)) {
-        const secim = masalariSec(liste, bosIds, boylar, tercih, mevcutMasalari, kumeMerkezleri);
+        const secim = masalariSec(liste, secilebilirIds, boylar, tercih, mevcutMasalari, kumeMerkezleri);
         if (!secim) continue;
         // Misafir masasında (yakın/uzak) bütün adaylar gezilir, en uygun uzaklık kazanır;
         // normalde boy sırası zaten doğru sırada geldiği için ilk tutan aday kazanır.
