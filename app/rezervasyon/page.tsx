@@ -3883,22 +3883,25 @@ export default function RezervasyonPage() {
               pax
               {gunPax >= toplamKapasite && <span style={{ fontWeight: 600, color: "var(--gold-text)" }}> (dolu)</span>}
             </span>
-            {/* LOCA — kapasitenin kendi bloğunda ayrı satır (Gökhan, 2026-08-24: "loca diye
-                ayrı bir satır açarız kapasitede"). Yukarıdaki Kapasite/Doluluk rakamlarına
-                girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. Loca yoksa satır çıkmaz. */}
-            {locaMasalari.length > 0 && (
-              <>
-                <span title="Locanın sabit kişi sayısı yok — aynı locaya 2 kişi de girer 10 kişi de. Bu yüzden kapasite yazılmıyor; sayı rezervasyon aldıkça doluyor. Loca otomatik dağıtılmaz, elle verilir.">Loca</span>
-                <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaMasalari.length}</span>
-                <span>
-                  masa
-                  {locaRows.length > 0 && (
-                    <> · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaRows.length}</span> dolu · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax</>
-                  )}
-                </span>
-              </>
-            )}
           </div>
+          {/* LOCA — kendi sayacında, kapasitenin yanında (Gökhan, 2026-08-24). Kapasite ve masa
+              sayısına girmiyor: loca otomatik dağıtılmıyor, elle satılıyor. Locanın sabit kişi
+              sayısı da yok, o yüzden burada koltuk yazmıyor — dolu ve pax ancak rezervasyon
+              alındıkça görünüyor. Loca yoksa sayaç hiç çıkmaz. */}
+          {locaMasalari.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "auto auto auto", columnGap: 5, rowGap: 2, alignItems: "baseline" }}>
+              <span title="Locanın sabit kişi sayısı yok — aynı locaya 2 kişi de girer 10 kişi de. Bu yüzden kapasite yazılmıyor; sayı rezervasyon aldıkça doluyor. Loca otomatik dağıtılmaz, elle verilir.">Loca</span>
+              <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaMasalari.length}</span>
+              <span>masa</span>
+              {locaRows.length > 0 && (
+                <>
+                  <span>Dolu</span>
+                  <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)", textAlign: "right" }}>{locaRows.length}</span>
+                  <span>masa · <span className="tnum" style={{ fontWeight: 600, color: "var(--ink)" }}>{locaPax}</span> pax</span>
+                </>
+              )}
+            </div>
+          )}
           {/* MASA STOĞU — gece kulübünde ikinci masa yandaki masadan alınmaz, depodaki stoktan
               gelir (Gökhan, 2026-08-20: "ayarlara stok girilir ama kullanılan her stok düşer").
               Masa hesabı kapalıysa ya da stok girilmemişse satır hiç görünmez. */}
