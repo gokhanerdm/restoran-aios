@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kutuDar, dugmeAnaSatir, dugmeIkincil, dugmeKucuk } from "@/lib/olcu";
 import { Plus, Trash2, ChevronRight, ChevronDown, Folder, GripVertical, AlertTriangle } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { useConfirm } from "../components/useConfirm";
@@ -446,9 +448,9 @@ export default function MenuPage() {
   const uyumSorunVar = alerjenEksik.length > 0 || kaloriEksik.length > 0;
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu baslik="Menü">
       {confirmDialog}
-      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 14, flexShrink: 0 }}>Menü</div>
+      <div style={{ height: 14, flexShrink: 0 }} />
 
       {/* Mevzuat uyumu bandı — alerjen 31.12.2026, kalori 31.12.2027'de zorunlu.
           QR menü yönetmelikçe kabul edilen sunum yöntemi olduğu için altyapı zaten hazır;
@@ -855,7 +857,7 @@ export default function MenuPage() {
           )}
         </div>
       </div>
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -999,10 +1001,11 @@ function KarSatiri({ label, value, strong }: { label: string; value: string; str
 
 const miniLink: React.CSSProperties = { all: "unset", cursor: "pointer", fontSize: 12.5, color: "var(--brand)" };
 const badge: React.CSSProperties = { fontSize: 12, fontWeight: 600, padding: "3px 12px", borderRadius: 980, background: "var(--success-bg)", color: "var(--success)" };
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0, flex: 1, fontFamily: "inherit" };
+// Ölçüler ölçü merkezinden türetilir (lib/olcu.ts) — yerel değer yazılmaz.
+const inp: React.CSSProperties = { ...kutuDar, width: undefined, flex: 1, fontFamily: "inherit" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, color: "var(--muted)", marginBottom: 4 };
 // Mevzuat uyum bandındaki eksik ürün rozetleri — tıklayınca o ürünün düzenleyicisi açılır.
 const uyumChip: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "4px 10px", fontSize: 12, background: "var(--card)", color: "var(--ink)", cursor: "pointer" };
-const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
-const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5 };
-const btnSmall: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5 };
+const btnPrimary: React.CSSProperties = { ...dugmeAnaSatir };
+const btnSecondary: React.CSSProperties = { ...dugmeIkincil, minWidth: 0 };
+const btnSmall: React.CSSProperties = { ...dugmeKucuk, display: "inline-flex", alignItems: "center", gap: 5 };
