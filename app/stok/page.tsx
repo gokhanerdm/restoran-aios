@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, createContext, useContext } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutuDar, dugmeAna, dugmeIkincil, dugmeKucuk } from "@/lib/olcu";
 import { Plus, ChevronDown, ChevronRight, Folder, GripVertical, Trash2, ReceiptText, X, ClipboardList, ShoppingCart } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { useConfirm } from "../components/useConfirm";
@@ -459,7 +461,7 @@ export default function StokPage() {
   };
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       {confirmDialog}
       <div style={{ display: "flex", alignItems: "flex-end", marginBottom: 16, flexShrink: 0 }}>
         <div>
@@ -492,7 +494,7 @@ export default function StokPage() {
 
       <div style={{ display: "flex", gap: 22, flex: 1, minHeight: 0 }}>
         {/* list */}
-        <div style={{ flex: 1.4, minWidth: 0, border: "1px solid var(--line)", borderRadius: 18, background: "var(--card)", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1.4, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", fontSize: 11, color: "var(--muted-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
             <span style={{ width: 22 }} />
             <span style={{ flex: 1.6 }}>Malzeme</span>
@@ -524,18 +526,18 @@ export default function StokPage() {
 
           <div style={{ borderTop: "1px solid var(--line)", padding: 10, flexShrink: 0 }}>
             {!addingGroup ? (
-              <button onClick={() => setAddingGroup(true)} style={btnSecondary}><Plus size={15} /> Yeni başlık</button>
+              <button onClick={() => setAddingGroup(true)} style={{ ...dugmeIkincil, minWidth: 0, width: "100%" }}><Plus size={15} /> Yeni başlık</button>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} placeholder="Başlık adı (Mutfak, Bar, Depo)" style={{ ...inp, flex: 1 }} autoFocus />
-                <button onClick={addGroup} style={btnSmall}>Ekle</button>
+                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addGroup()} placeholder="Başlık adı (Mutfak, Bar, Depo)" style={{ ...kutuDar, flex: 1 }} autoFocus />
+                <button onClick={addGroup} style={dugmeKucuk}>Ekle</button>
               </div>
             )}
           </div>
         </div>
 
         {/* detail */}
-        <div style={{ flex: 1, minWidth: 300, maxWidth: 360, border: "1px solid var(--line)", borderRadius: 18, background: "var(--card)", padding: 20, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1, minWidth: 300, maxWidth: 360, padding: 20, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {!selected && <div style={{ color: "var(--muted)", fontSize: 14, margin: "auto" }}>Bir malzeme seç</div>}
           {selected && (
             <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
@@ -572,18 +574,18 @@ export default function StokPage() {
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Tedarikçi</div>
                 {!showNewSup ? (
-                  <select value={inSupplier} onChange={(e) => e.target.value === "__new" ? openNewSupplierForm() : saveSupplierLink(e.target.value)} style={{ ...inp, width: "100%" }}>
+                  <select value={inSupplier} onChange={(e) => e.target.value === "__new" ? openNewSupplierForm() : saveSupplierLink(e.target.value)} style={kutuDar}>
                     <option value="">Tedarikçi seç</option>
                     {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} ({freqLabel[s.delivery_frequency]})</option>)}
                     <option value="__new">+ Yeni tedarikçi</option>
                   </select>
                 ) : (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <input value={nsName} onChange={(e) => setNsName(e.target.value)} placeholder="Tedarikçi adı" style={{ ...inp, flex: 1, minWidth: 100 }} />
-                    <select value={nsFreq} onChange={(e) => setNsFreq(e.target.value)} style={{ ...inp, width: 110 }}>
+                    <input value={nsName} onChange={(e) => setNsName(e.target.value)} placeholder="Tedarikçi adı" style={{ ...kutuDar, flex: 1, minWidth: 100 }} />
+                    <select value={nsFreq} onChange={(e) => setNsFreq(e.target.value)} style={{ ...kutuDar, width: 110 }}>
                       <option value="daily">Günlük</option><option value="weekly">Haftalık</option><option value="custom">Özel</option>
                     </select>
-                    <button onClick={addSupplier} style={btnSmall}>Ekle</button>
+                    <button onClick={addSupplier} style={dugmeKucuk}>Ekle</button>
                     {nsFreq === "custom" && (
                       <div style={{ display: "flex", gap: 4, width: "100%" }}>
                         {DAY_LABELS.map((d) => {
@@ -606,10 +608,10 @@ export default function StokPage() {
               <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-green)", marginBottom: 8 }}>Stok girişi</div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                  <input value={inQty} onChange={(e) => setInQty(e.target.value)} placeholder={`Miktar (${selected.unit})`} inputMode="decimal" style={{ ...inp, flex: 1 }} />
-                  <input value={inPrice} onChange={(e) => setInPrice(e.target.value)} placeholder="Birim fiyat ₺" inputMode="decimal" style={{ ...inp, flex: 1 }} />
+                  <input value={inQty} onChange={(e) => setInQty(e.target.value)} placeholder={`Miktar (${selected.unit})`} inputMode="decimal" style={{ ...kutuDar, flex: 1 }} />
+                  <input value={inPrice} onChange={(e) => setInPrice(e.target.value)} placeholder="Birim fiyat ₺" inputMode="decimal" style={{ ...kutuDar, flex: 1 }} />
                 </div>
-                <button onClick={addStockIn} style={btnPrimary}>Kaydet</button>
+                <button onClick={addStockIn} style={{ ...dugmeAna, width: "100%" }}>Kaydet</button>
                 <div style={{ fontSize: 11, color: "var(--muted-2)", marginTop: 8 }}>Manuel giriş. E-fatura ve AI foto ile giriş yakında.</div>
               </div>
             </div>
@@ -629,12 +631,12 @@ export default function StokPage() {
 
             <div style={{ padding: "14px 20px", overflowY: "auto", minHeight: 0 }}>
               <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                <select value={invSupplier} onChange={(e) => setInvSupplier(e.target.value)} style={{ ...inp, flex: 1.4, minWidth: 160 }}>
+                <select value={invSupplier} onChange={(e) => setInvSupplier(e.target.value)} style={{ ...kutuDar, flex: 1.4, minWidth: 160 }}>
                   <option value="">Tedarikçi (opsiyonel)</option>
                   {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name} ({freqLabel[s.delivery_frequency]})</option>)}
                 </select>
-                <input value={invRef} onChange={(e) => setInvRef(e.target.value)} placeholder="Fatura no (opsiyonel)" style={{ ...inp, flex: 1, minWidth: 130 }} />
-                <input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} style={{ ...inp, width: 140 }} />
+                <input value={invRef} onChange={(e) => setInvRef(e.target.value)} placeholder="Fatura no (opsiyonel)" style={{ ...kutuDar, flex: 1, minWidth: 130 }} />
+                <input type="date" value={invDate} onChange={(e) => setInvDate(e.target.value)} style={{ ...kutuDar, width: 140 }} />
               </div>
 
               <div style={{ display: "flex", gap: 8, fontSize: 11, color: "var(--muted-2)", padding: "4px 0", borderBottom: "1px solid var(--line)" }}>
@@ -649,12 +651,12 @@ export default function StokPage() {
                 const satirTutar = (parseFloat(r.qty.replace(",", ".")) || 0) * (parseFloat(r.price.replace(",", ".")) || 0);
                 return (
                   <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 0", borderBottom: "1px solid var(--line)" }}>
-                    <select value={r.ingredientId} onChange={(e) => setInvRow(idx, { ingredientId: e.target.value })} style={{ ...inp, flex: 1.6 }}>
+                    <select value={r.ingredientId} onChange={(e) => setInvRow(idx, { ingredientId: e.target.value })} style={{ ...kutuDar, flex: 1.6 }}>
                       <option value="">Malzeme seç</option>
                       {items.map((i) => <option key={i.ingredient_id} value={i.ingredient_id}>{i.ingredient_name} ({i.unit})</option>)}
                     </select>
-                    <input value={r.qty} onChange={(e) => setInvRow(idx, { qty: e.target.value })} placeholder={it ? `Miktar (${it.unit})` : "Miktar"} inputMode="decimal" style={{ ...inp, width: 100 }} />
-                    <input value={r.price} onChange={(e) => setInvRow(idx, { price: e.target.value })} placeholder="₺" inputMode="decimal" style={{ ...inp, width: 110 }} />
+                    <input value={r.qty} onChange={(e) => setInvRow(idx, { qty: e.target.value })} placeholder={it ? `Miktar (${it.unit})` : "Miktar"} inputMode="decimal" style={{ ...kutuDar, width: 100 }} />
+                    <input value={r.price} onChange={(e) => setInvRow(idx, { price: e.target.value })} placeholder="₺" inputMode="decimal" style={{ ...kutuDar, width: 110 }} />
                     <span className="tnum" style={{ width: 90, textAlign: "right", fontSize: 13.5, color: satirTutar > 0 ? "var(--ink)" : "var(--muted-2)" }}>{satirTutar > 0 ? money(satirTutar) : "—"}</span>
                     <button onClick={() => setInvRows((rows) => rows.length > 1 ? rows.filter((_, i) => i !== idx) : rows)} aria-label="satırı sil" style={{ all: "unset", cursor: "pointer", width: 26, color: "var(--muted-2)", display: "inline-flex", justifyContent: "center" }}><Trash2 size={14} /></button>
                   </div>
@@ -691,12 +693,12 @@ export default function StokPage() {
                 Bir kategori seç, günlük kaç porsiyon satılacağını tahmin et — hangi ürünün tam olarak ne kadar satacağı bilinmese de, menüdeki tahmini satış paylarına göre malzeme ihtiyacı hesaplanır.
               </div>
               <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-                <select value={needsCategoryId} onChange={(e) => setNeedsCategoryId(e.target.value)} style={{ ...inp, flex: 1.6 }}>
+                <select value={needsCategoryId} onChange={(e) => setNeedsCategoryId(e.target.value)} style={{ ...kutuDar, flex: 1.6 }}>
                   <option value="">Kategori seç</option>
                   {menuCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <input value={needsCovers} onChange={(e) => setNeedsCovers(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && calcNeeds()} placeholder="Porsiyon" inputMode="numeric" style={{ ...inp, width: 100 }} />
-                <button onClick={calcNeeds} disabled={needsBusy || !needsCategoryId} style={btnSmall}>Hesapla</button>
+                <input value={needsCovers} onChange={(e) => setNeedsCovers(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && calcNeeds()} placeholder="Porsiyon" inputMode="numeric" style={{ ...kutuDar, width: 100 }} />
+                <button onClick={calcNeeds} disabled={needsBusy || !needsCategoryId} style={dugmeKucuk}>Hesapla</button>
               </div>
 
               {needsErr && <div style={{ marginBottom: 10, padding: "9px 13px", borderRadius: 10, background: "var(--danger-bg)", color: "var(--danger)", fontSize: 13 }}>{needsErr}</div>}
@@ -774,7 +776,7 @@ export default function StokPage() {
                       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--muted)" }}>{r.supplier_name}</span>
                       <span className="tnum" style={{ width: 80, textAlign: "right" }}>{money(r.estimated_cost)}</span>
                       <span style={{ width: 150, display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                        <button onClick={() => approveSuggestion(r)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Onayla</button>
+                        <button onClick={() => approveSuggestion(r)} style={dugmeKucuk}>Onayla</button>
                         <button onClick={() => rejectSuggestion(r)} style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "6px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12 }}>Reddet</button>
                       </span>
                     </div>
@@ -803,9 +805,9 @@ export default function StokPage() {
                       <span style={{ width: 110, fontSize: 12, color: "var(--muted)" }}>{r.status === "onaylandi" ? "Onaylandı" : "Sipariş verildi"}</span>
                       <span style={{ width: 110, display: "flex", justifyContent: "flex-end" }}>
                         {r.status === "onaylandi" ? (
-                          <button onClick={() => markOrdered(r.id)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Sipariş Ver</button>
+                          <button onClick={() => markOrdered(r.id)} style={dugmeKucuk}>Sipariş Ver</button>
                         ) : (
-                          <button onClick={() => openInvoiceForRequest(r)} style={{ ...btnSmall, padding: "6px 12px", fontSize: 12 }}>Fatura Gir</button>
+                          <button onClick={() => openInvoiceForRequest(r)} style={dugmeKucuk}>Fatura Gir</button>
                         )}
                       </span>
                     </div>
@@ -816,7 +818,7 @@ export default function StokPage() {
           </div>
         </>
       )}
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -873,17 +875,17 @@ function SectionRow({ sec, sortable }: { sec: Section; sortable: boolean }) {
                 const submit = () => { s.addIngredient(sec.id === UNGROUPED ? null : sec.id, niName, niUnit, niCat, niPar, niQty, niPrice); setNiName(""); setNiPar(""); setNiQty(""); setNiPrice(""); setAddingIng(false); };
                 return (
                   <>
-                    <input value={niName} onChange={(e) => setNiName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ad (Kürdan)" style={{ ...inp, flex: 1, minWidth: 100 }} autoFocus />
-                    <select value={niUnit} onChange={(e) => setNiUnit(e.target.value)} style={{ ...inp, width: 70 }}>
+                    <input value={niName} onChange={(e) => setNiName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ad (Kürdan)" style={{ ...kutuDar, flex: 1, minWidth: 100 }} autoFocus />
+                    <select value={niUnit} onChange={(e) => setNiUnit(e.target.value)} style={{ ...kutuDar, width: 70 }}>
                       <option value="kg">kg</option><option value="lt">lt</option><option value="adet">adet</option>
                     </select>
-                    <select value={niCat} onChange={(e) => setNiCat(e.target.value as "gida" | "sarf")} style={{ ...inp, width: 85 }}>
+                    <select value={niCat} onChange={(e) => setNiCat(e.target.value as "gida" | "sarf")} style={{ ...kutuDar, width: 85 }}>
                       <option value="gida">Gıda</option><option value="sarf">Sarf</option>
                     </select>
-                    <input value={niPar} onChange={(e) => setNiPar(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kritik seviye" inputMode="decimal" style={{ ...inp, width: 95 }} />
-                    <input value={niQty} onChange={(e) => setNiQty(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Miktar (varsa)" inputMode="decimal" style={{ ...inp, width: 100 }} />
-                    <input value={niPrice} onChange={(e) => setNiPrice(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Birim fiyat ₺" inputMode="decimal" style={{ ...inp, width: 100 }} />
-                    <button onClick={submit} style={btnSmall}>Ekle</button>
+                    <input value={niPar} onChange={(e) => setNiPar(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Kritik seviye" inputMode="decimal" style={{ ...kutuDar, width: 95 }} />
+                    <input value={niQty} onChange={(e) => setNiQty(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Miktar (varsa)" inputMode="decimal" style={{ ...kutuDar, width: 100 }} />
+                    <input value={niPrice} onChange={(e) => setNiPrice(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Birim fiyat ₺" inputMode="decimal" style={{ ...kutuDar, width: 100 }} />
+                    <button onClick={submit} style={dugmeKucuk}>Ekle</button>
                   </>
                 );
               })()}
@@ -925,7 +927,3 @@ function IngredientRow({ item }: { item: Item }) {
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
-const btnPrimary: React.CSSProperties = { width: "100%", border: "none", borderRadius: 980, padding: 12, background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
-const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13.5, width: "100%", justifyContent: "center" };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5 };
