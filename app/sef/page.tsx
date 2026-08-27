@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart } from "@/lib/olcu";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 // Şef paneli — ROADMAP §O9. Programın kendi izlediği aksaklıklar; kimseyi fişlemez,
@@ -59,12 +61,9 @@ export default function SefPaneli() {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-      <div style={{ marginBottom: 14, flexShrink: 0 }}>
-        <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Şef paneli</div>
-        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>
-          {loading ? "Yükleniyor…" : alerts.length === 0 ? "Şu an açık bir aksaklık yok." : `${alerts.length} aksaklık`}
-        </div>
+    <SayfaKabugu baslik="Şef paneli">
+      <div style={{ fontSize: 13, color: "var(--muted)", margin: "7px 0 14px", flexShrink: 0 }}>
+        {loading ? "Yükleniyor…" : alerts.length === 0 ? "Şu an açık bir aksaklık yok." : `${alerts.length} aksaklık`}
       </div>
 
       {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10, flexShrink: 0 }}>{err}</div>}
@@ -73,15 +72,15 @@ export default function SefPaneli() {
           servis mi yavaş, şu an ayrılamıyor." İki ayrı ortalamayla ayrıştırılır. */}
       {speed && speed.items_measured > 0 && (
         <div style={{ display: "flex", gap: 12, marginBottom: 16, flexShrink: 0 }}>
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 16px" }}>
+          <div style={{ ...kart, flex: 1, padding: "12px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 3 }}>Mutfak hazırlama (bugün, ort.)</div>
             <div className="tnum" style={{ fontSize: 19, fontWeight: 600, color: "var(--ink-green)" }}>{speed.avg_prep_minutes ?? "—"} dk</div>
           </div>
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 16px" }}>
+          <div style={{ ...kart, flex: 1, padding: "12px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 3 }}>Servis — hazırdan masaya (bugün, ort.)</div>
             <div className="tnum" style={{ fontSize: 19, fontWeight: 600, color: "var(--ink-green)" }}>{speed.avg_service_minutes ?? "—"} dk</div>
           </div>
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 16px" }}>
+          <div style={{ ...kart, flex: 1, padding: "12px 16px" }}>
             <div style={{ fontSize: 11, color: "var(--muted-2)", marginBottom: 3 }}>Ölçülen kalem</div>
             <div className="tnum" style={{ fontSize: 19, fontWeight: 600, color: "var(--ink)" }}>{speed.items_measured}</div>
           </div>
@@ -89,7 +88,7 @@ export default function SefPaneli() {
       )}
 
       {!loading && alerts.length === 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", borderRadius: 14, background: "var(--card)", border: "1px solid var(--brand)" }}>
+        <div style={{ ...kart, display: "flex", alignItems: "center", gap: 12, padding: "16px 20px", border: "1px solid var(--brand)" }}>
           <CheckCircle2 size={20} color="var(--brand)" />
           <span style={{ fontSize: 14.5, fontWeight: 600, color: "var(--ink-green)" }}>Her şey yolunda — açık bir tıkanma görünmüyor.</span>
         </div>
@@ -103,7 +102,7 @@ export default function SefPaneli() {
               <span style={{ fontSize: 13.5, fontWeight: 600, color: g.info.renk }}>{g.info.label}</span>
               <span className="tnum" style={{ fontSize: 11.5, color: "var(--muted-2)" }}>({g.items.length})</span>
             </div>
-            <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, overflow: "hidden" }}>
+            <div style={kart}>
               {g.items.map((a, i) => (
                 <div key={`${a.subject}-${a.since}-${i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderBottom: i < g.items.length - 1 ? "1px solid var(--line)" : "none", fontSize: 13.5 }}>
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink)" }}>{a.subject}</span>
@@ -114,6 +113,6 @@ export default function SefPaneli() {
           </div>
         ))}
       </div>
-    </div>
+    </SayfaKabugu>
   );
 }

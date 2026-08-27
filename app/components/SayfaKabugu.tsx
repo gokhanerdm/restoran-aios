@@ -47,7 +47,7 @@ export default function SayfaKabugu({
     >
       {baslik !== undefined && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, letterSpacing: -0.5, flex: 1, minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, letterSpacing: -0.5, color: "var(--ink-green)", flex: 1, minWidth: 0 }}>
             {baslik}
           </h1>
           {eylem}
