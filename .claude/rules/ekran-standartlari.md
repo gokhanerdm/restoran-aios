@@ -16,6 +16,8 @@ Sık yapılan hata: kayan kutuya `overflowY: auto` yazıp `flex: 1` unutmak — 
 
 İstatistikler ekranı bir gün kaydırmalı düzene geçirilip ertesi gün geri alındı (2026-08-11): "tek ekranda göreceğim bir tablo istiyorum". Onu tekrar kaydırmalı yapma.
 
+**İstisna — akordiyonlu sayfalar (2026-08-27):** Ayarlar gibi uzun, bölümlü sayfalar `SayfaKabugu`nun kayan kipiyle kurulur: gövde kayar, aynı anda tek akordiyon kutusu açıktır, açık kutunun başlığı yukarı yapışır (`lib/yapiskan.ts`). Tek ekranda okunan tablo/pano sayfaları (Raporlar, İstatistikler) bu istisnaya girmez, eski kuralda kalır.
+
 ## Her "ekle" formunda Enter
 Yeni kayıt formlarındaki tüm metin ve sayı kutuları Enter'a basınca da kaydeder. `submit` tek yerde tanımlanır, tüm kutulara `onKeyDown={(e) => e.key === "Enter" && submit()}` eklenir, düğme de aynı `submit`i çağırır.
 
@@ -44,6 +46,8 @@ Kaynak `lib/text.ts` — `toUpperTr()` ve `toTitleTr()`. Yerel kopya yazılmaz.
 
 ## Görsel kimlik
 Renkler `app/globals.css` içindeki değişkenlerden alınır (`--brand`, `--ink-green`, `--canvas`, `--recede`, `--line`), hardcoded hex yazılmaz.
+
+Ölçüler `lib/olcu.ts`'ten alınır — kutu, düğme, kart, etiket sabitleri oradadır; sayfa içinde yerel `inp`/`btnPrimary`/`card` sabiti yazılmaz. İki takım vardır: oturan (yönetim ekranları) ve ayakta (`*Ayakta` sabitleri — garson, mutfak, vale, kiosk, adisyon paneli; hedef ≥44px, kutu yazısı 16px). Renk, köşe ve çerçeve iki takımda aynıdır; değişen sadece boy ve yazı.
 
 Sol zümrüt kabuk (`app/components/Shell.tsx`) her sayfada sabit; yeni sayfa eklenince oraya da menü bağlantısı eklenir.
 
