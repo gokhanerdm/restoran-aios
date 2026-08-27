@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { girisYoluKaydet } from "@/lib/girisYolu";
+import { kutu, dugmeAna } from "@/lib/olcu";
 
 // Yeni işletme kaydı + giriş (ROADMAP L — "işletme beyni" simülasyonunun ilk adımı).
 // E-posta doğrulama şu an AÇIK: kayıt olunca auth.users satırı hemen oluşur (bootstrap RPC
@@ -104,5 +105,6 @@ export default function GirisPage() {
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "11px 13px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", width: "100%", boxSizing: "border-box" };
-const btnPrimary: React.CSSProperties = { width: "100%", border: "none", borderRadius: 980, padding: 12, background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
+// Ölçüler ölçü merkezinden (lib/olcu.ts).
+const inp: React.CSSProperties = kutu;
+const btnPrimary: React.CSSProperties = { ...dugmeAna, width: "100%" };
