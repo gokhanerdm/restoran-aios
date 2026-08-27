@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutuDar, dugmeAnaSatir, dugmeIkincil, dugmeKucuk } from "@/lib/olcu";
 import EditableText from "../components/EditableText";
 import { Play, Square, Pencil } from "lucide-react";
 
@@ -378,7 +380,7 @@ export default function Vardiya() {
   };
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 14, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Vardiya</div>
@@ -399,24 +401,24 @@ export default function Vardiya() {
           {gorunum === "vardiya" ? (
             <>
               <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Aralık</span>
-              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={inp} />
+              <input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} style={kutuDar} />
               <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>–</span>
-              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={inp} />
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} style={kutuDar} />
             </>
           ) : gorunum === "plan" ? (
             <>
               <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Hedef işçilik</span>
-              <input value={hedefIscilik} onChange={(e) => setHedefIscilik(e.target.value)} onKeyDown={(e) => e.key === "Enter" && hedefKaydet()} onBlur={hedefKaydet} inputMode="decimal" className="tnum" style={{ ...inp, width: 56, textAlign: "right" }} />
+              <input value={hedefIscilik} onChange={(e) => setHedefIscilik(e.target.value)} onKeyDown={(e) => e.key === "Enter" && hedefKaydet()} onBlur={hedefKaydet} inputMode="decimal" className="tnum" style={{ ...kutuDar, width: 56, textAlign: "right" }} />
               <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>% ciro</span>
             </>
           ) : (
             <>
-              <button onClick={() => setHafta((h) => gunEkle(h, -7))} style={btnSecondary}>‹</button>
+              <button onClick={() => setHafta((h) => gunEkle(h, -7))} style={{ ...dugmeIkincil, minWidth: 0 }}>‹</button>
               <span className="tnum" style={{ fontSize: 12.5, color: "var(--muted)", minWidth: 116, textAlign: "center" }}>
                 {hafta ? `${kisaTarih(hafta)} – ${kisaTarih(gunEkle(hafta, 6))}` : "—"}
               </span>
-              <button onClick={() => setHafta((h) => gunEkle(h, 7))} style={btnSecondary}>›</button>
-              <button onClick={() => setHafta(haftaBasi(bugunIstanbul()))} style={btnSecondary}>Bu hafta</button>
+              <button onClick={() => setHafta((h) => gunEkle(h, 7))} style={{ ...dugmeIkincil, minWidth: 0 }}>›</button>
+              <button onClick={() => setHafta(haftaBasi(bugunIstanbul()))} style={{ ...dugmeIkincil, minWidth: 0 }}>Bu hafta</button>
             </>
           )}
         </div>
@@ -438,7 +440,7 @@ export default function Vardiya() {
                 {now == null ? "—" : sureLabel(now - new Date(sh.started_at).getTime())}
               </span>
               <span style={{ width: 118, display: "flex", justifyContent: "flex-end" }}>
-                <button onClick={() => endShift(sh)} style={btnSecondary}><Square size={12} /> Mesai bitir</button>
+                <button onClick={() => endShift(sh)} style={{ ...dugmeIkincil, minWidth: 0 }}><Square size={12} /> Mesai bitir</button>
               </span>
             </div>
           ))}
@@ -450,12 +452,12 @@ export default function Vardiya() {
             value={selected}
             onChange={(e) => setSelected(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && startShift()}
-            style={{ ...inp, width: 260 }}
+            style={{ ...kutuDar, width: 260 }}
           >
             <option value="">Personel seç…</option>
             {secilebilir.map((s) => <option key={s.id} value={s.id}>{s.full_name} · {roleLabel(s.role)}</option>)}
           </select>
-          <button onClick={startShift} disabled={!selected} style={{ ...btnPrimary, opacity: selected ? 1 : 0.45 }}><Play size={13} /> Mesai başlat</button>
+          <button onClick={startShift} disabled={!selected} style={{ ...dugmeAnaSatir, opacity: selected ? 1 : 0.45 }}><Play size={13} /> Mesai başlat</button>
           {secilebilir.length === 0 && staff.length > 0 && (
             <span style={{ fontSize: 12, color: "var(--muted-2)" }}>Aktif personelin tamamı zaten mesaide.</span>
           )}
@@ -485,10 +487,10 @@ export default function Vardiya() {
                     {duzenleniyor ? (
                       <>
                         <span style={{ width: 168 }}>
-                          <input type="datetime-local" value={editStart} onChange={(e) => setEditStart(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit()} style={{ ...inp, width: 158, padding: "5px 7px", fontSize: 12.5 }} />
+                          <input type="datetime-local" value={editStart} onChange={(e) => setEditStart(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit()} style={{ ...kutuDar, width: 158 }} />
                         </span>
                         <span style={{ width: 168 }}>
-                          <input type="datetime-local" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit()} style={{ ...inp, width: 158, padding: "5px 7px", fontSize: 12.5 }} />
+                          <input type="datetime-local" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveEdit()} style={{ ...kutuDar, width: 158 }} />
                         </span>
                       </>
                     ) : (
@@ -512,8 +514,8 @@ export default function Vardiya() {
                   {duzenleniyor && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 7 }}>
                       <span style={{ fontSize: 11.5, color: "var(--muted-2)", flex: 1 }}>Bitişi boş bırakırsan vardiya açık kalır (halen mesaide).</span>
-                      <button onClick={saveEdit} style={btnSmall}>Kaydet</button>
-                      <button onClick={() => setEditingId(null)} style={btnSecondary}>Vazgeç</button>
+                      <button onClick={saveEdit} style={dugmeKucuk}>Kaydet</button>
+                      <button onClick={() => setEditingId(null)} style={{ ...dugmeIkincil, minWidth: 0 }}>Vazgeç</button>
                     </div>
                   )}
                 </div>
@@ -652,7 +654,7 @@ export default function Vardiya() {
 
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
                       <span style={{ fontSize: 11.5, color: "var(--muted-2)", flexShrink: 0 }}>İşe giriş</span>
-                      <input type="date" value={c.hire_date ?? ""} onChange={(e) => iseGirisKaydet(c.staff_id, e.target.value)} style={{ ...inp, padding: "4px 7px", fontSize: 12 }} />
+                      <input type="date" value={c.hire_date ?? ""} onChange={(e) => iseGirisKaydet(c.staff_id, e.target.value)} style={{ ...kutuDar, width: 130 }} />
                       {!c.hire_date && <span style={{ fontSize: 11, color: "var(--gold-text)" }}>izin hakkı hesaplanamıyor</span>}
                     </div>
 
@@ -670,12 +672,12 @@ export default function Vardiya() {
                     {izinFor === c.staff_id ? (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}>
                         {/* PAGE_STANDARDS #1b: ekle formunda her alan Enter'a basınca da kaydeder. */}
-                        <select value={izinTip} onChange={(e) => setIzinTip(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 8px", fontSize: 12, width: 108 }}>
+                        <select value={izinTip} onChange={(e) => setIzinTip(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...kutuDar, width: 108 }}>
                           {LEAVE_TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
                         </select>
-                        <input type="date" value={izinBas} onChange={(e) => setIzinBas(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
-                        <input type="date" value={izinBit} onChange={(e) => setIzinBit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...inp, padding: "5px 7px", fontSize: 12 }} />
-                        <button onClick={izinKaydet} style={btnSmall}>Kaydet</button>
+                        <input type="date" value={izinBas} onChange={(e) => setIzinBas(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...kutuDar, width: 130 }} />
+                        <input type="date" value={izinBit} onChange={(e) => setIzinBit(e.target.value)} onKeyDown={(e) => e.key === "Enter" && izinKaydet()} style={{ ...kutuDar, width: 130 }} />
+                        <button onClick={izinKaydet} style={dugmeKucuk}>Kaydet</button>
                         <button onClick={() => setIzinFor(null)} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted)" }}>Vazgeç</button>
                       </div>
                     ) : (
@@ -771,7 +773,7 @@ export default function Vardiya() {
           )}
         </div>
       )}
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -779,8 +781,5 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: "0.8px", textTransform: "uppercase", color: "var(--muted)", marginBottom: 10, flexShrink: 0 }}>{children}</div>;
 }
 
-const card: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18 };
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
-const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "none", borderRadius: 980, padding: "9px 16px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
-const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid var(--line-2)", borderRadius: 980, padding: "6px 12px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, flexShrink: 0 };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "7px 13px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0 };
+// Kart görünümü ölçü merkezinden; iç boşluk bu sayfanın kendi ölçüsü.
+const card: React.CSSProperties = { ...kart, padding: 18 };
