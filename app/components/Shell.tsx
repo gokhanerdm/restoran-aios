@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
+import YonetimAltNav, { YONETIM_ALT_NAV_YUKSEKLIK } from "./YonetimAltNav";
 import {
   Home,
   LayoutGrid,
@@ -41,6 +43,22 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  // TELEFONDA SOL RAY YOK (Gökhan, 2026-08-27): 107 piksellik ray dar ekranın
+  // üçte birini yiyordu. ≤860px'te (RezervasyonAltNav'daki eşik) ray yerine
+  // alttaki 5 başlıklı yönetim çubuğu (YonetimAltNav) çıkar. İlk render
+  // masaüstü varsayımıyla; ölçüm gelene kadar ray çizilmez ("ray parlaması"
+  // olmasın diye null'dan başlanmıyor — ray sadece isMobile false'a OTURUNCA
+  // çizilse ilk karede masaüstünde titreme olurdu, bu yüzden ters mantık:
+  // mobil kesinleşince ray kalkar).
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   // Müşteriye açık menü (QR / site embed), garson mobil sipariş modülü, mutfak/bar, vale
   // (kulübe tableti/telefon — link+PIN modeli, Gökhan 2026-07-31), REZERVASYON (2026-08-04'te
@@ -71,7 +89,19 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: 13 }}>Yükleniyor…</div>;
   }
 
-  const cikisYap = async () => { await supabase.auth.signOut(); router.replace("/giris"); };
+  // Çıkış, girilen kapıya döner (lib/girisYolu.ts) — Ekip'ten giren Ekip'e.
+  const cikisYap = async () => { await supabase.auth.signOut(); router.replace(cikisAdresi("/giris")); };
+
+  // Telefon: sol ray yok, altta 5 başlıklı yönetim çubuğu. İçeriğe çubuğun payı
+  // kadar alt boşluk veriliyor ki son satırlar çubuğun altında kalmasın.
+  if (isMobile) {
+    return (
+      <div style={{ minHeight: "100vh", paddingBottom: YONETIM_ALT_NAV_YUKSEKLIK, boxSizing: "border-box" }}>
+        <main style={{ minWidth: 0 }}>{children}</main>
+        <YonetimAltNav />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>

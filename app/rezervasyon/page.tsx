@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
 import { getMyReservationRestaurantId, getMyReservationRestaurants, setAktifSube, type ReservationBranch } from "@/lib/supabase/reservationAccount";
 import { toTitleTr, ilkHarfBuyukTr } from "@/lib/text";
 import { istenenSalon, nottaLoca, nottakiLocaMasasi } from "./notKurallari";
@@ -1514,7 +1515,7 @@ export default function RezervasyonPage() {
     window.location.assign("/rezervasyon");
   };
 
-  const cikisYap = async () => { await supabase.auth.signOut(); router.replace("/rezervasyon/giris"); };
+  const cikisYap = async () => { await supabase.auth.signOut(); router.replace(cikisAdresi("/rezervasyon/giris")); };
 
   const load = useCallback(async (restId: string, targetGun: string) => {
     const { start, end } = gunSiniri(targetGun);

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
 
 // TEK OTURUM — bir profil aynı anda tek yerde açık kalır (Gökhan, 2026-08-20: "bir profil
 // sadece bir yerde açık olabilecek").
@@ -112,7 +113,7 @@ export default function TekOturum() {
           tekrar giriş yapman yeterli — bu sefer öbür cihaz kapanır.
         </div>
         <button
-          onClick={() => router.replace("/rezervasyon/giris")}
+          onClick={() => router.replace(cikisAdresi("/rezervasyon/giris"))}
           style={{ width: "100%", border: "none", borderRadius: 980, padding: 12, background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
         >
           Tekrar giriş yap

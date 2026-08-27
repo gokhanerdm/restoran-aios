@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { girisYoluKaydet } from "@/lib/girisYolu";
 
 // Yeni işletme kaydı + giriş (ROADMAP L — "işletme beyni" simülasyonunun ilk adımı).
 // E-posta doğrulama şu an AÇIK: kayıt olunca auth.users satırı hemen oluşur (bootstrap RPC
@@ -46,7 +47,7 @@ export default function GirisPage() {
     setBusy(false);
     if (bootErr) { setErr(`İşletme kaydı oluşturulamadı: ${bootErr.message}`); return; }
 
-    if (data.session) { router.push("/ana-sayfa"); return; }
+    if (data.session) { girisYoluKaydet("giris"); router.push("/ana-sayfa"); return; }
     setConfirmMsg(`${email.trim()} adresine bir onay linki gönderdik. Linke tıkladıktan sonra buradan giriş yapabilirsin.`);
     setMode("giris");
   };
@@ -58,6 +59,8 @@ export default function GirisPage() {
     const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setBusy(false);
     if (error) { setErr(friendlyErr(error.code, error.message)); return; }
+    // Çıkışta bu kapıya dönülsün (lib/girisYolu.ts).
+    girisYoluKaydet("giris");
     router.push("/ana-sayfa");
   };
 

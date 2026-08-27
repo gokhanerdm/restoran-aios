@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { gecicSifre } from "@/lib/gecicSifre";
+import { girisYoluKaydet } from "@/lib/girisYolu";
 import { toTitleTr } from "@/lib/text";
 import { Eye } from "lucide-react";
 
@@ -75,13 +76,23 @@ export default function PersonelUyelik() {
   const durumuOku = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { setAsama("giris"); return; }
+    // Buradan geçen herkes Ekip kapısından girdi — çıkışta da Ekip'e dönsün.
+    girisYoluKaydet("ekip");
     const { data } = await supabase.rpc("personel_rolum");
     const r = (data as Rolum[] | null)?.[0] ?? null;
     // ONAYLI PERSONEL DOĞRUDAN REZERVASYONA (Gökhan, 2026-08-19: "artık panele git sayfasına
     // gerek yok, giriş yapınca direkt rezervasyon sayfasına gelsin"). Arada duracak bir ekran
     // yok: bağı kurulmuş, onaylanmış kişi kendi listesini görsün.
     // Bekleyen ya da kapatılmış bağda durum ekranı duruyor — orada söylenecek bir söz var.
-    if (r && r.durum === "onayli") { router.replace("/rezervasyon"); return; }
+    //
+    // YÖNETİCİ İSTİSNASI (Gökhan, 2026-08-27, "telefonda giriş Ekip'ten" kararı):
+    // yönetici rezervasyon listesine değil, telefonun yönetim görünümüne düşer —
+    // iniş ekranı Ana sayfa, altta 5 başlıklı çubuk. 2026-08-19'daki "tek adres"
+    // kararının bilinçli istisnasıdır; diğer roller eskisi gibi /rezervasyon'a.
+    if (r && r.durum === "onayli") {
+      router.replace(r.rol === "yonetici" ? "/ana-sayfa" : "/rezervasyon");
+      return;
+    }
     setRolum(r);
     setAsama(r ? "durum" : "kod");
   }, [router]);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { LogOut, BarChart3, LayoutGrid, Settings } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
 import { useYatayMobil } from "./RezervasyonAltNav";
 
 // Rezervasyon üst kimlik satırı — RZV rozeti + işletme adı + Çıkış, ana rezervasyon
@@ -53,9 +54,10 @@ export default function RezervasyonUstBar({ restaurantId, sayfaBaslik, yanIcerik
   // ekranda 34 piksellik rozet + başlık satırı, asıl işi yapan ekranın yerini yiyor.
   const yatay = useYatayMobil();
 
+  // Çıkış, girilen kapıya döner (lib/girisYolu.ts) — Ekip'ten giren Ekip'e.
   const cikisYap = async () => {
     await supabase.auth.signOut();
-    router.replace("/rezervasyon/giris");
+    router.replace(cikisAdresi("/rezervasyon/giris"));
   };
 
   if (yatay) return null;

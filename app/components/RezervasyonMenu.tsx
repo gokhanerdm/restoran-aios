@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { LogOut, BarChart3, LayoutGrid, Settings, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
 
 // SOL MENÜNÜN BAŞLIĞI VE ALT GEÇİŞLERİ (Gökhan, 2026-08-15: "salon sayfasını da rezervasyon
 // sayfası gibi yap, soldaki butonları sol alta al, işletme ismi ve sayfa ismini aynı boyutlara
@@ -108,9 +109,10 @@ export function MenuNav({ dikey }: { dikey?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const gorunur = useGorunurSayfalar();
+  // Çıkış, girilen kapıya döner (lib/girisYolu.ts) — Ekip'ten giren Ekip'e.
   const cikisYap = async () => {
     await supabase.auth.signOut();
-    router.replace("/rezervasyon/giris");
+    router.replace(cikisAdresi("/rezervasyon/giris"));
   };
   return (
     <div style={{

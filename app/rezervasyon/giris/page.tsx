@@ -8,6 +8,7 @@ import { toTitleTr } from "@/lib/text";
 import { eslesenIller, eslesenIlceler } from "@/lib/turkeyLocations";
 import { SIFRE_KURALLARI, sifreGecerliMi, gucluSifreOner } from "@/lib/passwordPolicy";
 import { gecicSifre } from "@/lib/gecicSifre";
+import { girisYoluKaydet } from "@/lib/girisYolu";
 
 // REZERVASYON — kendi giriş/kayıt ekranı (Gökhan, 2026-08-04). AIOS'un /giris ekranıyla
 // AYNI görsel dili (kart, pill toggle, input stilleri) kullanılıyor ama mekanizma tamamen
@@ -216,6 +217,9 @@ export default function RezervasyonGirisPage() {
       ? await supabase.from("personel_hesaplari").select("id").eq("user_id", girenId).limit(1)
       : { data: null };
     setBusy(false);
+    // Çıkışta bu kapıya dönülsün (lib/girisYolu.ts). Personel Ekip'e düşüyorsa
+    // kapısı da Ekip'tir — /ekip kendi içinde bunu zaten "ekip" olarak yazar.
+    girisYoluKaydet("rezervasyon");
     router.push((personel?.length ?? 0) > 0 ? "/ekip" : "/rezervasyon");
   };
 

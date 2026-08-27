@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { LayoutGrid, BarChart3, Settings, Users, LogOut, ChefHat, ClipboardList } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
+import { cikisAdresi } from "@/lib/girisYolu";
 import { useGorunurSayfalar, useRolum } from "./RezervasyonMenu";
 
 // Rezervasyon mobil alt nav — her /rezervasyon sayfasında aynı (Gökhan, 2026-08-08: "nav
@@ -64,9 +65,11 @@ export default function RezervasyonAltNav() {
 
   if (!isMobile || yatay) return null;
 
+  // Çıkış, girilen kapıya döner (lib/girisYolu.ts) — Ekip'ten giren personel
+  // Ekip'e, işletme kendi giriş ekranına (Gökhan, 2026-08-26).
   const cikisYap = async () => {
     await supabase.auth.signOut();
-    router.replace("/rezervasyon/giris");
+    router.replace(cikisAdresi("/rezervasyon/giris"));
   };
 
   // Rolün göremeyeceği sayfa alt menüde de çizilmiyor (Gökhan, 2026-08-17). Sayfa anahtarları
