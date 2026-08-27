@@ -7,6 +7,8 @@ import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { Plus, Trash2, GripVertical } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toTitleTr } from "@/lib/text";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutuDar, dugmeKucuk } from "@/lib/olcu";
 import {
   DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, type DragEndEvent,
 } from "@dnd-kit/core";
@@ -236,7 +238,7 @@ export default function AnaSayfa() {
   };
 
   return (
-    <div style={{ height: "calc(100vh - 4px)", boxSizing: "border-box", padding: "22px 26px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <SayfaKabugu>
       <div style={{ flexShrink: 0, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <Link href="/adisyon" style={pill}>Açık masa: <b className="tnum">{openTables}</b> <span className="tnum" style={{ color: "var(--muted)" }}>({money(openTotal)})</span></Link>
         <Link href="/stok" style={{ ...pill, background: kritikSayisi > 0 ? "var(--danger-bg)" : "var(--card)", color: kritikSayisi > 0 ? "var(--danger)" : "var(--ink)" }}>Kritik stok: <b className="tnum">{kritikSayisi}</b></Link>
@@ -269,7 +271,7 @@ export default function AnaSayfa() {
               ))}
             </button>
             {expensesOpen && (
-              <div style={{ padding: "14px 20px 18px", maxHeight: 260, overflowY: "auto", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, marginTop: 8, boxSizing: "border-box" }}>
+              <div style={{ ...kart, padding: "14px 20px 18px", maxHeight: 260, overflowY: "auto", marginTop: 8, boxSizing: "border-box" }}>
                 {/* Personel Maaşı/SGK artık Personel sayfasından otomatik hesaplanıyor —
                     burada elle değiştirilemez, sadece bilgi amaçlı gösteriliyor (Gökhan
                     kararı, 2026-07-26). KDV'siz/KDV/KDV dahil kolonları bunlar için anlamsız
@@ -309,17 +311,17 @@ export default function AnaSayfa() {
                   <button onClick={() => setAddingExpense(true)} style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--brand)", padding: "10px 0 4px" }}><Plus size={14} /> Gider ekle</button>
                 ) : (
                   <div style={{ display: "flex", gap: 6, padding: "10px 0 4px" }}>
-                    <input value={neName} onChange={(e) => setNeName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="Ad" style={{ ...inp, flex: 1, minWidth: 0 }} autoFocus />
-                    <input value={neAmount} onChange={(e) => setNeAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="₺" inputMode="decimal" style={{ ...inp, width: 70 }} />
-                    <input value={neVat} onChange={(e) => setNeVat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="KDV%" inputMode="decimal" style={{ ...inp, width: 55 }} />
-                    <button onClick={addExpense} style={btnSmall}>Ekle</button>
+                    <input value={neName} onChange={(e) => setNeName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="Ad" style={{ ...kutuDar, flex: 1 }} autoFocus />
+                    <input value={neAmount} onChange={(e) => setNeAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="₺" inputMode="decimal" style={{ ...kutuDar, width: 70 }} />
+                    <input value={neVat} onChange={(e) => setNeVat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addExpense()} placeholder="KDV%" inputMode="decimal" style={{ ...kutuDar, width: 55 }} />
+                    <button onClick={addExpense} style={dugmeKucuk}>Ekle</button>
                   </div>
                 )}
 
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
                   <span style={{ fontSize: 12.5, color: "var(--muted)" }}>Aya bölünen gün sayısı</span>
-                  <input value={daysInput} onChange={(e) => setDaysInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveDays()} inputMode="numeric" style={{ ...inp, width: 60 }} />
-                  <button onClick={saveDays} style={btnSmall}>Kaydet</button>
+                  <input value={daysInput} onChange={(e) => setDaysInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveDays()} inputMode="numeric" style={{ ...kutuDar, width: 60 }} />
+                  <button onClick={saveDays} style={dugmeKucuk}>Kaydet</button>
                   <span style={{ fontSize: 11.5, color: "var(--muted-2)" }}>Varsayılan: bu ayın gün sayısı ({ayGunSayisi()}). Haftada kapalı gününüz varsa değiştirin.</span>
                 </div>
               </div>
@@ -366,13 +368,13 @@ export default function AnaSayfa() {
           const oranFmt = (n: number | null) => n === null ? "?" : Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 2 });
           if (sapmalar.length === 0) {
             return (
-              <div style={{ flexShrink: 0, fontSize: 12.5, color: "var(--muted)", padding: "10px 20px", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18 }}>
+              <div style={{ ...kart, flexShrink: 0, fontSize: 12.5, color: "var(--muted)", padding: "10px 20px" }}>
                 Fire/Kaçak radarı: <b>{izlenen}</b> sarf malzemesi izleniyor, sapma yok{ogrenen > 0 ? ` · ${ogrenen} malzeme henüz öğreniliyor (yeterli geçmiş birikince izlemeye alınır)` : ""}.
               </div>
             );
           }
           return (
-            <div style={{ flexShrink: 0, background: "var(--danger-bg)", border: "1px solid var(--danger)", borderRadius: 18, padding: "14px 20px" }}>
+            <div style={{ ...kart, flexShrink: 0, background: "var(--danger-bg)", border: "1px solid var(--danger)", padding: "14px 20px" }}>
               <div style={{ fontWeight: 600, color: "var(--danger)", marginBottom: 6 }}>Fire/Kaçak uyarısı — {sapmalar.length} sarf malzemesinde sapma</div>
               {sapmalar.map((r) => (
                 <div key={r.ingredient_id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", borderBottom: "1px solid rgba(0,0,0,0.06)", fontSize: 13.5, color: "var(--ink)" }}>
@@ -386,7 +388,7 @@ export default function AnaSayfa() {
         })()}
 
         <div style={{ flexShrink: 0, display: "flex", gap: 14 }}>
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 18 }}>
+          <div style={{ ...kart, flex: 1, padding: 18 }}>
             <div style={{ fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>En çok satanlar <span style={{ fontSize: 11.5, fontWeight: 400, color: "var(--muted-2)" }}>son 7 gün</span></div>
             {topSellers.length === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13 }}>Son 7 günde kapanmış satış yok.</div>}
             {topSellers.map((t) => (
@@ -397,7 +399,7 @@ export default function AnaSayfa() {
             ))}
           </div>
 
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 18 }}>
+          <div style={{ ...kart, flex: 1, padding: 18 }}>
             <div style={{ fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Gün gün ortalamamız</div>
             {prep ? (
               <>
@@ -427,7 +429,7 @@ export default function AnaSayfa() {
             )}
           </div>
 
-          <div style={{ flex: 1, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 18 }}>
+          <div style={{ ...kart, flex: 1, padding: 18 }}>
             <div style={{ fontWeight: 600, color: "var(--ink-green)", marginBottom: 10 }}>Kritik stoklar</div>
             {kritikSayisi === 0 && <div style={{ color: "var(--muted-2)", fontSize: 13 }}>Kritik seviyede malzeme yok.</div>}
             {prep?.kritik_stoklar.slice(0, 5).map((k) => (
@@ -440,7 +442,7 @@ export default function AnaSayfa() {
           </div>
         </div>
       </div>
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -508,5 +510,3 @@ function ExpenseRow({
 
 const pill: React.CSSProperties = { textDecoration: "none", background: "var(--card)", border: "1px solid var(--line)", borderRadius: 980, padding: "6px 13px", fontSize: 12.5, color: "var(--ink)" };
 const matrisKutu: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14, padding: "12px 6px", fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 46, minWidth: 0 };
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "8px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13 };
