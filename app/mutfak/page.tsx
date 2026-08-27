@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { kutuAyakta, dugmeKucukAyakta, etiket } from "@/lib/olcu";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate";
 import { getStaffSession } from "@/lib/supabase/staffSession";
@@ -412,7 +413,7 @@ function MutfakInner() {
             {err && <div style={{ marginTop: 10, fontSize: 12, color: "var(--danger)" }}>{err}</div>}
 
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button onClick={addStaffMeal} disabled={mealBusy || !mealItemId || !mealStaffId} style={{ ...stageBtnSm, flex: 1, padding: "10px 14px", fontSize: 13.5, opacity: mealBusy || !mealItemId || !mealStaffId ? 0.5 : 1 }}>
+              <button onClick={addStaffMeal} disabled={mealBusy || !mealItemId || !mealStaffId} style={{ ...stageBtnSm, flex: 1, opacity: mealBusy || !mealItemId || !mealStaffId ? 0.5 : 1 }}>
                 {mealBusy ? "…" : "Ekle"}
               </button>
               <button onClick={() => setMealOpen(false)} style={{ all: "unset", cursor: "pointer", fontSize: 13, color: "var(--muted)", padding: "10px 14px" }}>Vazgeç</button>
@@ -439,6 +440,7 @@ const tabBtn = (active: boolean): React.CSSProperties => ({
   flexShrink: 0, border: "none", borderRadius: 980, padding: "8px 16px", fontSize: 13, fontWeight: 600,
   background: active ? "var(--ink-green)" : "var(--card)", color: active ? "#fff" : "var(--ink-green)",
 });
-const stageBtnSm: React.CSSProperties = { flexShrink: 0, border: "none", borderRadius: 980, padding: "7px 12px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, fontWeight: 500 };
-const mealLbl: React.CSSProperties = { display: "block", fontSize: 11.5, color: "var(--muted)", marginBottom: 4 };
-const mealInp: React.CSSProperties = { width: "100%", boxSizing: "border-box", border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 10px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };
+// Ayakta takımı (lib/olcu.ts): mutfak ekranına ayakta, aceleyle dokunuluyor — hedef ≥44px.
+const stageBtnSm: React.CSSProperties = { ...dugmeKucukAyakta, flexShrink: 0, fontWeight: 500 };
+const mealLbl: React.CSSProperties = { ...etiket, display: "block", marginBottom: 4 };
+const mealInp: React.CSSProperties = kutuAyakta;
