@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase/client";
+import { kutuAyakta, dugmeAnaAyakta, dugmeIkincilAyakta } from "@/lib/olcu";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useStaffSession } from "./StaffLoginGate";
 import { useConfirm } from "./useConfirm";
@@ -1198,11 +1199,14 @@ function OrderItemRow({
   );
 }
 
-const pillPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: 14, background: "var(--brand-strong)", color: "#fff", fontSize: 15, fontWeight: 500 };
+// Ana kontroller ayakta takımından (lib/olcu.ts) — panel hem adisyonda hem garson
+// telefonunda kullanılıyor, ikisi de ayakta/dokunmatik sayılır (Gökhan, 2026-08-27).
+// Satır içi mikro kontroller (stepBtn, miniAction, chip) panelin kendi ölçüsünde kaldı.
+const pillPrimary: React.CSSProperties = { ...dugmeAnaAyakta, width: undefined, minWidth: 0, height: undefined, minHeight: "44px", padding: 14 };
 const stepBtn: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 36, height: 36, background: "var(--card)", color: "var(--ink-green)", fontSize: 18, lineHeight: 1 };
 const stepBtnSm: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: "50%", width: 22, height: 22, background: "var(--card)", color: "var(--ink-green)", fontSize: 13, lineHeight: 1, padding: 0 };
 const miniAction: React.CSSProperties = { border: "none", borderRadius: 8, padding: "3px 7px", background: "var(--recede)", color: "var(--muted)", fontSize: 10.5, cursor: "pointer" };
 // Ayrılan hesabın kendi ödeme/bahşiş kutuları — dar blok içinde durduğu için tam genişlik.
-const splitInput: React.CSSProperties = { width: "100%", boxSizing: "border-box", border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 11px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" };
-const pillSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: 12, background: "var(--card)", color: "var(--ink-green)", fontSize: 14 };
+const splitInput: React.CSSProperties = kutuAyakta;
+const pillSecondary: React.CSSProperties = { ...dugmeIkincilAyakta, width: undefined, minWidth: 0, height: undefined, minHeight: "44px", padding: 12, fontSize: 14 };
 const chip = (on: boolean): React.CSSProperties => ({ border: on ? "none" : "1px solid var(--line-2)", borderRadius: 980, padding: "8px 14px", fontSize: 13, background: on ? "var(--brand-strong)" : "var(--card)", color: on ? "#fff" : "var(--ink-green)" });
