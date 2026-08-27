@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
+import { BOX_W, BOX_H } from "@/app/rezervasyon/masaOlcu";
+import { kutuDar, dugmeAnaSatir, dugmeIkincil, dugmeKucuk } from "@/lib/olcu";
 import { Plus, Trash2 } from "lucide-react";
 import EditableText from "../components/EditableText";
 import { toUpperTr, toTitleTr } from "@/lib/text";
@@ -36,8 +38,8 @@ type OrderRow = { id: string; table_id: string | null; opened_at: string; party_
 type StaffOpt = { id: string; full_name: string; on_break: boolean };
 
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
-const BOX_W = 148;
-const BOX_H = 108;
+// Masa kutusu ölçüsü TEK kaynaktan (app/rezervasyon/masaOlcu.ts) — buradaki kopya
+// 2026-08-27'de silindi; biri değişince diğeri sessizce ayrışıyordu.
 const GAP = 14;
 const COLS = 5;
 // Masayı bıraktığında en yakın kutu hizasına yapıştırır — yan yana getirince otomatik hizalanır.
@@ -309,8 +311,8 @@ export default function KasaPage() {
               <button onClick={() => setAddingArea(true)} style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4, border: "1px dashed var(--line-2)", borderRadius: 980, padding: "8px 14px", background: "transparent", color: "var(--muted)", fontSize: 13 }}><Plus size={14} /> Salon</button>
             ) : (
               <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
-                <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={{ ...inp, width: 130 }} autoFocus />
-                <button onClick={addArea} style={btnSmall}>Ekle</button>
+                <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={{ ...kutuDar, width: 130 }} autoFocus />
+                <button onClick={addArea} style={dugmeKucuk}>Ekle</button>
               </div>
             )}
           </div>
@@ -329,11 +331,11 @@ export default function KasaPage() {
             </div>
             <div style={{ flexShrink: 0, marginTop: 10 }}>
               {!addingArea ? (
-                <button onClick={() => setAddingArea(true)} style={btnSecondary}><Plus size={14} /> Salon ekle</button>
+                <button onClick={() => setAddingArea(true)} style={{ ...dugmeIkincil, minWidth: 0, width: "100%" }}><Plus size={14} /> Salon ekle</button>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={inp} autoFocus />
-                  <button onClick={addArea} style={btnSmall}>Ekle</button>
+                  <input value={newAreaName} onChange={(e) => setNewAreaName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addArea()} placeholder="Salon adı" style={kutuDar} autoFocus />
+                  <button onClick={addArea} style={dugmeKucuk}>Ekle</button>
                 </div>
               )}
             </div>
@@ -386,12 +388,12 @@ export default function KasaPage() {
                     onChange={(e) => setNewTableName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") addTable(); if (e.key === "Escape") { setAddingTable(false); setNewTableName(""); } }}
                     placeholder="Masa 9"
-                    style={{ ...inp, fontSize: 13, padding: "6px 8px" }}
+                    style={kutuDar}
                     autoFocus
                   />
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={addTable} style={{ ...btnSmall, flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Ekle</button>
-                    <button onClick={() => { setAddingTable(false); setNewTableName(""); }} style={{ ...btnSecondary, width: "auto", flex: 1, fontSize: 12.5, padding: "6px 8px" }}>Vazgeç</button>
+                    <button onClick={addTable} style={{ ...dugmeKucuk, flex: 1 }}>Ekle</button>
+                    <button onClick={() => { setAddingTable(false); setNewTableName(""); }} style={{ ...dugmeIkincil, minWidth: 0, flex: 1 }}>Vazgeç</button>
                   </div>
                 </div>
               )}
@@ -402,7 +404,7 @@ export default function KasaPage() {
             <div style={{ fontSize: 13, color: "var(--muted)" }}>{tablesInArea.length} masa</div>
             <button
               onClick={() => { setMergeMode((m) => !m); setMergeFirst(null); }}
-              style={{ ...btnSecondary, width: "auto", background: mergeMode ? "var(--ink-green)" : "var(--card)", color: mergeMode ? "#fff" : "var(--ink-green)" }}
+              style={{ ...dugmeIkincil, minWidth: 0, background: mergeMode ? "var(--ink-green)" : "var(--card)", color: mergeMode ? "#fff" : "var(--ink-green)" }}
             >
               {mergeMode ? "Birleştirmeyi iptal et" : "Masa birleştir"}
             </button>
@@ -523,10 +525,10 @@ export default function KasaPage() {
             <div style={{ fontWeight: 600, marginBottom: 4, color: "var(--ink-green)" }}>Hangi masada birleşsin?</div>
             <div style={{ fontSize: 12.5, color: "var(--muted)", marginBottom: 14 }}>{mergeChoice.a.name} ve {mergeChoice.b.name} birleşecek.</div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => mergeInto(mergeChoice.b.id, mergeChoice.a.id)} style={{ ...btnPrimary, flex: 1 }}>{mergeChoice.a.name}</button>
-              <button onClick={() => mergeInto(mergeChoice.a.id, mergeChoice.b.id)} style={{ ...btnPrimary, flex: 1 }}>{mergeChoice.b.name}</button>
+              <button onClick={() => mergeInto(mergeChoice.b.id, mergeChoice.a.id)} style={{ ...dugmeAnaSatir, flex: 1 }}>{mergeChoice.a.name}</button>
+              <button onClick={() => mergeInto(mergeChoice.a.id, mergeChoice.b.id)} style={{ ...dugmeAnaSatir, flex: 1 }}>{mergeChoice.b.name}</button>
             </div>
-            <button onClick={() => setMergeChoice(null)} style={{ ...btnSecondary, marginTop: 12 }}>İptal</button>
+            <button onClick={() => setMergeChoice(null)} style={{ ...dugmeIkincil, minWidth: 0, width: "100%", marginTop: 12 }}>İptal</button>
           </div>
         </div>
       )}
@@ -539,15 +541,15 @@ export default function KasaPage() {
             <div style={{ fontWeight: 600, fontSize: 16, color: "var(--ink-green)", marginBottom: 14 }}>Masayı rezerve et</div>
             {err && <div style={{ fontSize: 12.5, color: "var(--danger)", marginBottom: 10 }}>{err}</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <input autoFocus value={rName} onChange={(e) => setRName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="İsim soyisim" style={inp} />
+              <input autoFocus value={rName} onChange={(e) => setRName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="İsim soyisim" style={kutuDar} />
               <div style={{ display: "flex", gap: 8 }}>
-                <input value={rParty} onChange={(e) => setRParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...inp, flex: 1 }} />
-                <input type="time" value={rTime} onChange={(e) => setRTime(e.target.value)} style={{ ...inp, flex: 1 }} />
+                <input value={rParty} onChange={(e) => setRParty(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && reserveSubmit()} placeholder="Kişi sayısı" inputMode="numeric" style={{ ...kutuDar, flex: 1 }} />
+                <input type="time" value={rTime} onChange={(e) => setRTime(e.target.value)} style={{ ...kutuDar, flex: 1 }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
-              <button onClick={() => setReserveFor(null)} style={{ ...btnSecondary, width: "auto" }}>Vazgeç</button>
-              <button onClick={reserveSubmit} disabled={reserveBusy || !rName.trim() || !rTime} style={{ ...btnPrimary, opacity: !rName.trim() || !rTime ? 0.5 : 1 }}>Rezerve et</button>
+              <button onClick={() => setReserveFor(null)} style={{ ...dugmeIkincil, minWidth: 0 }}>Vazgeç</button>
+              <button onClick={reserveSubmit} disabled={reserveBusy || !rName.trim() || !rTime} style={{ ...dugmeAnaSatir, opacity: !rName.trim() || !rTime ? 0.5 : 1 }}>Rezerve et</button>
             </div>
           </div>
         </div>
@@ -677,8 +679,4 @@ function TableBox({
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
-const btnSecondary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13, width: "100%", justifyContent: "center" };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5 };
-const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500 };
 const miniBtn: React.CSSProperties = { border: "none", borderRadius: 8, padding: "4px 7px", background: "var(--ink-green)", color: "#fff", fontSize: 10.5, cursor: "pointer" };
