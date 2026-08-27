@@ -5,6 +5,8 @@ import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { AlertTriangle, CheckCircle2, Plus } from "lucide-react";
 import { getStaffSession } from "@/lib/supabase/staffSession";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutuDar, dugmeAnaSatir, dugmeIkincil, dugmeKucuk } from "@/lib/olcu";
 
 // Kasa — adisyon kapandıktan SONRAKİ her şey: günün parası, nakit giriş/çıkış,
 // sayım, gün kapatma (ROADMAP H; Gökhan kararı 2026-07-27 ile "Gün Sonu"ndan dönüştü).
@@ -308,13 +310,13 @@ export default function Kasa() {
   };
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 14, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", lineHeight: 1 }}>Kasa</div>
           <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 7 }}>{closedOrders.length} adisyon · {toplamKisi} müşteri</div>
         </div>
-        <input type="date" value={tarih} onChange={(e) => setTarih(e.target.value)} style={{ border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 12px", fontSize: 13.5, background: "var(--card)", color: "var(--ink)", outline: "none" }} />
+        <input type="date" value={tarih} onChange={(e) => setTarih(e.target.value)} style={{ ...kutuDar, width: 150 }} />
       </div>
 
       {/* HÜKÜM BANDI */}
@@ -335,15 +337,15 @@ export default function Kasa() {
           </div>
         </div>
         {bugun && !closeStep && (
-          <button onClick={() => { setCloseStep(true); setCountedInput(closure ? String(Number(closure.counted_cash)) : ""); }} style={closure ? btnSecondary : btnPrimary}>
+          <button onClick={() => { setCloseStep(true); setCountedInput(closure ? String(Number(closure.counted_cash)) : ""); }} style={closure ? { ...dugmeIkincil, minWidth: 0 } : dugmeAnaSatir}>
             {closure ? "Sayımı düzelt" : "Günü kapat"}
           </button>
         )}
         {closeStep && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-            <input value={countedInput} onChange={(e) => setCountedInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && closeDay()} placeholder={`Sayılan nakit (beklenen ${money(beklenenNakit)})`} inputMode="decimal" autoFocus style={{ ...inp, width: 230 }} />
-            <button onClick={closeDay} style={btnPrimary}>Kaydet</button>
-            <button onClick={() => setCloseStep(false)} style={btnSecondary}>Vazgeç</button>
+            <input value={countedInput} onChange={(e) => setCountedInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && closeDay()} placeholder={`Sayılan nakit (beklenen ${money(beklenenNakit)})`} inputMode="decimal" autoFocus style={{ ...kutuDar, width: 230 }} />
+            <button onClick={closeDay} style={dugmeAnaSatir}>Kaydet</button>
+            <button onClick={() => setCloseStep(false)} style={{ ...dugmeIkincil, minWidth: 0 }}>Vazgeç</button>
           </div>
         )}
       </div>
@@ -365,7 +367,7 @@ export default function Kasa() {
                   <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 8 }}>{p.staff_name} · {Math.round(p.minutes_waiting)} dk önce aldı</span>
                 </div>
                 <span className="tnum" style={{ fontSize: 15, fontWeight: 600, color: "var(--ink-green)", flexShrink: 0 }}>{money(p.total_amount)}</span>
-                <button onClick={() => confirmCashier(p.order_id)} disabled={confirmBusy === p.order_id} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 12.5, opacity: confirmBusy === p.order_id ? 0.6 : 1 }}>
+                <button onClick={() => confirmCashier(p.order_id)} disabled={confirmBusy === p.order_id} style={{ ...dugmeKucuk, background: "var(--brand-strong)", opacity: confirmBusy === p.order_id ? 0.6 : 1 }}>
                   {confirmBusy === p.order_id ? "…" : "Onayla"}
                 </button>
               </div>
@@ -376,7 +378,7 @@ export default function Kasa() {
 
       <div style={{ display: "flex", gap: 16, flex: 1, minHeight: 0, overflowX: "auto" }}>
         {/* SORU 1 — Gerçek kâr */}
-        <div style={{ flex: 1, minWidth: 250, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1, minWidth: 250, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>1 · Gerçek kâr</SectionLabel>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             <Satir l="Toplam ciro (indirimli)" v={money(ciro)} />
@@ -405,7 +407,7 @@ export default function Kasa() {
         </div>
 
         {/* SORU 2 — Açıklar */}
-        <div style={{ flex: 1.1, minWidth: 270, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1.1, minWidth: 270, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>2 · Açık / risk var mı?</SectionLabel>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             <MiniBaslik>Kasa</MiniBaslik>
@@ -438,9 +440,9 @@ export default function Kasa() {
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <input value={cmAmount} onChange={(e) => setCmAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Tutar ₺" inputMode="decimal" autoFocus style={{ ...inp, width: 90 }} />
-                  <input value={cmNote} onChange={(e) => setCmNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Açıklama (manav ödemesi)" style={{ ...inp, flex: 1, minWidth: 0 }} />
-                  <button onClick={addCashMove} style={btnSmall}>Ekle</button>
+                  <input value={cmAmount} onChange={(e) => setCmAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Tutar ₺" inputMode="decimal" autoFocus style={{ ...kutuDar, width: 90 }} />
+                  <input value={cmNote} onChange={(e) => setCmNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCashMove()} placeholder="Açıklama (manav ödemesi)" style={{ ...kutuDar, flex: 1 }} />
+                  <button onClick={addCashMove} style={dugmeKucuk}>Ekle</button>
                 </div>
               </div>
             )}
@@ -460,7 +462,7 @@ export default function Kasa() {
         </div>
 
         {/* SORU 4 — Yoldaki para (hakediş mutabakatı) */}
-        <div style={{ flex: 1, minWidth: 260, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1, minWidth: 260, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>3 · Yoldaki para</SectionLabel>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
@@ -516,8 +518,8 @@ export default function Kasa() {
                   )}
                   {rcFor === s.provider_id ? (
                     <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                      <input value={rcAmount} onChange={(e) => setRcAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addReceipt(s.provider_id)} placeholder="Yatan tutar ₺" inputMode="decimal" autoFocus style={{ ...inp, flex: 1, minWidth: 0 }} />
-                      <button onClick={() => addReceipt(s.provider_id)} style={btnSmall}>Kaydet</button>
+                      <input value={rcAmount} onChange={(e) => setRcAmount(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addReceipt(s.provider_id)} placeholder="Yatan tutar ₺" inputMode="decimal" autoFocus style={{ ...kutuDar, flex: 1 }} />
+                      <button onClick={() => addReceipt(s.provider_id)} style={dugmeKucuk}>Kaydet</button>
                       <button onClick={() => { setRcFor(null); setRcAmount(""); }} style={{ all: "unset", cursor: "pointer", fontSize: 12, color: "var(--muted)", padding: "0 4px" }}>Vazgeç</button>
                     </div>
                   ) : (
@@ -536,7 +538,7 @@ export default function Kasa() {
         </div>
 
         {/* Bahşiş dağılımı (ROADMAP §O12) — günlük, şeffaf: hesap nasıl çıktı görünsün. */}
-        <div style={{ flex: 1, minWidth: 250, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ ...kart, flex: 1, minWidth: 250, padding: 18, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <SectionLabel>4 · Bahşiş dağılımı</SectionLabel>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             {tipShares.length === 0 ? (
@@ -573,7 +575,7 @@ export default function Kasa() {
           </div>
         </div>
       </div>
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -591,7 +593,3 @@ function Satir({ l, v, strong, muted, renk }: { l: string; v: string; strong?: b
     </div>
   );
 }
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none" };
-const btnPrimary: React.CSSProperties = { border: "none", borderRadius: 980, padding: "10px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500, flexShrink: 0 };
-const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "9px 16px", background: "var(--card)", color: "var(--ink-green)", fontSize: 13 };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 10, padding: "8px 12px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5 };
