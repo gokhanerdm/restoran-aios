@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { getStaffSession } from "@/lib/supabase/staffSession";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart } from "@/lib/olcu";
 
 // Yönetici (PC, gerçek giriş) buradan herhangi bir personelin özetini tam veriyle görür
 // (toplam ciro dahil). staff_daily_summary RPC'si aynı zamanda garson/mutfak ekranındaki
@@ -236,7 +238,7 @@ function ProfilInner() {
   const kirilimMax = Math.max(...gunlukKirilim.map((d) => d.tutar), 1);
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 20, flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)" }}>
@@ -368,7 +370,7 @@ function ProfilInner() {
           </div>
         </div>
       )}
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -381,7 +383,8 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
   );
 }
 
-const card: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 18 };
+// Kart görünümü ölçü merkezinden; iç boşluk bu sayfanın kendi ölçüsü.
+const card: React.CSSProperties = { ...kart, padding: 18 };
 const baslik: React.CSSProperties = { fontWeight: 600, color: "var(--ink-green)", marginBottom: 8, fontSize: 14.5 };
 const altBaslik: React.CSSProperties = { fontSize: 11.5, fontWeight: 400, color: "var(--muted-2)" };
 const pill = (aktif: boolean): React.CSSProperties => ({
