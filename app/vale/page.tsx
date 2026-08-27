@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { kutuDar, kutuAyakta, dugmeAnaSatir, dugmeSilik, dugmeKucuk, dugmeAnaAyakta, dugmeIkincilAyakta, dugmeKucukAyakta, dugmeSilikAyakta } from "@/lib/olcu";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import { toTitleTr, toUpperTr } from "@/lib/text";
 import { Plus } from "lucide-react";
@@ -274,16 +275,18 @@ function ValeInner() {
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
-const btnPrimary: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, border: "none", borderRadius: 980, padding: "9px 16px", background: "var(--brand-strong)", color: "#fff", fontSize: 13, fontWeight: 500, flexShrink: 0 };
-const btnSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 14px", background: "var(--card)", color: "var(--ink-green)", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
-const btnSmall: React.CSSProperties = { border: "none", borderRadius: 980, padding: "7px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 12.5, flexShrink: 0, cursor: "pointer" };
+// Ölçüler ölçü merkezinden türetilir (lib/olcu.ts): geniş ekranda oturan takım,
+// telefonda ayakta takımı (vale dışarıda tek elle kullanıyor).
+const inp: React.CSSProperties = kutuDar;
+const btnPrimary: React.CSSProperties = { ...dugmeAnaSatir, gap: 6 };
+const btnSecondary: React.CSSProperties = { ...dugmeSilik, color: "var(--ink-green)", fontSize: 12.5 };
+const btnSmall: React.CSSProperties = dugmeKucuk;
 const btnGhost: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, padding: "7px 12px", background: "var(--card)", color: "var(--muted)", fontSize: 12, flexShrink: 0, cursor: "pointer" };
 
 // Mobil (dışarıda, tek elle, dokunarak kullanım) — daha büyük yazı ve dokunma alanı, aynı
 // desen genişte de var ama burada parmak ucu hedefleri (min ~44px) gözetilir.
-const inpMobile: React.CSSProperties = { ...inp, fontSize: 15, padding: "12px 14px", width: "100%", boxSizing: "border-box" };
-const btnPrimaryMobile: React.CSSProperties = { ...btnPrimary, fontSize: 15, padding: "13px 16px", justifyContent: "center", width: "100%" };
-const btnSecondaryMobile: React.CSSProperties = { ...btnSecondary, fontSize: 13.5, padding: "12px 14px", textAlign: "center" };
-const btnSmallMobile: React.CSSProperties = { ...btnSmall, fontSize: 13.5, padding: "12px 14px", textAlign: "center" };
-const btnGhostMobile: React.CSSProperties = { ...btnGhost, fontSize: 13, padding: "11px 14px", width: "100%", textAlign: "center" };
+const inpMobile: React.CSSProperties = kutuAyakta;
+const btnPrimaryMobile: React.CSSProperties = dugmeAnaAyakta;
+const btnSecondaryMobile: React.CSSProperties = { ...dugmeIkincilAyakta, minWidth: 0, width: undefined };
+const btnSmallMobile: React.CSSProperties = { ...dugmeKucukAyakta, textAlign: "center" };
+const btnGhostMobile: React.CSSProperties = { ...dugmeSilikAyakta, color: "var(--muted)", width: "100%", textAlign: "center" };

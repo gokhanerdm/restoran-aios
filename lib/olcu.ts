@@ -153,14 +153,16 @@ export const dugmeIkincilAyakta: CSSProperties = {
   ...dugmeIkincil, minWidth: 0, width: "100%", height: AYAKTA_BOY, fontSize: 15,
 };
 
-/** Ayakta silik düğme — satır içi; iç boşlukla fiilî boyu 44'ü bulur. */
+/** Ayakta silik düğme — satır içi; hedef 44'ün altına inmez. */
 export const dugmeSilikAyakta: CSSProperties = {
   ...dugmeSilik, padding: "11px 16px", fontSize: 14,
+  minHeight: AYAKTA_BOY, boxSizing: "border-box",
 };
 
-/** Ayakta dolu küçük düğme — satır içi onay/hazır gibi eylemler. */
+/** Ayakta dolu küçük düğme — satır içi onay/hazır gibi eylemler; hedef ≥44. */
 export const dugmeKucukAyakta: CSSProperties = {
   ...dugmeKucuk, padding: "11px 16px", fontSize: 14,
+  minHeight: AYAKTA_BOY, boxSizing: "border-box",
 };
 
 /** Ayakta simge düğmesi — 40×40 dokunma hedefi (alt gezinme kalıbı). */
