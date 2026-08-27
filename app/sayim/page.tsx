@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { useConfirm } from "../components/useConfirm";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutuDar, dugmeAna, dugmeAnaSatir, dugmeIkincil } from "@/lib/olcu";
 import { ArrowLeft, ClipboardList, Plus, Search, Wrench } from "lucide-react";
 
 // SAYIM — fire/kaçak radarının ön koşulu.
@@ -277,7 +279,7 @@ export default function SayimPage() {
   };
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       {confirmDialog}
 
       {/* ---------- BAŞLIK ---------- */}
@@ -298,7 +300,7 @@ export default function SayimPage() {
           </div>
         </div>
         {view === "liste" && (
-          <button onClick={startNew} style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, border: "none", borderRadius: 980, padding: "9px 18px", background: "var(--brand-strong)", color: "#fff", fontSize: 13.5, fontWeight: 500 }}>
+          <button onClick={startNew} style={{ ...dugmeAnaSatir, marginLeft: "auto", gap: 7 }}>
             <Plus size={15} /> Yeni sayım başlat
           </button>
         )}
@@ -310,7 +312,7 @@ export default function SayimPage() {
 
       {/* ---------- 1) GEÇMİŞ SAYIMLAR ---------- */}
       {view === "liste" && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 18, background: "var(--card)", display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 880 }}>
+        <div style={{ ...kart, display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 880 }}>
           <div style={{ fontSize: 12, color: "var(--muted)", padding: "16px 20px 12px", flexShrink: 0 }}>
             Sistem teorik stoğu bilir (alımlar eksi reçete tüketimi). Sayım gerçek stoğu söyler.
             Aradaki fark fire/kaçaktır. Sayım kaydetmek stoğu kendiliğinden düzeltmez — düzeltme ayrı bir adımdır.
@@ -343,13 +345,13 @@ export default function SayimPage() {
 
       {/* ---------- 2) YENİ SAYIM ---------- */}
       {view === "yeni" && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 18, background: "var(--card)", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ ...kart, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--line)", flexShrink: 0, flexWrap: "wrap" }}>
             <span style={{ position: "relative", display: "inline-flex", alignItems: "center", flex: 1.2, minWidth: 160 }}>
               <Search size={14} style={{ position: "absolute", left: 11, color: "var(--muted-2)" }} />
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Malzeme ara" style={{ ...inp, width: "100%", paddingLeft: 32 }} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Malzeme ara" style={{ ...kutuDar, paddingLeft: 32 }} />
             </span>
-            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ ...inp, width: 170 }}>
+            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ ...kutuDar, width: 170 }}>
               <option value="">Tüm başlıklar</option>
               {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
@@ -364,7 +366,7 @@ export default function SayimPage() {
                 </button>
               ))}
             </div>
-            <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveCount()} placeholder="Sayım notu (opsiyonel)" style={{ ...inp, flex: 1, minWidth: 150 }} />
+            <input value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveCount()} placeholder="Sayım notu (opsiyonel)" style={{ ...kutuDar, flex: 1, minWidth: 150 }} />
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", fontSize: 11, color: "var(--muted-2)", borderBottom: "1px solid var(--line)", flexShrink: 0 }}>
@@ -403,7 +405,7 @@ export default function SayimPage() {
                         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); focusNext(idx); } }}
                         placeholder="—"
                         inputMode="decimal"
-                        style={{ ...inp, width: 100, padding: "6px 9px", textAlign: "right" }}
+                        style={{ ...kutuDar, width: 100, textAlign: "right" }}
                       />
                     </span>
                     <span className="tnum" style={{ width: 95, textAlign: "right", color: eksi ? "var(--danger)" : "var(--muted)", fontWeight: eksi ? 600 : 400 }}>
@@ -434,7 +436,7 @@ export default function SayimPage() {
               <input type="checkbox" checked={bosSifir} onChange={(e) => setBosSifir(e.target.checked)} />
               Boş bırakılanları 0 say (listedeki tüm malzemeler kaydedilir)
             </label>
-            <button onClick={saveCount} disabled={saving} style={{ border: "none", borderRadius: 980, padding: "11px 26px", background: "var(--brand-strong)", color: "#fff", fontSize: 14, fontWeight: 500, opacity: saving ? 0.6 : 1 }}>
+            <button onClick={saveCount} disabled={saving} style={{ ...dugmeAna, opacity: saving ? 0.6 : 1 }}>
               {saving ? "Kaydediliyor…" : "Sayımı kaydet"}
             </button>
           </div>
@@ -443,7 +445,7 @@ export default function SayimPage() {
 
       {/* ---------- 4) SAYIM DETAYI + FARKLARI STOĞA İŞLE ---------- */}
       {view === "detay" && (
-        <div style={{ border: "1px solid var(--line)", borderRadius: 18, background: "var(--card)", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ ...kart, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           {detailBusy && <div style={{ color: "var(--muted)", fontSize: 13, padding: "18px 16px" }}>Farklar hesaplanıyor…</div>}
 
           {!detailBusy && detail && (
@@ -499,12 +501,7 @@ export default function SayimPage() {
                 <button
                   onClick={processDiffs}
                   disabled={processing || detail.islendi}
-                  style={{
-                    marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7,
-                    border: "1px solid var(--line-2)", borderRadius: 980, padding: "10px 20px",
-                    background: "var(--card)", color: detail.islendi ? "var(--muted-2)" : "var(--ink-green)",
-                    fontSize: 13.5, fontWeight: 500, opacity: processing ? 0.6 : 1,
-                  }}
+style={{ ...dugmeIkincil, marginLeft: "auto", gap: 7, color: detail.islendi ? "var(--muted-2)" : "var(--ink-green)", fontWeight: 500, opacity: processing ? 0.6 : 1 }}
                 >
                   <Wrench size={15} /> {detail.islendi ? "Farklar işlendi" : processing ? "İşleniyor…" : "Farkları stoğa işle"}
                 </button>
@@ -513,8 +510,7 @@ export default function SayimPage() {
           )}
         </div>
       )}
-    </div>
+    </SayfaKabugu>
   );
 }
 
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
