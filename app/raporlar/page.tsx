@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kutuDar } from "@/lib/olcu";
 import { getMyRestaurantId } from "@/lib/supabase/restaurant";
 import { TrendingUp, TrendingDown } from "lucide-react";
 
@@ -485,7 +487,7 @@ export default function Raporlar() {
   });
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu>
       {/* BAŞLIK + DÖNEM SEÇİCİ */}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 14, marginBottom: 14, flexShrink: 0, flexWrap: "wrap" }}>
         <div>
@@ -506,13 +508,13 @@ export default function Raporlar() {
           <input
             type="date" value={ozelBas} max={ozelBit || undefined}
             onChange={(e) => { setOzelBas(e.target.value); setDonem("ozel"); }}
-            style={dateInp}
+            style={{ ...kutuDar, width: 140 }}
           />
           <span style={{ fontSize: 12.5, color: "var(--muted-2)" }}>–</span>
           <input
             type="date" value={ozelBit} min={ozelBas || undefined} max={bugun || undefined}
             onChange={(e) => { setOzelBit(e.target.value); setDonem("ozel"); }}
-            style={dateInp}
+            style={{ ...kutuDar, width: 140 }}
           />
         </div>
       </div>
@@ -916,7 +918,7 @@ export default function Raporlar() {
       {yukleniyor && (
         <div style={{ fontSize: 12, color: "var(--muted-2)", paddingTop: 8, flexShrink: 0 }}>Yükleniyor…</div>
       )}
-    </div>
+    </SayfaKabugu>
   );
 }
 
@@ -1024,7 +1026,3 @@ function Kiyas({ etiket, simdi, onceki, cur, prev }: { etiket: string; simdi: st
   );
 }
 
-const dateInp: React.CSSProperties = {
-  border: "1px solid var(--line-2)", borderRadius: 10, padding: "8px 10px", fontSize: 13,
-  background: "var(--card)", color: "var(--ink)", outline: "none",
-};
