@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { dugmeAnaAyakta, dugmeIkincilAyakta } from "@/lib/olcu";
 import { resolveRestaurantIdBySlug } from "@/lib/supabase/publicRestaurant";
 import TableOrderPanel from "../components/TableOrderPanel";
 import StaffLoginGate, { StaffProfileBadge } from "../components/StaffLoginGate";
@@ -349,5 +350,6 @@ function GarsonInner() {
   );
 }
 
-const pillPrimary: React.CSSProperties = { border: "none", borderRadius: 980, background: "var(--brand-strong)", color: "#fff", fontWeight: 500 };
-const pillSecondary: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 980, background: "var(--card)", color: "var(--ink-green)" };
+// Ayakta takımı (lib/olcu.ts): garson telefonda tek elle kullanıyor, hedef ≥44px.
+const pillPrimary: React.CSSProperties = { ...dugmeAnaAyakta, width: undefined, minWidth: 0, height: undefined, minHeight: "44px" };
+const pillSecondary: React.CSSProperties = { ...dugmeIkincilAyakta, width: undefined, minWidth: 0, height: undefined, minHeight: "44px" };
