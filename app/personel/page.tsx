@@ -8,6 +8,8 @@ import { useConfirm } from "../components/useConfirm";
 import { toTitleTr } from "@/lib/text";
 import { Plus, Trash2, KeyRound } from "lucide-react";
 import EditableText from "../components/EditableText";
+import SayfaKabugu from "@/app/components/SayfaKabugu";
+import { kart, kutu, kutuDar, dugmeKucuk } from "@/lib/olcu";
 
 type Staff = { id: string; full_name: string; role: string; active: boolean; gross_salary: number };
 const money = (n: number) => `${Math.round(n).toLocaleString("tr-TR")} ₺`;
@@ -94,11 +96,10 @@ export default function Personel() {
   };
 
   return (
-    <div style={{ padding: "26px 28px", height: "calc(100vh - 4px)", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+    <SayfaKabugu baslik="Personel">
       {confirmDialog}
-      <div style={{ fontSize: 24, fontWeight: 600, letterSpacing: "-0.5px", color: "var(--ink-green)", marginBottom: 20, flexShrink: 0 }}>Personel</div>
 
-      <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 18, padding: 20, display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 880 }}>
+      <div style={{ ...kart, padding: 20, display: "flex", flexDirection: "column", flex: 1, minHeight: 0, maxWidth: 880, marginTop: 14 }}>
         <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 14, flexShrink: 0 }}>
           Garson/mutfak/bar cihazlarında giriş için isim + PIN yeterli — e-posta/hesap gerekmez. Her personelin kendi Profil sayfası vardır (satışı, kaç masaya hizmet ettiği). Brüt maaş ve SGK toplamı Ana Sayfa'daki Sabit Gider'e buradan otomatik yansır.
         </div>
@@ -133,8 +134,8 @@ export default function Personel() {
               </div>
               {pinFor === s.id && (
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                  <input value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submitNewPin(s.id)} placeholder="Yeni PIN (en az 4 hane)" inputMode="numeric" style={{ ...inp, flex: 1 }} autoFocus />
-                  <button onClick={() => submitNewPin(s.id)} style={btnSmall}>Kaydet</button>
+                  <input value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submitNewPin(s.id)} placeholder="Yeni PIN (en az 4 hane)" inputMode="numeric" style={{ ...kutuDar, flex: 1 }} autoFocus />
+                  <button onClick={() => submitNewPin(s.id)} style={dugmeKucuk}>Kaydet</button>
                 </div>
               )}
             </div>
@@ -145,7 +146,7 @@ export default function Personel() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid var(--line)", marginTop: 4, fontSize: 13, flexShrink: 0 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: "var(--muted)" }}>SGK işveren oranı</span>
-            <input value={sgkRate} onChange={(e) => setSgkRate(e.target.value)} onBlur={saveSgkRate} onKeyDown={(e) => e.key === "Enter" && saveSgkRate()} inputMode="decimal" style={{ ...inp, width: 55, padding: "6px 8px" }} />
+            <input value={sgkRate} onChange={(e) => setSgkRate(e.target.value)} onBlur={saveSgkRate} onKeyDown={(e) => e.key === "Enter" && saveSgkRate()} inputMode="decimal" style={{ ...kutuDar, width: 55 }} />
             <span style={{ color: "var(--muted)" }}>%</span>
           </span>
           <span style={{ fontWeight: 600, color: "var(--ink-green)" }}>
@@ -157,18 +158,15 @@ export default function Personel() {
         <div style={{ flexShrink: 0, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
           {err && <div style={{ marginBottom: 8, fontSize: 12.5, color: "var(--danger)" }}>{err}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim" style={{ ...inp, flex: 1.4 }} />
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inp, flex: 1 }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="İsim" style={{ ...kutu, flex: 1.4 }} />
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...kutu, flex: 1 }}>
               {ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
             </select>
-            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="PIN" inputMode="numeric" style={{ ...inp, width: 100 }} />
-            <button onClick={submit} style={btnSmall}><Plus size={15} /></button>
+            <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="PIN" inputMode="numeric" style={{ ...kutu, width: 100 }} />
+            <button onClick={submit} style={{ ...dugmeKucuk, display: "inline-flex", alignItems: "center" }}><Plus size={15} /></button>
           </div>
         </div>
       </div>
-    </div>
+    </SayfaKabugu>
   );
 }
-
-const inp: React.CSSProperties = { border: "1px solid var(--line-2)", borderRadius: 10, padding: "9px 12px", fontSize: 14, background: "var(--card)", color: "var(--ink)", outline: "none", minWidth: 0 };
-const btnSmall: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, border: "none", borderRadius: 10, padding: "9px 14px", background: "var(--ink-green)", color: "#fff", fontSize: 13.5 };
